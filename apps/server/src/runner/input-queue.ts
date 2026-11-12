@@ -99,7 +99,9 @@ export interface InputQueueEffects {
   readonly schedule: (delayMs: number) => Effect.Effect<void>;
   readonly submitted: Effect.Effect<void>;
   readonly noteTurnActivity: Effect.Effect<void>;
-  readonly awaitCommandLinePrompt: (timeoutMs: number) => Effect.Effect<void>;
+  readonly awaitCommandLinePrompt: (
+    timeoutMs: number,
+  ) => Effect.Effect<void, NotSubmittedError | SessionGoneError>;
   readonly hold: Effect.Effect<void>;
   readonly unhold: (first?: string) => Effect.Effect<void>;
 }
@@ -131,7 +133,7 @@ interface AwaitedSubmit {
   /** A slash command, or a prompt passed on the command line: Enter is never pressed again. */
   readonly command: boolean;
   readonly timeoutMs: number;
-  /** Settles the caller of `enqueueSubmitted`: done when the CLI took the prompt, failed when it did not. */
+  /** Settles a submitted-message or command-line prompt wait. Commands require explicit submission. */
   readonly settle?: Waiter;
 }
 
@@ -258,11 +260,14 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
           const waitMs = (yield* Clock.currentTimeMillis) - pending.at;
           if (waitMs >= pending.timeoutMs) {
             const waiter = pending.settle;
-            // The CLI was busy (a turn hook came, or it left idle): it queued the text or took it mid-turn.
+            // Only typed text may be taken unconfirmed when the CLI is busy. A command-line prompt
+            // needs its submit hook: a busy startup does not prove the agent received the arguments.
             const outcome = waiter
-              ? s.turnActivity || !host.isIdle()
-                ? 'taken_unconfirmed'
-                : 'waiting_late'
+              ? pending.command
+                ? 'not_taken'
+                : s.turnActivity || !host.isIdle()
+                  ? 'taken_unconfirmed'
+                  : 'waiting_late'
               : null;
             host.logger.warn(
               {
@@ -279,7 +284,8 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
             );
             s.awaiting = null;
             if (waiter) {
-              if (outcome === 'taken_unconfirmed') taken(waiter);
+              if (outcome === 'not_taken') notTaken(waiter, new NotSubmittedError(host.sessionId));
+              else if (outcome === 'taken_unconfirmed') taken(waiter);
               else yield* awaitLate(waiter);
             }
             yield* pump;
@@ -391,7 +397,13 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         s.turnActivity = true;
         for (const waiter of late.splice(0)) taken(waiter);
       }),
-      awaitCommandLinePrompt: (timeoutMs) => awaitSubmit(true, timeoutMs),
+      awaitCommandLinePrompt: (timeoutMs) =>
+        Effect.gen(function* () {
+          if (s.closed) return yield* Effect.fail(gone('not_running'));
+          const outcome = yield* Deferred.make<void, NotSubmittedError | SessionGoneError>();
+          yield* awaitSubmit(true, timeoutMs, { outcome });
+          return yield* Deferred.await(outcome);
+        }),
       hold: Effect.gen(function* () {
         if (s.closed || s.held) return;
         s.held = true;
@@ -511,10 +523,10 @@ export class InputQueue {
 
   /**
    * The CLI submits a prompt given on its command line by itself: nothing is typed until it
-   * reports it, or `timeoutMs` passed.
+   * reports it, or `timeoutMs` passed. Resolves only on submission; rejects on timeout or exit.
    */
-  awaitCommandLinePrompt(timeoutMs: number): void {
-    runSync(this.core.awaitCommandLinePrompt(timeoutMs));
+  awaitCommandLinePrompt(timeoutMs: number): Promise<void> {
+    return runPromise(this.core.awaitCommandLinePrompt(timeoutMs));
   }
 
   /** The process is gone: stops typing and rejects every queued message. */

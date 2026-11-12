@@ -962,6 +962,23 @@ describe('Refinement line', () => {
       expect(recipients).toEqual([{ handle: 'des', delivery: 'held', hold: 'refinement_turn' }]);
     });
 
+    it('does not hold the message of a member who was involved on the card (PM-1267)', async () => {
+      await refining();
+      await h.domain.involvements.involve('AR', 'AR-1', 'des', 'Needed now', OWNER_ACTOR);
+
+      const { recipients } = await h.domain.messaging.sendReporting('AR', 'owner', {
+        to: ['des', 'ana2'],
+        text: 'Please keep the header sticky.',
+        taskKey: 'AR-1',
+      });
+      expect(recipients.find((r) => r.handle === 'des')?.delivery).not.toBe('held');
+      // The hold stays for a member who was not involved.
+      expect(recipients.find((r) => r.handle === 'ana2')).toMatchObject({
+        delivery: 'held',
+        hold: 'refinement_turn',
+      });
+    });
+
     it('keeps a note that mentions the designer the same way', async () => {
       await refining();
 

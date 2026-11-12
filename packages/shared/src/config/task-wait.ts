@@ -14,10 +14,11 @@ import type { InboxItem } from '../domain/inbox';
 import { LabelId } from '../domain/label';
 import { MemberHandle } from '../domain/member';
 import { StageId } from '../domain/pipeline';
-import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
+import { isCollectingTask, isTheme, openSubtaskCount, TaskKey, TaskStartWaiting } from '../domain/task';
 import type { BoardCard, Task } from '../domain/task';
 import { TaskReadyHold } from '../domain/ready-hold';
-import { stageOwners } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
+import type { PickTask } from './stage-owner-pick';
 import { aiLabelSetters, evaluateMove, evaluateStart, stageAdvance, stageIndex } from './gates';
 import { labelDefinition } from './labels';
 import { partLeft, partReadyStage } from './left-parts';
@@ -62,6 +63,8 @@ export const TaskWaitReason = z.enum([
   'part_left',
   /** A refinement step is on turn. */
   'refinement',
+  /** Open sub-cards carry the work; the parent closes with them. */
+  'collecting',
   /** It stands in the queue and may start. */
   'ready',
   /** It waits for the owner of its stage or for its queue. */
@@ -86,6 +89,7 @@ export const TaskWait = z.object({
   inboxKind: InboxKind.nullable(),
   startWaiting: TaskStartWaiting.nullable(),
   hold: TaskReadyHold.optional(),
+  openSubtaskCount: z.number().int().nonnegative().optional(),
   prerequisites: z.array(TaskKey),
   since: z.string(),
 });
@@ -110,6 +114,8 @@ export interface TaskWaitInput {
    * loads in the web): the start rule and the gates are then not asked, as the board never asked them.
    */
   rulesKnown?: boolean;
+  /** Direct sub-cards, including closed ones when available. */
+  subtasks?: readonly Pick<Task, 'parentKey' | 'status'>[];
 }
 
 type Fields = Partial<Omit<TaskWait, 'reason' | 'since' | 'next'>>;
@@ -317,8 +323,9 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     return item.state === 'open' || isPendingQuestion(item);
   });
   const waiting = task.startWaiting;
+  const collecting = isCollectingTask(task, input.subtasks ?? []);
 
-  if (waiting?.reason === 'prerequisite_open') {
+  if (!collecting && waiting?.reason === 'prerequisite_open') {
     const prerequisites =
       input.openPrerequisites.length > 0 ? [...input.openPrerequisites] : [...(waiting.prerequisites ?? [])];
     return make(config, 'prerequisite', waiting.since, [], { startWaiting: waiting, prerequisites });
@@ -335,7 +342,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
       );
     }
   }
-  if (waiting) {
+  if (!collecting && waiting) {
     return make(config, 'start_waiting', waiting.since, waiting.member ? [waiting.member] : [], {
       startWaiting: waiting,
       prerequisites: [...(waiting.prerequisites ?? [])],
@@ -421,7 +428,14 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
 
   // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
   const block = input.rulesKnown === false ? null : startBlock(task, config);
-  if (block) return startBlockWait(task, block, config);
+  if (
+    block &&
+    (!collecting ||
+      block.kind === 'held' ||
+      block.kind === 'approval' ||
+      (block.kind === 'refining' && block.refinement.turn.kind === 'step'))
+  )
+    return startBlockWait(task, block, config);
 
   // The stage is done and only an approval only a person may give is missing (PM-445).
   const advance = input.rulesKnown === false ? null : stageAdvance(task, config);
@@ -434,6 +448,11 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
       { toStageId: advance.to.id },
     );
   }
+
+  if (collecting)
+    return make(config, 'collecting', task.updatedAt, [], {
+      openSubtaskCount: openSubtaskCount(task, input.subtasks ?? []),
+    });
 
   if (stage?.kind === 'queue') {
     if (task.status === 'waiting' || input.openPrerequisites.length > 0) {
@@ -454,7 +473,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     return make(config, 'ready', task.createdAt, [], { toStageId: nextStageId(config, task) });
   }
 
-  const owners = stage ? stageOwners(config, stage) : [];
+  const owners = stage ? cardStageOwners(config, stage, task) : [];
   const humanOwners = owners.filter((handle) => memberOf(config, handle)?.kind === 'human');
   if (task.status === 'waiting' && humanOwners.length > 0) {
     return make(config, 'queued', task.updatedAt, humanOwners);
@@ -495,12 +514,12 @@ export interface WaitMember {
  * handoff works on it as `handingOff` (PM-342).
  */
 export function waitWorkers(
-  task: Pick<Task, 'key' | 'stageId' | 'assignee' | 'handoff'>,
+  task: Pick<Task, 'key' | 'stageId' | 'handoff'> & PickTask,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   members: readonly WaitMember[],
 ): TaskWaitInput['workers'] {
   const stage = stageOf(config, task.stageId);
-  const stepOwners = stage?.kind === 'step' ? stageOwners(config, stage) : [];
+  const stepOwners = stage?.kind === 'step' ? cardStageOwners(config, stage, task) : [];
   const rank = (handle: string) => (stepOwners.includes(handle) ? 0 : handle === task.assignee ? 1 : 2);
   return members
     .flatMap((member) => {

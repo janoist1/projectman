@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EngineId } from './engine';
 import { SessionStop, SessionStartCause } from './involvement';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
+import { isWorkingSessionState } from './session-state';
 import { TaskKey } from './task';
 import { UsageSummary } from './token-usage';
 
@@ -204,14 +205,6 @@ export const TaskWork = z.object({
   doing: WorkDoing.optional(),
 });
 export type TaskWork = z.infer<typeof TaskWork>;
-
-/** The states in which a session works on its card (a starting one counts, as for the member's status). */
-const WORKING_SESSION_STATES: ReadonlySet<SessionState> = new Set(['starting', 'working']);
-
-/** Whether a session in this state works (starting or working). */
-export function isWorkingSessionState(state: SessionState): boolean {
-  return WORKING_SESSION_STATES.has(state);
-}
 
 /** The work a session does on its card now; null when it is not a working task session. */
 export function taskWorkOf(session: Session): TaskWork | null {

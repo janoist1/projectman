@@ -16,7 +16,7 @@ import {
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
-import { formatMemberStart, formatProjectState } from '../format';
+import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 /** The guide topic that lists the fields of every operation and command kind (generated from the schemas). */
@@ -743,6 +743,29 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.reopenTask(ctx, { taskKey: args.task_key, reason: args.reason }));
+      },
+    }),
+
+    defineTool({
+      name: 'involve_member',
+      audience: { roles: ['project_manager'] },
+      title: 'Involve a member on a card',
+      readOnly: false,
+      description:
+        'Give an AI member a role on a card: messages to them about it start their session, and one that ' +
+        'waited for lack of a role starts at once. Needs the project setting (else member_involvement_refused). ' +
+        'No label or approval right. Reason goes on the timeline.',
+      input: { task_key: TaskKey, member: MemberHandle, reason: z.string().trim().min(1).max(500) },
+      async run({ ctx, args, handler }) {
+        return formatInvolvement(
+          await handler.involveMember(ctx, {
+            taskKey: args.task_key,
+            member: args.member,
+            reason: args.reason,
+          }),
+          args.member,
+          args.task_key,
+        );
       },
     }),
 

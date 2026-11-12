@@ -3013,6 +3013,13 @@ migrations.push({
 });
 migrations.push({
   version: 154,
+  name: 'task stage owner pick',
+  // PM-1395: whom a step stage with a small-card rule gave the card to on entry (JSON `StageOwnerPick`); NULL:
+  // the stage has no such rule. No old row needs a backfill: every card read before keeps the stage's owners.
+  sql: `ALTER TABLE tasks ADD COLUMN stage_owner_pick TEXT;`,
+});
+migrations.push({
+  version: 155,
   name: 'the review_follow_ups operator signal',
   // PM-1362: the non-blocking remarks a closed card still holds go to the project manager as one
   // `review_follow_ups` signal. operator_signals is rebuilt as in version 143 (the kind CHECK grows by

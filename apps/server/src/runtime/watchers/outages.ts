@@ -59,12 +59,23 @@ const isSetupRefusal = (code: string): boolean =>
   code === 'codex_setup_incomplete' || code === 'nanogpt_setup_incomplete';
 const memberKey = (key: string, handle: string): string => `${key}:${handle}`;
 const PENDING_KEYS_TTL_MS = 2_000;
+/**
+ * How long a failing provider's answer is reused before the engine is asked again: 30 s, 1 min, 2 min,
+ * then 5 min. Logging in again needs a person, so a later detection costs nothing; "check now" and an
+ * auth error ask at once and start the steps over.
+ */
+const PROVIDER_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000] as const;
+/** The last failing answer of one (engine, provider) pair and when the engine may be asked again. */
+type ProviderBackoff = { status: ProviderStatus; failures: number; retryAt: number };
 
 /** Instance-wide observations, with one owner warning per project and outage episode. */
 export class WorkOutages {
   private readonly failures = new Map<string, Failure>();
   private readonly engineFailures = new Map<string, Failure>();
   private readonly since = new Map<string, string>();
+  private readonly backoffs = new Map<string, ProviderBackoff>();
+  /** Targeted checks waiting in the queue, by outage id: another refusal of the same outage joins it. */
+  private readonly queuedChecks = new Map<string, Promise<void>>();
   private readonly told = new Map<string, Set<string>>();
   private readonly views = new Map<string, WorkOutage>();
   private readonly projectOutages = new Map<string, Map<string, WorkOutageAlert>>();
@@ -142,21 +153,26 @@ export class WorkOutages {
     details?: Record<string, unknown>,
   ): Promise<void> {
     if (!isOutageRefusal(code)) return Promise.resolve();
-    return this.enqueue(async () => {
+    const key = memberKey(projectKey, handle);
+    const setup = isSetupRefusal(code);
+    // Setup refusals carry their own problem for the member, so they are never merged.
+    const joined = setup ? undefined : this.queuedChecks.get(`${key}:${code}`);
+    if (joined) return joined;
+    const queued = this.enqueue(async () => {
+      if (!setup) this.queuedChecks.delete(`${key}:${code}`);
       const entry = this.targets().find((t) => t.projectKey === projectKey && t.member.handle === handle);
       if (!entry) return;
-      const target = entry.target;
+      const known = code === 'engine_offline' ? this.engineFailures.get(key) : this.failures.get(key);
+      // The outage of this member is already known: a refusal it explains adds nothing to check.
+      if (known && (!setup || known.setup)) return;
       await this.run(
-        target,
-        isSetupRefusal(code)
-          ? {
-              key: memberKey(projectKey, handle),
-              problem: providerOutageProblemOf(code, details)!,
-            }
-          : undefined,
+        entry.target,
+        setup ? { key, problem: providerOutageProblemOf(code, details)! } : undefined,
         false,
       );
     });
+    if (!setup) this.queuedChecks.set(`${key}:${code}`, queued);
+    return queued;
   }
 
   observeAuthError(
@@ -347,6 +363,7 @@ export class WorkOutages {
     this.adopt();
     let targets = this.targets();
     let memberRecovered = false;
+    const asked = new Map<string, Promise<ProviderStatus | null>>();
     const selected = target
       ? targets.filter((entry) => {
           const current = this.failures.get(memberKey(entry.projectKey, entry.member.handle));
@@ -384,7 +401,7 @@ export class WorkOutages {
           this.failures.delete(key);
           old = undefined;
         }
-        const status = await this.status(entry, refresh);
+        const status = await this.status(entry, refresh, asked);
         if (status?.loggedIn === false) {
           this.failures.set(key, {
             outage: this.makeOutage(entry.target, status),
@@ -427,17 +444,47 @@ export class WorkOutages {
     return ended || memberRecovered;
   }
 
-  private async status(entry: MemberTarget, refresh: boolean): Promise<ProviderStatus | null> {
+  /**
+   * The login state of a member's provider on its engine. It is asked once per (engine, provider) in a
+   * round, for all its members; a failing pair is not asked again before its backoff ends, unless the
+   * round refreshes (which starts the steps over).
+   */
+  private status(
+    entry: MemberTarget,
+    refresh: boolean,
+    asked: Map<string, Promise<ProviderStatus | null>>,
+  ): Promise<ProviderStatus | null> {
     const target = entry.target;
-    if (target.kind !== 'provider') return null;
-    return waitForStatus(
+    if (target.kind !== 'provider') return Promise.resolve(null);
+    const pair = outageIdOf(target);
+    const known = asked.get(pair);
+    if (known) return known;
+    const backoff = this.backoffs.get(pair);
+    const startedAt = this.deps.ctx.now().getTime();
+    if (backoff && !refresh && startedAt < backoff.retryAt) {
+      const reused = Promise.resolve(backoff.status);
+      asked.set(pair, reused);
+      return reused;
+    }
+    const answer = waitForStatus(
       () =>
         this.deps.runner.providerStatus?.(target.provider, {
           refresh,
-          member: entry.member.handle,
-          ...(entry.target.engineId ? { engineId: entry.target.engineId } : {}),
+          ...(target.engineId ? { engineId: target.engineId } : {}),
         }) ?? Promise.resolve(null),
-    );
+    ).then((status) => {
+      if (status?.loggedIn === false) {
+        const failures = refresh ? 1 : (backoff?.failures ?? 0) + 1;
+        this.backoffs.set(pair, {
+          status,
+          failures,
+          retryAt: startedAt + PROVIDER_BACKOFF_MS[Math.min(failures, PROVIDER_BACKOFF_MS.length) - 1]!,
+        });
+      } else if (status?.loggedIn === true) this.backoffs.delete(pair);
+      return status;
+    });
+    asked.set(pair, answer);
+    return answer;
   }
 
   private hasSetupWait(entry: MemberTarget): boolean {

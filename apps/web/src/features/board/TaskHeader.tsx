@@ -163,7 +163,7 @@ export function TaskHeader({
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
           {state.workers[0]?.doing ? (
             <WorkerText worker={state.workers[0]} />
-          ) : state.next ? (
+          ) : state.next && state.wait?.reason !== 'collecting' ? (
             // The same "{ki} · {mire vár}" row as on the card; the box under the header says the rest.
             <NextLine next={state.next} className={styles.nowText} wrap />
           ) : (

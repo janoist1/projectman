@@ -26,6 +26,7 @@ import {
   LoopTriageFacts,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   isOnLeave,
+  isWorkingSession,
   isWorkPaused,
   memberOf,
   openPrerequisites,
@@ -1212,7 +1213,7 @@ export class OperatorSignals {
     }
     const busy = (state: string) => sessions.some((s) => s.state === state);
     const idleSince = sessions
-      .filter((s) => !['working', 'starting', 'waiting_input'].includes(s.state))
+      .filter((s) => !(isWorkingSession(s) || s.state === 'waiting_input'))
       .reduce((max, s) => Math.max(max, Date.parse(s.endedAt ?? s.stateSince ?? s.lastActivityAt) || 0), 0);
     // What reached the member before the card entered its stage belongs to the stage it left.
     const enteredAt = task.stageEnteredAt ? Date.parse(task.stageEnteredAt) : 0;

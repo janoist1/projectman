@@ -268,6 +268,13 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   (`TaskService.reopen`, the reason is on the `task_updated` event). All three, and marking a started card as a
   duplicate (`cancel`), obey `team.projectManagerLifecycle` (`projectManagerMayLifecycle`); a PM the setting
   does not cover gets `project_manager_lifecycle_refused`. Handler: `reopenTask`.
+- `involve_member { task_key, member, reason }` (PM-1267) lets only the selected PM's internal general session,
+  with no owner request, give an AI member a role on a card (`InvolvementService.involve`, a `member_involved`
+  timeline event). It needs `team.memberInvolvement` = `people_and_project_manager` (`mayInvolveMembers`);
+  otherwise `member_involvement_refused`. A person, the PM itself, an unknown member, a theme and a closed card
+  are refused; a second involvement on the same card writes nothing (`already_involved`). The answer says how
+  many messages wait for the member on the card. `send_message` tells a sender who may involve (`mayInvolve`)
+  to use it for `no_card_role` and `refinement_turn`. Handler: `involveMember`.
 - `combine_questions { item_ids, question, note }` lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;

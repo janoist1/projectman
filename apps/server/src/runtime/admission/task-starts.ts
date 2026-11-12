@@ -17,6 +17,7 @@ import {
   humanStageOwner,
   isOnLeave,
   isOpenTask,
+  isCollectingTask,
   isTheme,
   isCoordinatorSuperActor,
   mayOverridePrerequisites,
@@ -26,7 +27,7 @@ import {
   roleBundle,
   stageDevelopers,
   stageIndex,
-  stageOwners,
+  cardStageOwners,
   startBlock,
   workStageOf,
 } from '@projectman/shared';
@@ -260,6 +261,15 @@ export class TaskStarts implements WorkEntryCheck {
     return canAutomaticallyStartTask(task, subtasks);
   }
 
+  private assertNotCollecting(task: Task): void {
+    const subtasks = this.tasks.readSchedulingTasks(task.projectKey, {
+      kind: 'children',
+      parentKeys: [task.key],
+    });
+    if (isCollectingTask(task, subtasks))
+      throw conflict('collecting_task_not_startable', 'the work happens on the open sub-cards');
+  }
+
   /**
    * `start` for a caller that already holds the admission lock (`Admission.exclusive`, which an
    * automatic start's `run` is under): the lock is not reentrant, so `start` cannot be called
@@ -274,6 +284,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (opts.automatic && !this.canStartAutomatically(task)) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+    this.assertNotCollecting(task);
     if (!coordinationActorRefusal(config, opts.actor) && task.fixLimit)
       throw forbidden('operator_never', 'the coordinator cannot start a task held by its fix round limit');
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
@@ -365,6 +376,7 @@ export class TaskStarts implements WorkEntryCheck {
 
     const wanted = () => {
       const current = this.tasks.get(projectKey, taskKey);
+      if (!opts.automatic) this.assertNotCollecting(current);
       return (
         (!opts.automatic || this.canStartAutomatically(current)) &&
         (!opts.stillWanted || opts.stillWanted(current)) &&
@@ -652,7 +664,7 @@ export class TaskStarts implements WorkEntryCheck {
     actor?: Actor,
   ): ChosenMember | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
-    const eligible = stageOwners(config, stage).filter(
+    const eligible = cardStageOwners(config, stage, task).filter(
       (handle) => assignee === handle || !exclude.includes(handle),
     );
     const given = (member: MemberConfig) =>

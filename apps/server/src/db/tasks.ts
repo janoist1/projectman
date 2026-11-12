@@ -1,4 +1,4 @@
-import { TaskComplexity, taskSeq } from '@projectman/shared';
+import { StageOwnerPick, TaskComplexity, taskSeq } from '@projectman/shared';
 import type { CollectingSourceEvidence, RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { TaskSchedulingQuery } from '../contracts';
@@ -37,6 +37,7 @@ interface TaskRow {
   closed_at: string | null;
   archived_at: string | null;
   complexity: string | null;
+  stage_owner_pick: string | null;
 }
 
 interface LinkRow {
@@ -79,7 +80,7 @@ export type TaskPatch = Partial<
     /** The theme to store: a card's own (null removes it), never a subtask's. */
     | 'themeKey'
   >
-> & { complexity?: TaskComplexity | null };
+> & { complexity?: TaskComplexity | null; stageOwnerPick?: StageOwnerPick | null };
 
 const COLUMNS: Record<keyof TaskPatch, string> = {
   title: 'title',
@@ -98,6 +99,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   parentKey: 'parent_key',
   themeKey: 'theme_key',
   complexity: 'complexity',
+  stageOwnerPick: 'stage_owner_pick',
 };
 
 /**
@@ -153,7 +155,9 @@ function toLink(r: LinkRow): TaskLink {
 
 function toTask(r: TaskRow, links: TaskLink[]): Task {
   const complexity = TaskComplexity.safeParse(parseJson<unknown>(r.complexity, null));
+  const ownerPick = StageOwnerPick.safeParse(parseJson<unknown>(r.stage_owner_pick, null));
   return {
+    ...(ownerPick.success ? { stageOwnerPick: ownerPick.data } : {}),
     // Only what is not the default is present, so a plain card reads as it did before themes.
     ...(r.kind === 'theme' ? { kind: 'theme' as const } : {}),
     ...(r.archived_at ? { archivedAt: r.archived_at } : {}),
@@ -567,6 +571,8 @@ export function createTaskRepository(db: Db) {
       if (patch.labels) values.labels = toJson(patch.labels);
       if (patch.complexity !== undefined)
         values.complexity = patch.complexity === null ? null : toJson(patch.complexity);
+      if (patch.stageOwnerPick !== undefined)
+        values.stageOwnerPick = patch.stageOwnerPick === null ? null : toJson(patch.stageOwnerPick);
       statement.run(values);
     },
 

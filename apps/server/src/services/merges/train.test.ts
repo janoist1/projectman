@@ -7,7 +7,7 @@ import type {
   EngineDirectory,
   MergeBaseState,
 } from '../../contracts';
-import { EngineLinkLostError } from '../../contracts';
+import { EngineLinkLostError, MergeError } from '../../contracts';
 import { LocalEngineDirectory } from '../../runtime/sessions';
 import { createCloudRemote } from '../../engine-link/remote';
 import type { CloudRemote } from '../../engine-link/remote';
@@ -384,6 +384,41 @@ describe('merge train execution', () => {
     await settled();
     expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
     expect(merger.push).toHaveBeenCalledTimes(2);
+  });
+
+  it('requeues the head card when the train reservation finds the remote unreachable, then forms the train (M-02)', async () => {
+    await setup();
+    merger.prepare.mockRejectedValueOnce(new MergeError('remote_unreachable', 'fetch failed (timed out)'));
+    pump();
+    await settled();
+    expect(row('AR-1')).toMatchObject({
+      state: 'queued',
+      retry: { attempt: 2, cause: 'remote_unreachable' },
+    });
+    expect(row('AR-2')).toMatchObject({ state: 'queued' });
+    expect(row('AR-2')?.block).toBeUndefined();
+    for (const key of ['AR-1', 'AR-2'])
+      expect(
+        h.domain.timeline.list('AR', { taskKey: key }).filter((event) => event.type === 'task_merge_blocked'),
+      ).toHaveLength(0);
+    // Nothing else started while the retry waits.
+    expect(merger.prepare).toHaveBeenCalledTimes(1);
+    h.repos.taskMerges.save({
+      ...row('AR-1')!,
+      retry: { ...row('AR-1')!.retry!, at: new Date(0).toISOString() },
+    });
+    let retryAtCheck: unknown = 'unset';
+    vi.mocked(executor.run).mockImplementationOnce(async (_spec, _signal, started) => {
+      retryAtCheck = row('AR-1')?.retry;
+      started?.();
+      return passed;
+    });
+    h.domain.merges.pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    // The successful reservation freed the queue before the group check ran.
+    expect(retryAtCheck).toBeUndefined();
   });
 
   it.each([false, true])('requeues a disconnected train on shutdown (push started: %s)', async (pushing) => {

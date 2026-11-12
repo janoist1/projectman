@@ -122,7 +122,7 @@ export function toToolError(err: unknown): unknown {
   )
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
-  if (err.code === 'project_manager_lifecycle_refused')
+  if (err.code === 'project_manager_lifecycle_refused' || err.code === 'member_involvement_refused')
     return new TeamToolError('forbidden', `${err.code}: ${err.message}`);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
   if (err.code === 'gate_blocked' || err.code === 'approval_requested') {

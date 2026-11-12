@@ -33,7 +33,8 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
-  stageOwners,
+  allStageOwners,
+  cardStageOwners,
   teamRules,
   usesCodexCli,
 } from '@projectman/shared';
@@ -342,11 +343,11 @@ function codeReviewLine(project: ContextPackInput['project']): string[] {
       (stage.kind === 'step' || stage.kind === 'release') &&
       (stage.duty
         ? stage.duty === 'code_review'
-        : stageOwners(project, stage).some((handle) =>
+        : allStageOwners(project, stage).some((handle) =>
             dutyMembers(project, 'code_review').some((m) => m.handle === handle),
           )),
   );
-  const owners = [...new Set(stages.flatMap((stage) => stageOwners(project, stage)))];
+  const owners = [...new Set(stages.flatMap((stage) => allStageOwners(project, stage)))];
   if (stages.length === 0 || owners.length === 0) return [];
   return [
     `- Code review is the job of ${codeList(owners)} in the ${stages.map((stage) => stage.name).join(' or ')} stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.`,
@@ -491,9 +492,14 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   const { current, next } = situation;
   const lines = [heading, `Task ${task.key}: ${task.title}`];
   if (current) {
-    const owners = (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : '';
+    const cardOwners = cardStageOwners(input.project, current, task);
+    const owners = cardOwners.length > 0 ? `, owners ${codeList(cardOwners)}` : '';
     const own = situation.ownsStage ? 'you own this stage' : 'you do not own this stage';
     lines.push(`- Stage: ${stageLabel(current)}${owners}; ${own}.`);
+    if (situation.ownsStage && task.stageOwnerPick?.stageId === current.id && task.stageOwnerPick.small)
+      lines.push(
+        `- This is a small card: the stage gave it to you instead of its main owners, because its points are within the stage's small-card limit and it changes none of the stage's central files. If you find it touches more than that, say so on the card.`,
+      );
   } else {
     lines.push(`- Stage: ${code(task.stageId)} (not in the pipeline).`);
   }

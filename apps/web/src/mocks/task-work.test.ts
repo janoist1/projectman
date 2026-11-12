@@ -3,7 +3,7 @@ import type { BoardView, Session } from '@projectman/shared';
 import { indexPipeline } from '../lib/pipeline';
 import { t } from '../i18n/t';
 import { indexMembers } from '../lib/members';
-import { deriveTaskState, groupOpenInboxByTask } from '../lib/taskState';
+import { deriveTaskState, groupOpenInboxByTask, groupSubtasksByParent } from '../lib/taskState';
 import { MockBackend } from './backend';
 import { minutesAgo } from './time';
 
@@ -37,6 +37,7 @@ function stateOf(backend: MockBackend, taskKey: string) {
     members: indexMembers(board.members),
     openInboxByTask: groupOpenInboxByTask([]),
     tasksByKey: new Map(board.tasks.map((entry) => [entry.key, entry])),
+    subtasksByParent: groupSubtasksByParent(board.tasks),
     myHandle: 'owner',
   });
 }

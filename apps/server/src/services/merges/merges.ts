@@ -4,8 +4,8 @@ import {
   mergeRepoOf,
   mergeGateUnmet,
   mergeTargetOf,
+  allStageOwners,
   reviewMergeSkip,
-  stageOwners,
   isCodeReviewStage,
   isOpenTask,
   isConnectedOwnerActor,
@@ -82,6 +82,7 @@ export class Merges {
               } catch (err) {
                 // No train was reserved: the individual program owns reconnect waiting and recovery.
                 if (isEngineLinkLost(err)) reserved = false;
+                else if (await this.steps.requeueUnreachable(run, err)) return;
                 else {
                   await this.steps.block(
                     run,
@@ -134,7 +135,7 @@ export class Merges {
     );
     const review = stages.reverse().find((s) => isCodeReviewStage(config, s));
     if (!review) return null;
-    const owners = stageOwners(config, review);
+    const owners = allStageOwners(config, review);
     const events = this.deps.ctx.repos.timeline.listOfTypes(
       task.projectKey,
       task.key,

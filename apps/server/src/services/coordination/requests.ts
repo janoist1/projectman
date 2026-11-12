@@ -72,10 +72,16 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The PM's card tools (PM-1040, PM-1098): reassign, cancel and reopen a card with a reason on the timeline. The
+ * The PM's card tools (PM-1040, PM-1098, PM-1267): reassign, cancel and reopen a card, or involve a member on
+ * it, with a reason on the timeline. The
  * selected PM in its internal conversation, with no owner request; refused in an approval continuation.
  */
-export const PM_CARD_TOOLS: readonly string[] = ['reassign_task', 'cancel_task', 'reopen_task'];
+export const PM_CARD_TOOLS: readonly string[] = [
+  'reassign_task',
+  'cancel_task',
+  'reopen_task',
+  'involve_member',
+];
 
 /**
  * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):

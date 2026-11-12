@@ -7,7 +7,7 @@ import {
   quoteOf,
   stageHandsOverForReview,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type { Actor, InboxItem, Session, TeamMessage } from '@projectman/shared';
 import {
@@ -132,7 +132,7 @@ export class SessionMessages {
     const stage = stageOf(config, task.stageId);
     const reviewing = stage?.kind === 'step' && stageHandsOverForReview(config, stage);
     if (!stage || (stage.kind !== 'work' && !reviewing)) return;
-    const reviewers = reviewing ? stageOwners(config, stage) : [];
+    const reviewers = reviewing ? cardStageOwners(config, stage, task) : [];
     const from = actorHandle(actor);
     const text = `The description of ${task.key} changed (by ${from}). Stop and read it with get_task before you continue.`;
     for (const session of this.sessions.list(task.projectKey, { taskKey: task.key })) {

@@ -31,6 +31,7 @@ export function registerHookRoutes(app: FastifyInstance, deps: HookRouteDeps): v
     app.post<{ Params: { token: string; event?: string } }>(
       route,
       {
+        logLevel: 'warn',
         bodyLimit: BODY_LIMIT,
         onRequest: async (request, reply) => {
           if (request.params.event !== undefined && !/^[A-Za-z]{1,40}$/.test(request.params.event))

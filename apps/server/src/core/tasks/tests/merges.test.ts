@@ -1846,6 +1846,30 @@ describe('member initiated merge', () => {
     expect(h!.domain.inbox.get('AR', alert.id).state).toBe('cancelled');
   });
 
+  it('finishes a remote landed merge when the local base has advanced past it', async () => {
+    await setup();
+    merger.advance.mockResolvedValueOnce({
+      ok: false,
+      reason: 'checkout_in_the_way',
+      message: 'dirty',
+      paths: ['a.ts'],
+    });
+    await start();
+    await blocked('local_checkout');
+    const mergeCommit = row()!.mergeCommit!;
+    expect(row()?.landed).toBe('remote');
+    merger.base.local = 'later-merge';
+    merger.base.remote!.commit = 'later-merge';
+    merger.isAncestor.mockImplementation(
+      async (_ref, input) => input.ancestor === mergeCommit && input.commit === 'later-merge',
+    );
+    await start();
+    await merged();
+    expect(task().merged?.mergeCommit).toBe(mergeCommit);
+    expect(merger.advance).toHaveBeenCalledTimes(1);
+    expect(merger.push).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels at a boundary when the card is moved back', async () => {
     await setup();
     const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();

@@ -523,10 +523,12 @@ export class MergeSteps {
       if (repo.reviewTest) {
         // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
         this.save(row, { step: 'check_waiting' });
-        // A passed engine run stands in only when the repository allows it and the run ran the same command (PM-1377).
+        // A passed engine run stands in only when the repository allows it, the run ran the same command and the
+        // approved commit has one parent: a diff-selecting command sees another diff on a merge commit (PM-1377).
+        // An older engine does not report the parents: no reuse.
         const { command: checkCommand, reusePassedRun } = repo.reviewTest;
         const passed =
-          reusePassedRun === false
+          reusePassedRun === false || base.commitParents !== 1
             ? undefined
             : ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
                 // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.

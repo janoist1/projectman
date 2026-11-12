@@ -43,6 +43,7 @@ function fakeMerger(remote = true) {
     relation: 'same',
     contains: { local: false, remote: remote ? false : null },
     checkout: null,
+    commitParents: 1,
   };
   return {
     base,
@@ -2299,11 +2300,12 @@ describe('member initiated merge', () => {
   });
 
   it.each([
-    ['the repository turns reuse off', { ...reviewTest, reusePassedRun: false }, reviewTest.command],
-    ['the run recorded another command', reviewTest, 'npm run other-check'],
+    ['the repository turns reuse off', { ...reviewTest, reusePassedRun: false }, reviewTest.command, 1],
+    ['the run recorded another command', reviewTest, 'npm run other-check', 1],
+    ['the approved commit is a merge commit', reviewTest, reviewTest.command, 2],
   ])(
     'runs its own check on a base the approved commit contains when %s (PM-1377)',
-    async (_case, config, ran) => {
+    async (_case, config, ran, parents) => {
       const executor = fakeExecutor();
       await setup({
         executor,
@@ -2311,6 +2313,7 @@ describe('member initiated merge', () => {
           c.project.repos[0]!.reviewTest = config;
         },
       });
+      merger.base.commitParents = parents;
       passedReviewRun(ran);
       await start();
       await merged();

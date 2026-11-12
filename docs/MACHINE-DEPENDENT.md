@@ -812,6 +812,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1349: the engine caches consecutive unsuccessful login checks for 3, 10, 30, then
   60 seconds; a successful check resets this backoff. Periodic outage checks and refused
   starts reuse the cached result; an explicit recheck still refreshes immediately.
+  PM-1368: the watch asks once per (engine, provider) in a round, not per member, and the hub
+  caches the answer per (engine, provider) too; the `member` field of `provider.status` stays
+  in the message but no longer partitions the cache. A failing pair is not asked again for
+  30 s, 1, 2, then 5 minutes (hub side); "check now", an auth error and a provider key change
+  ask at once and restart the steps. A refusal of an already known outage starts no check,
+  and the engine logs "agent CLI is not usable" only when the login state or its problem changes.
   On the hub, an outage that blocks the project manager's own provider or engine goes
   to the integrator's queue and sends one information message to the project owners per
   episode, including the start time and recovery action. Other outages still signal the

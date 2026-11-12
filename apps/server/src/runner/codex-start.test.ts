@@ -6,6 +6,7 @@ import type { StartSessionSpec } from '../contracts';
 import { createRunnerModule } from './index';
 import { SessionManager } from './runner';
 import { createCodexAdapter } from './providers/codex';
+import { capturingLogger } from '../../test/helpers/fakes';
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
 
 const dirs = tempDirs();
@@ -90,6 +91,29 @@ describe('fail-closed Codex start', () => {
       expect(probe).toHaveBeenCalledTimes(5);
     } finally {
       clock.mockRestore();
+      await runner.shutdown();
+    }
+  });
+
+  it('logs an unusable CLI when its state changes, not on every failed check', async () => {
+    const { options } = await fixture();
+    const { logger, warnings } = capturingLogger();
+    const runner = new SessionManager({ ...options, logger });
+    const failed = { provider: 'gemini' as const, loggedIn: false, method: null, checkedAt: 'x' };
+    const probe = vi.spyOn(runner.adapters.gemini, 'checkLogin').mockResolvedValue(failed);
+    const logged = () => warnings.filter((entry) => (entry as unknown[])[1] === 'agent CLI is not usable');
+    try {
+      for (let check = 0; check < 3; check++) await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(1);
+      probe.mockResolvedValue({ ...failed, problem: 'cli_missing' });
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(2);
+      probe.mockResolvedValue({ ...failed, loggedIn: true });
+      await runner.providerStatus('gemini', { refresh: true });
+      probe.mockResolvedValue(failed);
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(3);
+    } finally {
       await runner.shutdown();
     }
   });

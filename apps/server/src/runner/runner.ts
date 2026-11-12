@@ -281,9 +281,15 @@ export class SessionManager implements SessionRunner {
         return adapter.checkLogin(env);
       })()
         .then((status) => {
+          const previous = this.statuses.get(key)?.status;
           const failures = status.loggedIn === true ? 0 : (this.statuses.get(key)?.failures ?? 0) + 1;
           this.statuses.set(key, { status, at: Date.now(), failures });
-          if (status.loggedIn !== true) this.log.warn({ status }, 'agent CLI is not usable');
+          // Logged on a change only: the same failure seen again by every check says nothing new.
+          if (
+            status.loggedIn !== true &&
+            (previous?.loggedIn !== status.loggedIn || previous.problem !== status.problem)
+          )
+            this.log.warn({ status }, 'agent CLI is not usable');
           return status;
         })
         .finally(() => this.statusChecks.delete(key));

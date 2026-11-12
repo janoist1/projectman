@@ -1528,6 +1528,15 @@ describe('merge train execution', () => {
     expect(h.domain.tasks.get('AR', 'AR-2').merged?.check?.runId).toBe('original-check');
   });
 
+  it('keeps the pushing step of a lone merge the startup requeues, so the pump starts it first', async () => {
+    await setup(2);
+    peerBusy = true;
+    h.repos.taskMerges.save({ ...row('AR-2')!, state: 'running', step: 'pushing', mergeCommit: sha(91) });
+    await h.domain.merges.init();
+    expect(row('AR-2')).toMatchObject({ state: 'queued', step: 'pushing', mergeCommit: sha(91) });
+    expect(row('AR-1')).toMatchObject({ state: 'queued', step: 'queued' });
+  });
+
   describe('a running manifest whose first member left it', () => {
     /** A `running` train of every queued row, the first one blamed alone (failed, no `trainId`): no run holds it. */
     async function interruptedSplit(count: number) {

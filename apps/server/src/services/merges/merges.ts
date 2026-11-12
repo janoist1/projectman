@@ -646,7 +646,11 @@ export class Merges {
     }
     for (const row of ctx.repos.taskMerges.list('running'))
       if (!row.trainId || ctx.repos.mergeTrains.get(row.trainId)?.state !== 'running')
-        this.steps.save(row, { state: 'queued', step: 'queued' });
+        // A merge that was pushing keeps that step: its push may have landed, so the pump starts it first.
+        this.steps.save(row, {
+          state: 'queued',
+          step: row.step === 'pushing' && row.mergeCommit ? 'pushing' : 'queued',
+        });
     // Known abandoned check worktrees are released before any new check is made.
     for (const state of ['queued', 'blocked'] as const) {
       for (const row of ctx.repos.taskMerges.list(state)) {

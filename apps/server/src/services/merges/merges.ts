@@ -79,6 +79,7 @@ export class Merges {
               } catch (err) {
                 // No train was reserved: the individual program owns reconnect waiting and recovery.
                 if (isEngineLinkLost(err)) reserved = false;
+                else if (await this.steps.requeueUnreachable(run, err)) return;
                 else {
                   await this.steps.block(
                     run,

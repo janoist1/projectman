@@ -11,7 +11,7 @@ import type {
   FullTestResult,
   MergeBaseState,
 } from '../../../contracts';
-import { EngineLinkLostError } from '../../../contracts';
+import { EngineLinkLostError, MergeError } from '../../../contracts';
 import { LocalEngineDirectory } from '../../../runtime/sessions';
 import { createCloudRemote } from '../../../engine-link/remote';
 import type { CloudRemote } from '../../../engine-link/remote';
@@ -1799,6 +1799,56 @@ describe('member initiated merge', () => {
     merger.checkoutConflicts.mockResolvedValue(['a.ts']);
     await start();
     await blocked('local_checkout');
+  });
+
+  describe('an unreachable remote (M-02)', () => {
+    const unreachable = () => new MergeError('remote_unreachable', 'fetch failed (timed out)');
+
+    it('requeues the head card with a retry and keeps the queued card behind it until the retry runs', async () => {
+      let now = new Date();
+      await setup({ now: () => now });
+      await card('AR-2', 'web', 'dev-2');
+      merger.prepare.mockRejectedValueOnce(unreachable());
+      await start();
+      await vi.waitFor(() =>
+        expect(row()).toMatchObject({
+          state: 'queued',
+          retry: { attempt: 2, cause: 'remote_unreachable' },
+        }),
+      );
+      await start('AR-2');
+      await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+      expect(row('AR-2')?.state).toBe('queued');
+      expect(row('AR-2')?.block).toBeUndefined();
+      expect(events('task_merge_blocked')).toHaveLength(0);
+      expect(merger.prepare.mock.calls.every(([, input]) => input.commit === 'approved-AR-1')).toBe(true);
+      now = new Date(row()!.retry!.at);
+      h!.domain.merges.pump();
+      await merged();
+      await merged('AR-2');
+      expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
+        'approved-AR-1',
+        'approved-AR-2',
+      ]);
+    });
+
+    it('blocks as remote_unreachable once the attempts are used up', async () => {
+      let now = new Date();
+      await setup({ now: () => now });
+      merger.prepare.mockImplementation(async () => {
+        throw unreachable();
+      });
+      await start();
+      for (const attempt of [2, 3, 4]) {
+        await vi.waitFor(() => expect(row()?.retry?.attempt).toBe(attempt));
+        await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+        now = new Date(row()!.retry!.at);
+        h!.domain.merges.pump();
+      }
+      await blocked('remote_unreachable');
+      expect(row()?.retry).toBeUndefined();
+      expect(events('task_merge_blocked')).toHaveLength(1);
+    });
   });
 
   it.each([

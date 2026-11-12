@@ -861,6 +861,7 @@ export class MergeTrains {
         const previous = this.rows(train)
           .map((row) => row.retry)
           .filter((retry) => retry !== undefined)
+          .filter((retry) => retry.cause !== 'remote_unreachable')
           .sort((a, b) => b.attempt - a.attempt)[0];
         const latestGithub = ctx.repos.mergeCheckRuns.latestGithub(train.projectKey, train.repo);
         const available = await chooseMergeCheckRunner(engine, {

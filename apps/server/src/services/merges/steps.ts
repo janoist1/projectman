@@ -806,10 +806,19 @@ export class MergeSteps {
         data: { ...mergedState(row)!, mergeId: row.id },
       });
     });
-    await this.notify(row, config);
+    // The merge is recorded; a failure below must leave a log line and must not undo it.
+    try {
+      await this.notify(row, config);
+    } catch (err) {
+      ctx.logger.warn({ err, mergeId: row.id }, 'could not notify a merged card');
+    }
     await this.release(row, this.engine(tasks.get(row.projectKey, row.taskKey))?.merger);
-    const task = tasks.find(row.projectKey, row.taskKey);
-    if (task) await this.deps.afterMerge(task);
+    try {
+      const task = tasks.find(row.projectKey, row.taskKey);
+      if (task) await this.deps.afterMerge(task);
+    } catch (err) {
+      ctx.logger.warn({ err, mergeId: row.id }, 'could not advance a merged card');
+    }
   }
 
   async block(running: MergeRun, reason: MergeBlockReason, message: string, detail?: string): Promise<void> {

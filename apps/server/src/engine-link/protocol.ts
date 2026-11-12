@@ -184,6 +184,8 @@ export const Hello = z.strictObject({
   nanogptKey: z.literal('engine').optional(),
   /** true: `session.send` takes a `deliveryId` and does not type a repeated one again (PM-1205); absent: an older engine. */
   deliveryIds: z.literal(true).optional(),
+  /** true: the engine's welcome may carry `heartbeatMs` (PM-1346); absent: an older engine rejects that field. */
+  welcomeHeartbeat: z.literal(true).optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([

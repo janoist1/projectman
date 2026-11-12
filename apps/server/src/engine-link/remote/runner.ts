@@ -398,6 +398,10 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         .catch((err: unknown) => logger.warn({ err, sessionId }, 'a pause could not be released'));
       return true;
     },
+    reaches(sessionId) {
+      const id = owners.get(sessionId);
+      return id !== undefined && hub.link(id) !== null;
+    },
     async providerStatus(provider, opts) {
       // Asked of no engine, it is the instance-level question of the host's machine.
       const engineId = opts?.engineId ?? options.directory.hostEngine();

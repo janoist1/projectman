@@ -963,6 +963,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     (engine → hub) before it stops. The hub resumes it when the engine connects (after `reconcileEngine`); on a hub
     restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
     heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
+    A resume that finds the session's engine link down sends no `session.release` and keeps the session's pause row
+    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. The wire contract is unchanged.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no

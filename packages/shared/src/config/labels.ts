@@ -173,6 +173,15 @@ export function labelRefusal(
   return null;
 }
 
+/** The labels and the other labels of their groups (`code-review-changes` beside `code-review-ok`): any of them ends a step. */
+export function withGroupMates(config: Pick<ProjectConfig, 'pipeline'>, ids: readonly string[]): string[] {
+  const groups = new Set(ids.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
+  const mates = config.pipeline.labels
+    .filter((label) => label.group !== undefined && groups.has(label.group))
+    .map((label) => label.id);
+  return [...new Set([...ids, ...mates])];
+}
+
 /**
  * Labels a stage's gate requires, split into approvals (human-only) and other facts. Conditions
  * that bind only the tasks carrying a `when` label are listed apart in `conditional`: they do not

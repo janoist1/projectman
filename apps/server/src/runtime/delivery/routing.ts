@@ -12,7 +12,7 @@ import {
   projectRefines,
   routeFor,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type { ProjectConfig, Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
 import type { EngineDirectory, SentMessageHold, WakeStart } from '../../contracts';
@@ -181,7 +181,7 @@ export class MessageRouter implements MessageRouting {
       return { workItem: general, running: this.sessions.findRunning(projectKey, handle, general) };
     }
     const stage = stageOf(config, task.stageId);
-    if (stage && stageOwners(config, stage).includes(handle)) return { workItem, running: null };
+    if (stage && cardStageOwners(config, stage, task).includes(handle)) return { workItem, running: null };
     let latest: Session | null = null;
     for (const relative of this.tasks.family(projectKey, task.key)) {
       if (!isOpenTask(relative)) continue;
@@ -308,7 +308,7 @@ export class MessageRouter implements MessageRouting {
   private heldForFullTest(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
     if (!task || task.assignee === handle || memberOf(config, from)?.kind === 'human') return false;
     const stage = stageOf(config, task.stageId);
-    if (!stage || !stageOwners(config, stage).includes(handle)) return false;
+    if (!stage || !cardStageOwners(config, stage, task).includes(handle)) return false;
     return this.cardHolds.get('full_test')?.holds(task, config) ?? false;
   }
 

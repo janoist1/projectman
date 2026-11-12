@@ -9,7 +9,7 @@ import {
   permissionDelegationOf,
   permissionDelegationState,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   InboxItem,
@@ -67,7 +67,8 @@ export function staleReasonFor(
     fromHuman: memberOf(config, message.from)?.kind === 'human',
     card: task ? { open: isOpenTask(task), stageId: task.stageId } : null,
     recipientOwnsStage:
-      task?.assignee === recipient || !!(stage && stageOwners(config, stage).includes(recipient)),
+      task?.assignee === recipient ||
+      !!(task && stage && cardStageOwners(config, stage, task).includes(recipient)),
     superseded: ctx.repos.messages.hasNewerAction(message, recipient),
     senderResultLabel: senderResultLabelFor(ctx, config, message, recipient, roundEvents),
     resultCommits: results

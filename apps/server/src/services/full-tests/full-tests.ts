@@ -7,7 +7,7 @@ import {
   repoOf,
   reviewTestRunnerBeforeReview,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   EngineId,
@@ -643,7 +643,7 @@ export class FullTestRuns {
     const stage = current ? stageOf(config, current.stageId) : undefined;
     this.released();
     if (!current || !stage) return;
-    for (const handle of stageOwners(config, stage))
+    for (const handle of cardStageOwners(config, stage, current))
       if (handle !== current.assignee)
         void this.messaging
           .releaseWaiting(task.projectKey, task.key, handle)

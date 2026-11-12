@@ -1567,6 +1567,28 @@ describe('system prompt', () => {
     });
   });
 
+  it('tells the reviewer a card is small only when the stage gave it to them as a small card (PM-1378)', () => {
+    const project = buildProject();
+    project.pipeline.stages.find((s) => s.id === 'code_review')!.smallCards = {
+      maxPoints: 3,
+      owners: ['code-review'],
+      centralPaths: [],
+    };
+    const promptOf = (small: boolean) =>
+      builder.build(
+        input({
+          handle: 'code-review',
+          project,
+          task: makeTask({
+            stageId: 'code_review',
+            stageOwnerPick: { stageId: 'code_review', small, reason: { code: 'small', points: 2 } },
+          }),
+        }),
+      ).appendSystemPrompt;
+    expect(promptOf(true)).toContain('This is a small card');
+    expect(promptOf(false)).not.toContain('This is a small card');
+  });
+
   it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {
     const heading = '# E-mail channel';
     const project = buildProject();

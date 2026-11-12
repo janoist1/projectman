@@ -26,6 +26,7 @@ import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
+import type { StageOwnerPickReason } from './stage-owner-pick';
 import type { ReleaseFailure, ReleaseState } from './release';
 import { ActorCredential, ActorThrough, actorOriginIssue } from './actor-origin';
 // The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
@@ -273,6 +274,8 @@ export interface TimelineEventData {
     pulled?: StagePull;
     /** The card went to the done stage without the gates because its subtasks are all closed (PM-647). */
     partsClosed?: PartsClosed;
+    /** Whom the stage gave the card to, when the stage has a small-card rule (PM-1378): the decision, its reason and the owners it left. */
+    ownerPick?: { small: boolean; reason: StageOwnerPickReason; owners: string[] };
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {

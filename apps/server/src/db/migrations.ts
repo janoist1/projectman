@@ -3004,4 +3004,11 @@ migrations.push({
   // PM-1375: the closed-card measure reads only cards closed within its time window.
   sql: `CREATE INDEX tasks_closed ON tasks(project_key, closed_at);`,
 });
+migrations.push({
+  version: 153,
+  name: 'task stage owner pick',
+  // PM-1395: whom a step stage with a small-card rule gave the card to on entry (JSON `StageOwnerPick`); NULL:
+  // the stage has no such rule. No old row needs a backfill: every card read before keeps the stage's owners.
+  sql: `ALTER TABLE tasks ADD COLUMN stage_owner_pick TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

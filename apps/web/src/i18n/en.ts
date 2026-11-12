@@ -8019,6 +8019,10 @@ export const en = {
       mover_not_member: 'The person who moves the cards on is no longer a member of the project.',
       mover_cannot_move: 'The one who moves the cards on can’t move cards.',
       mover_on_leave: 'The project manager who moves the cards on is on leave.',
+      small_cards_not_step: 'The small-cards rule can only sit on a step stage.',
+      small_cards_unknown_owner: 'An owner of the small cards is not a member of the project.',
+      small_cards_invalid_path:
+        'Invalid path pattern: it can’t be empty, start with ‹/›, hold a ‹.› or ‹..› segment, or be over 200 characters.',
       review_test_runner_github: 'For the GitHub Actions runner, the repo needs its GitHub owner/name pair.',
       compute_jobs_github: 'For machine jobs, the repo needs its GitHub owner/name pair.',
     },

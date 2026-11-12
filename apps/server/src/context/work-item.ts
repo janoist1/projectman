@@ -22,7 +22,9 @@ import {
   resolvedStages,
   reviewTestRunnerBeforeReview,
   roleBundle,
-  stageOwners,
+  allStageOwners,
+  cardStageOwners,
+  possibleStageOwners,
 } from '@projectman/shared';
 import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
@@ -58,7 +60,12 @@ export function assess(input: ContextPackInput): Situation {
     stages,
     current,
     next: current ? stageAfter(stages, current) : null,
-    ownsStage: current?.owners?.includes(input.member.handle) ?? false,
+    // A small card's reviewers are the stage's small owners (PM-1378), not its main owners.
+    ownsStage: current
+      ? (task ? cardStageOwners(input.project, current, task) : (current.owners ?? [])).includes(
+          input.member.handle,
+        )
+      : false,
     isAssignee: task?.assignee === input.member.handle,
   };
 }
@@ -903,7 +910,12 @@ export function handover(
   if (target.kind === 'done') {
     return `Move the task to ${stageLabel(target)} with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.`;
   }
-  const owners = stageOwners(input.project, target).filter((h) => h !== input.member.handle);
+  // The target's pick is not made yet: name everyone it could go to (the small owners as well, PM-1378).
+  const owners = (
+    input.task
+      ? possibleStageOwners(input.project, target, input.task)
+      : allStageOwners(input.project, target)
+  ).filter((h) => h !== input.member.handle);
   if (owners.length === 0) {
     return `Move the task to ${stageLabel(target)} with update_task.`;
   }
@@ -930,7 +942,10 @@ function humansWithDuty(input: ContextPackInput, duty: DutyId): string[] {
 
 function humanOwners(input: ContextPackInput, stage: Stage): string[] {
   const humans = new Set(input.project.team.members.filter((m) => m.kind === 'human').map((m) => m.handle));
-  return stageOwners(input.project, stage).filter((h) => humans.has(h));
+  const owners = input.task
+    ? cardStageOwners(input.project, stage, input.task)
+    : allStageOwners(input.project, stage);
+  return owners.filter((h) => humans.has(h));
 }
 
 /** AI members holding client communication, who tell clients that a release is live. */

@@ -176,8 +176,10 @@ import {
   isProjectManager,
   RETIRED_OPERATOR_HANDLE,
   cardBusyGroups,
+  cardStageOwners,
   cardWorkerSessions,
   openPrerequisites,
+  pickStageOwners,
   projectRefines,
   isWorkingOnTask,
   isSessionAtWork,
@@ -5705,7 +5707,9 @@ export class MockBackend {
     placement?: BoardPlacement,
   ): void {
     const from = task.stageId;
-    const patch: Partial<Task> = { stageId: target.id };
+    // The mock reads no branch: a rule with central paths cannot tell what changed (`no_branch`).
+    const pick = pickStageOwners(this.config, target, task);
+    const patch: Partial<Task> = { stageId: target.id, stageOwnerPick: pick };
     if (from !== target.id) patch.stageEnteredAt = nowIso();
     if (target.kind === 'done') Object.assign(patch, { status: 'done', closedAt: nowIso() });
     else if (task.status === 'done' || task.status === 'waiting')
@@ -5714,7 +5718,20 @@ export class MockBackend {
     // Into another column the card takes a place (the top unless the drop said where).
     if (boardColumnOf(stageOf(this.config, from)) !== boardColumnOf(target))
       this.enterColumn(task, placement);
-    this.addTimeline(task.key, actor.handle, 'task_stage_changed', { from, to: target.id, ...extra });
+    this.addTimeline(task.key, actor.handle, 'task_stage_changed', {
+      from,
+      to: target.id,
+      ...extra,
+      ...(pick
+        ? {
+            ownerPick: {
+              small: pick.small,
+              reason: pick.reason,
+              owners: cardStageOwners(this.config, target, { ...task, stageOwnerPick: pick }),
+            },
+          }
+        : {}),
+    });
     if (stageIndex(this.config.pipeline, target.id) < stageIndex(this.config.pipeline, from))
       this.expireLabels(task, 'moved_back');
     // Requests made from the previous stage are stale now.
@@ -6756,7 +6773,7 @@ export class MockBackend {
     if (!task || !isOpenTask(task) || isTheme(task)) return null;
     const stage = stageOf(this.config, task.stageId);
     const workers = cardWorkerSessions(
-      stage && { kind: stage.kind, owners: stageOwners(this.config, stage) },
+      stage && { kind: stage.kind, owners: cardStageOwners(this.config, stage, task) },
       task,
       this.sessions,
     );

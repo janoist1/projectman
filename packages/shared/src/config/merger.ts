@@ -1,7 +1,9 @@
 import { hasAccess } from '../domain/member';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
-import { isCodeReviewStage, stageOwners } from './duties';
+import { isCodeReviewStage } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
+import type { PickTask } from './stage-owner-pick';
 import { evaluateMove, stageIndex } from './gates';
 import type { UnmetCondition, ApprovalRequirement } from './gates';
 import type { MergeCheckRunner } from '../domain/merge-test';
@@ -122,11 +124,7 @@ export function mergeRepoOf(
  * - member: the handle, when it is a member of the team (a human needs `developer` access or more).
  * Leave is not skipped for developer and member: the card waits, and „Miért áll?” shows it.
  */
-export function cardMerger(
-  config: MergerConfig,
-  task: Pick<Task, 'assignee'>,
-  codeReviewer: string | null,
-): string | null {
+export function cardMerger(config: MergerConfig, task: PickTask, codeReviewer: string | null): string | null {
   const merger = mergerOf(config);
   if (merger.kind === 'developer') return task.assignee ?? null;
   if (merger.kind === 'member') {
@@ -136,7 +134,7 @@ export function cardMerger(
   }
   const stage = codeReviewStageBeforeTarget(config);
   if (!stage) return null;
-  const owners = stageOwners(config, stage);
+  const owners = cardStageOwners(config, stage, task);
   if (codeReviewer && owners.includes(codeReviewer) && !isHandleOnLeave(config, codeReviewer))
     return codeReviewer;
   return owners.find((handle) => memberOf(config, handle) && !isHandleOnLeave(config, handle)) ?? null;

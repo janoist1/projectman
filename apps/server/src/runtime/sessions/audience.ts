@@ -22,7 +22,7 @@ export function memberAudience(
   return {
     projectManager: isProjectManager(member),
     // The list is session-wide: include anyone who can merge a card under this policy.
-    merger: cardMerger(config, { assignee: handle }, handle) === handle,
+    merger: cardMerger(config, { assignee: handle, links: [] }, handle) === handle,
     email: emailChannelOn(config) && emailSenderOf(config, handle) !== null,
     machineAccess: hasMachineAccess(config, handle),
     hostRequests: hostRequestRefusal(config, handle, instance.hostOwnerEmail) === null,

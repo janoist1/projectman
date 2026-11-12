@@ -3,7 +3,7 @@ import { isPendingQuestion } from '../domain/inbox';
 import type { InboxItem } from '../domain/inbox';
 import type { TaskReadyHold } from '../domain/ready-hold';
 import type { Task, TaskStartWaiting } from '../domain/task';
-import { stageOwners } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
 import { stageAdvance } from './gates';
 import { isOnLeave } from './leave';
 import { memberOf, ownerHandles, stageOf } from './lookup';
@@ -211,7 +211,8 @@ export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyI
       if (openParts > 0) return hold('parts');
       // An idle stage waits for its owners when `next` names nobody (a step no session holds yet).
       const stage = stageOf(config, task.stageId);
-      const owners = reason === 'queued' && next.length === 0 && stage ? stageOwners(config, stage) : next;
+      const owners =
+        reason === 'queued' && next.length === 0 && stage ? cardStageOwners(config, stage, task) : next;
       return classified(byHandles(config, owners));
     }
     default:

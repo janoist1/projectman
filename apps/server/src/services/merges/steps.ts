@@ -523,14 +523,20 @@ export class MergeSteps {
       if (repo.reviewTest) {
         // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
         this.save(row, { step: 'check_waiting' });
-        const passed = ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
-          // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
-          (run) =>
-            run.status === 'passed' &&
-            run.runner === 'engine' &&
-            run.projectKey === row.projectKey &&
-            run.repo === row.repo,
-        );
+        // A passed engine run stands in only when the repository allows it and the run ran the same command (PM-1377).
+        const { command: checkCommand, reusePassedRun } = repo.reviewTest;
+        const passed =
+          reusePassedRun === false
+            ? undefined
+            : ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
+                // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
+                (run) =>
+                  run.status === 'passed' &&
+                  run.runner === 'engine' &&
+                  run.projectKey === row.projectKey &&
+                  run.repo === row.repo &&
+                  run.command === checkCommand,
+              );
         if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             step: 'checking',

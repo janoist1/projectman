@@ -370,6 +370,12 @@ export const ReviewTestConfig = z.object({
    */
   beforeReview: z.enum(['off', 'engine', 'github_actions']).optional(),
   /**
+   * Whether a passed engine run of the approved commit stands in for the merge check when the base has not
+   * moved (PM-1377). Absent or true: it does, but only when that run recorded this `command` and the commit has
+   * one parent; false: the merge always runs its own check.
+   */
+  reusePassedRun: z.boolean().optional(),
+  /**
    * Generated files a conflicting merge makes again instead of failing (PM-1050): when a merge conflicts
    * only on files matching `paths`, the engine runs `command` on the merge result and commits the files it
    * wrote there. Absent: every conflict fails as before.

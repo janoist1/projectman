@@ -2264,14 +2264,8 @@ describe('member initiated merge', () => {
     await merged('AR-2');
   });
 
-  it('reuses a passed full check only when the approved commit contains the base', async () => {
-    const executor = fakeExecutor();
-    await setup({
-      executor,
-      adjust: (c) => {
-        c.project.repos[0]!.reviewTest = reviewTest;
-      },
-    });
+  /** A passed engine run of the approved commit that ran `command`, on a base the commit contains. */
+  const passedReviewRun = (command: string) => {
     const at = new Date().toISOString();
     h!.repos.fullTestRuns.queue({
       id: 'passed',
@@ -2282,15 +2276,49 @@ describe('member initiated merge', () => {
       commit: 'approved-AR-1',
       createdAt: at,
     });
+    h!.repos.fullTestRuns.start('passed', at, command);
     h!.repos.fullTestRuns.finish('passed', { status: 'passed', finishedAt: at });
     merger.isAncestor.mockImplementation(
       async (_ref, input) => input.ancestor === 'base' && input.commit === 'approved-AR-1',
     );
+  };
+
+  it('reuses a passed full check only when the approved commit contains the base', async () => {
+    const executor = fakeExecutor();
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    passedReviewRun(reviewTest.command);
     await start();
     await merged();
     expect(task().merged?.check).toMatchObject({ reused: true, runId: 'passed', status: 'passed' });
     expect(executor.run).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['the repository turns reuse off', { ...reviewTest, reusePassedRun: false }, reviewTest.command],
+    ['the run recorded another command', reviewTest, 'npm run other-check'],
+  ])(
+    'runs its own check on a base the approved commit contains when %s (PM-1377)',
+    async (_case, config, ran) => {
+      const executor = fakeExecutor();
+      await setup({
+        executor,
+        adjust: (c) => {
+          c.project.repos[0]!.reviewTest = config;
+        },
+      });
+      passedReviewRun(ran);
+      await start();
+      await merged();
+      expect(task().merged?.check).toMatchObject({ status: 'passed' });
+      expect(task().merged?.check?.reused).toBeUndefined();
+      expect(executor.run).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('does not take a GitHub Actions review result for the merge candidate’s own check (PM-909)', async () => {
     const executor = fakeExecutor();

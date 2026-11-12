@@ -147,7 +147,7 @@ describe('small-card block of the stage panel', () => {
     fireEvent.click(dialog.getByRole('checkbox', { name: rule('toggle') }));
     addSmallOwner(dialog, 'kata');
     const link = await dialog.findByRole('link', { name: rule('warnings.labelSetters') });
-    expect(link.getAttribute('href')).toBe('/p/AC/settings/labels');
+    expect(link.getAttribute('href')).toMatch(/^\/p\/AC\/settings\/labels\?show=label%3A/);
     expect(
       (dialog.getByRole('button', { name: t('settings.pipeline.edit.save') }) as HTMLButtonElement).disabled,
     ).toBe(false);

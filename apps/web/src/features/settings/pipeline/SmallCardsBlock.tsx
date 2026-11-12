@@ -8,6 +8,7 @@ import { Icon } from '../../../components/Icon';
 import { LeaveChip } from '../../../components/LeaveChip';
 import { joinNames, t } from '../../../i18n/t';
 import { FieldErrors } from '../edit/FieldErrors';
+import { showParams } from '../selection';
 import type { FieldIssue } from '../edit/FieldErrors';
 import { MemberAvatar, MemberPicker } from './MemberPicker';
 import { SMALL_CARD_POINTS, stageOf } from './stageDraft';
@@ -182,7 +183,9 @@ export function SmallCardsBlock({
                         name: nameOf(warning.member),
                         label: labelNameOf(warning.label),
                       })}{' '}
-                      <Link to={`/p/${key}/settings/labels`}>
+                      <Link
+                        to={`/p/${key}/settings/labels?${showParams({ type: 'label', id: warning.label })}`}
+                      >
                         {t('settings.pipeline.edit.smallRule.warnings.labelSetters')}
                       </Link>
                     </span>

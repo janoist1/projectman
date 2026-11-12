@@ -7616,14 +7616,14 @@ export const en = {
           intro:
             'Small cards that touch no central file go to other handlers. Every other card stays with the handlers above.',
           group: 'Small card',
-          pointsBefore: 'at most',
+          pointsBefore: 'Small card: at most',
           pointsAfter: 'points',
           owners: 'Handlers',
           paths: 'Central files',
           pathsHelp:
             'One pattern per line, relative to the repository root (** matches any depth). If the card’s branch changes even one of them, the handlers above get the card.',
-          summarySmall: '{points} points or fewer, no central file → {names}',
-          summaryNobody: '{points} points or fewer, no central file → no handler yet',
+          summarySmall: '{points|# point|# points} or fewer, no central file → {names}',
+          summaryNobody: '{points|# point|# points} or fewer, no central file → no handler yet',
           summaryOthers: 'Every other card → {names}',
           whenTitle: 'When do the handlers above get a small card anyway?',
           whenPoints: 'It has no points, or more than the limit.',

@@ -7654,7 +7654,7 @@ export const hu = {
           intro:
             'A kis kártyákat, amelyek nem érintenek központi fájlt, más gazda kapja. A többi a fenti gazdáknál marad.',
           group: 'Kis kártya',
-          pointsBefore: 'legfeljebb',
+          pointsBefore: 'Kis kártya: legfeljebb',
           pointsAfter: 'pontos',
           owners: 'Gazdája',
           paths: 'Központi fájlok',

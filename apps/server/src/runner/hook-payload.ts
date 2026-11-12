@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { patchPaths } from '@projectman/shared';
 import { z } from 'zod';
 import { claudeFileToolPaths } from './tool-decision';
@@ -59,23 +59,34 @@ interface SessionAllowScope {
 /** File tools whose path names a file; for the other path tools the path is the folder itself. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'NotebookRead']);
 
-/** The folders a path tool call works in, or null for a tool without a path (see sessionAllowScope). */
+/**
+ * The folders a path tool call works in: null for a tool without a path (see sessionAllowScope),
+ * an empty list when the call shows no folder to remember (no path, or a relative one without a
+ * working directory to resolve it against).
+ */
 function toolDirectories(payload: HookPayload, toolName: string): string[] | null {
   const input = payload.tool_input;
-  const cwd = payload.cwd ?? '';
+  const { cwd } = payload;
+  const absolute = (path: string): string | null =>
+    isAbsolute(path) ? resolve(path) : cwd ? resolve(cwd, path) : null;
+  let files: string[];
+  let names: 'files' | 'folders' = 'files';
   if (toolName === 'apply_patch') {
-    // Codex edits with a patch: every file it touches counts, and one that names none is not remembered.
-    const files = patchPaths(input);
-    return [...new Set(files.map((file) => dirname(resolve(cwd || '.', file))))].sort();
+    // Codex edits with a patch: every file it touches counts.
+    files = patchPaths(input);
+  } else {
+    const found = toolName === 'LS' ? lsPaths(input) : claudeFileToolPaths(toolName, input)?.paths;
+    if (!found) return null;
+    files = found;
+    if (!FILE_PATH_TOOLS.has(toolName)) {
+      names = 'folders';
+      // A folder tool without a path works in the working directory.
+      if (found.length === 0 && cwd) files = [cwd];
+    }
   }
-  const found = toolName === 'LS' ? lsPaths(input) : claudeFileToolPaths(toolName, input)?.paths;
-  if (!found) return null;
-  // A call without a path works in the working directory itself.
-  if (found.length === 0) return [resolve(cwd || '.')];
-  const folders = found.map((path) => {
-    const absolute = resolve(cwd || '.', path);
-    return FILE_PATH_TOOLS.has(toolName) ? dirname(absolute) : absolute;
-  });
+  const resolved = files.map(absolute);
+  if (resolved.length === 0 || resolved.includes(null)) return [];
+  const folders = (resolved as string[]).map((path) => (names === 'files' ? dirname(path) : path));
   return [...new Set(folders)].sort();
 }
 
@@ -88,7 +99,7 @@ function lsPaths(input: unknown): string[] {
  * What an "allow for this session" covers when nothing more specific is known: the same Bash
  * command again, the same tool in the same folders for a path tool (Read, Edit, Grep, Codex's
  * apply_patch and the like), or the tool itself for any other tool. Null when there is nothing
- * to remember: no tool, a Bash call without a command, or an apply_patch naming no file.
+ * to remember: no tool, a Bash call without a command, or a path tool call that shows no folder.
  */
 export function sessionAllowScope(payload: HookPayload): SessionAllowScope | null {
   const toolName = payload.tool_name;

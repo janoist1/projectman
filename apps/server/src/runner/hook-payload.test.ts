@@ -38,7 +38,15 @@ describe('sessionAllowScope', () => {
     );
     expect(scope({ tool_name: 'LS', tool_input: { path: '/w/other' } })?.directories).toEqual(['/w/other']);
     expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })?.directories).toEqual(['/w/repo']);
-    expect(scope({ tool_name: 'Read', tool_input: {} })?.directories).toEqual(['/w/repo']);
+  });
+
+  it('remembers nothing for a path tool call that shows no folder', () => {
+    const scope = (extra: Record<string, unknown>) => sessionAllowScope(payload(extra));
+    // A file tool without a path, a relative path without a working directory, a folder tool without either.
+    expect(scope({ cwd: '/w/repo', tool_name: 'Read', tool_input: {} })).toBeNull();
+    expect(scope({ tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' } })).toBeNull();
+    expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })).toBeNull();
+    expect(scope({ tool_name: 'Read', tool_input: { file_path: '/w/a.ts' } })?.directories).toEqual(['/w']);
   });
 
   it('lists the folders of every file an apply_patch touches, moves included', () => {

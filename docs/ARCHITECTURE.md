@@ -530,8 +530,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   it, else `senior_wait_ended`; `seniorWaitEndReasonOf` in `packages/shared`). When no developer's limit
   reaches the points the card starts by the "any"
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
-  stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
-  a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
+  stored rows and events carry them. Stored configurations use `complexityLimit` instead of the old
+  `senior` mark (PM-1383); a DB migration turns a "senior" recommendation into 8 points.
+  No machine-dependent part is affected.
   **A paused provider** (PM-1051): a member whose provider is held (`provider_rate_limited` cooldown) or
   over the plan usage limit (`plan_usage_paused`, `planUsagePause` in `packages/shared`) is not free
   (`Admission.providerAvailable`), so the automatic choice never picks them and a paused high-limit

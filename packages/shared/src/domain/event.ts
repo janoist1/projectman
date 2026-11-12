@@ -217,6 +217,7 @@ export interface TimelineEventData {
   /** `imported`: created from another tracker (the request carried `importedAt`). */
   task_created: { title: string; imported?: boolean };
   task_updated: {
+    ownerPick?: { small: boolean; reason: StageOwnerPickReason; owners: string[] };
     fields: string[];
     /**
      * `closed`: a theme was closed (PM-192); it is closed like a cancelled card, and reopened the same way.

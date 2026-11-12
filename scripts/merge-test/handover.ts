@@ -1,8 +1,7 @@
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
-import { sourceImports } from '../../apps/server/test/architecture/check';
 import { importGraph, isCode, isServerTest } from './impact';
 import type { MergeTestFile } from './impact';
-import { refineScope } from './refine';
+import { checkedBy, importersOf, refineScope } from './refine';
 import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope, TEST_READ_DOCS } from './scope';
 import type { MergeTestScope, MergeTestWorkspace } from './scope';
 import { sharedImpact } from './shared-impact';
@@ -65,10 +64,25 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason: 'registry tests read both barrel folders and the error-code registry by path',
+    sources: [
+      'packages/shared/src/',
+      'apps/server/src/contracts/',
+      'apps/server/src/mcp/tools.ts',
+      'scripts/barrels/',
+    ],
+    tests: ['apps/server/test/architecture/registries.test.ts'],
+  },
+  {
     reason: 'the architecture tests read the server source folder, the module map and the structure map',
     sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
     broad: true,
     tests: ['apps/server/test/architecture/'],
+  },
+  {
+    reason: 'the session-state list test reads the web, widget and shared sources by path (PM-1357)',
+    sources: ['apps/web/src/', 'apps/feedback-widget/src/', 'packages/'],
+    tests: ['apps/server/test/architecture/session-state-lists.test.ts'],
   },
   {
     reason: 'the structure map test reads every tracked file of the repository',
@@ -101,6 +115,26 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
       'apps/server/src/mcp/project-manager/',
     ],
     tests: ['apps/server/test/operator-*.test.ts'],
+  },
+  {
+    reason:
+      'the alert path (provider outage signal, item route) is reached through the app harness: the tests use `outages.` or `work_outage` on the domain, and the screening tests through the operator signals, not by import (PM-1399)',
+    sources: [
+      'apps/server/src/runtime/watchers/outages.ts',
+      'apps/server/src/core/inbox/inbox.ts',
+      'apps/server/src/core/inbox/alert-todo.ts',
+      'apps/server/src/core/inbox/apply-route.ts',
+      'packages/shared/src/domain/item-route.ts',
+    ],
+    tests: [
+      'apps/server/test/alert-routing.test.ts',
+      'apps/server/test/operator-signals.test.ts',
+      'apps/server/test/outages.test.ts',
+      'apps/server/test/outages-api.test.ts',
+      'apps/server/test/periodic-work-performance.test.ts',
+      'apps/server/test/provider-login-wait.test.ts',
+      'apps/server/test/question-screening-offline.test.ts',
+    ],
   },
   {
     reason:
@@ -241,12 +275,12 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
 ];
 
 export interface HandoverSelection {
-  /** `none`: only the dead-code check; `cloud`: the cloud filters; `targeted`: the chosen test files. */
+  /** `none`: only the dead-code check; `cloud`: the vitest filters of a path-owned scope (cloud, owned); `targeted`: the chosen test files. */
   kind: 'none' | 'cloud' | 'targeted';
   typecheck: MergeTestWorkspace[];
   /** The test files to run after the cap, by workspace in run order. */
   tests: { workspace: MergeTestWorkspace; files: string[] }[];
-  /** The vitest filters of the cloud scope. */
+  /** The vitest filters of the path-owned scope. */
   testFilters: string[];
   /** How many tests the change reaches (M), the cap, the nearest ones that run beyond it, and how many were left to the merge check. */
   reached: number;
@@ -412,9 +446,6 @@ function nameUsers(
   );
 }
 
-/** The workspace whose checks cover a path: the scripts belong to the server's. */
-const checkedBy = (path: string): MergeTestWorkspace | undefined =>
-  path.startsWith('scripts/') ? 'apps/server' : workspaceOf(path);
 const SNAPSHOT = /^(.*)\/__snapshots__\/([^/]+)\.snap$/;
 const isTestSupport = (path: string): boolean => /\/(?:fixtures|test-fixtures)\//.test(path);
 const isConfig = (path: string): boolean =>
@@ -436,21 +467,6 @@ function mergeRuns(scope: MergeTestScope, file: string): boolean {
   return false;
 }
 
-/** The files that import `pkg` (or a subpath of it), and those that do it other than by type. */
-function importersOf(files: readonly MergeTestFile[], pkg: string): { all: string[]; value: string[] } {
-  const all: string[] = [];
-  const value: string[] = [];
-  for (const file of files) {
-    if (!isCode(file.path) || !checkedBy(file.path)) continue;
-    const imports = sourceImports(file.source);
-    const own = (s: string) => s === pkg || s.startsWith(`${pkg}/`);
-    if (!imports.specifiers.some(own)) continue;
-    all.push(file.path);
-    if (imports.specifiers.some((s) => own(s) && !imports.typeOnly.includes(s))) value.push(file.path);
-  }
-  return { all, value };
-}
-
 /**
  * The tests a change affects, nearest first. The merge check's scope is the upper bound: the shared
  * export analysis and the server module analysis give the same answers, then the file-level value
@@ -465,6 +481,8 @@ export function handoverSelection(
   if (coarse.kind === 'none') return empty('none');
   if (coarse.kind === 'cloud')
     return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: CLOUD_TEST_FILTERS };
+  if (coarse.kind === 'owned')
+    return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: coarse.tests };
 
   const merge = refineScope(coarse, changed, input.before, input.after);
   const afterPaths = new Set(input.after.map((file) => file.path));

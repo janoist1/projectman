@@ -1,5 +1,5 @@
 import { routes } from '@projectman/shared';
-import type { LabelView, Task, TaskLink } from '@projectman/shared';
+import type { BoardCard, LabelView, Task, TaskLink } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { stripAccents } from '../../lib/ids';
 import { labelName } from '../../lib/labels';
@@ -22,7 +22,7 @@ export interface StageRow {
  * Progress rows on a card through the stages of a grouped column (e.g. Code review →
  * Integration → QA). Results are labels, shown as chips.
  */
-export function stageRows(task: Task, pipeline: PipelineIndex): StageRow[] {
+export function stageRows(task: BoardCard, pipeline: PipelineIndex): StageRow[] {
   const stage = pipeline.stageById.get(task.stageId);
   if (
     !stage ||
@@ -54,7 +54,7 @@ export interface PrChip {
   href: string | null;
 }
 
-export function pullRequestLink(task: Task): TaskLink | undefined {
+export function pullRequestLink(task: BoardCard): TaskLink | undefined {
   const prs = task.links.filter((link) => link.kind === 'pull_request');
   return prs.find((link) => link.state !== 'merged' && link.state !== 'closed') ?? prs[prs.length - 1];
 }
@@ -67,7 +67,7 @@ export function githubUrl(link: TaskLink): string | null {
   return null;
 }
 
-export function prChip(task: Task): PrChip | null {
+export function prChip(task: BoardCard): PrChip | null {
   const link = pullRequestLink(task);
   if (!link) return null;
   const repo = link.repo?.split('/').pop();
@@ -85,7 +85,7 @@ export function normalizeSearch(value: string): string {
   return stripAccents(value).toLowerCase().trim();
 }
 
-export function matchesSearch(task: Task, query: string, labels: readonly LabelView[] = []): boolean {
+export function matchesSearch(task: BoardCard, query: string, labels: readonly LabelView[] = []): boolean {
   const needle = normalizeSearch(query);
   if (!needle) return true;
   const haystack = normalizeSearch(

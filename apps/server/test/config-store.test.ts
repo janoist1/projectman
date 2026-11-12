@@ -12,9 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
-import { operatorWatchOf } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
-import { parseYamlFile } from '../src/config/layout';
+import { operatorWatchOf, ProjectConfig, storedTeamDefaults } from '@projectman/shared';
+import { mergeProjectFiles, parseYamlFile, splitProjectConfig } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
 import { runGit } from '../src/config/git';
 import type { GitConfigStore } from '../src/config';
@@ -28,6 +27,37 @@ async function expectConfigError(promise: Promise<unknown>, code: string): Promi
   expect(err.code).toBe(code);
   return err;
 }
+
+describe('configuration file layout', () => {
+  it('keeps every stored team setting across configuration files with non-default values', () => {
+    const saved = testConfig();
+    const chosen = {
+      cardMover: { kind: 'project_manager' },
+      projectManagerMoves: 'start_only',
+      projectManagerLifecycle: [],
+      prerequisiteOverride: 'people_and_project_manager',
+      memberInvolvement: 'people_and_project_manager',
+      projectManagerAuthority: 'owner_request',
+      prioritySetters: [],
+      complexitySetters: [],
+      viewerRecipients: 'contacts',
+      taskCreateAccess: 'client',
+      ownerDecisionTopics: [],
+      mergeAfterReview: true,
+    } as const satisfies Partial<ProjectConfig['team']>;
+    expect(Object.keys(chosen).sort()).toEqual(Object.keys(storedTeamDefaults()).sort());
+    Object.assign(saved.team, structuredClone(chosen));
+    const files = splitProjectConfig(saved);
+    const reloaded = ProjectConfig.parse(
+      mergeProjectFiles({
+        'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+        'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+        'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+      }),
+    );
+    expect(reloaded.team).toMatchObject(chosen);
+  });
+});
 
 describe('ConfigStore (customization repository)', () => {
   let dir: string;

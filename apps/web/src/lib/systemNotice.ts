@@ -1,4 +1,4 @@
-import type { EmailParkReason, TeamMessage } from '@projectman/shared';
+import type { EmailParkReason, ProviderOutageProblem, TeamMessage } from '@projectman/shared';
 import { t } from '../i18n/t';
 
 /**
@@ -39,6 +39,19 @@ export function messageText(message: TeamMessage): string {
     case 'relation_check':
       return t('messages.notice.relation_check', { taskKey: text('taskKey'), relations: text('relations') });
     case 'work_outage':
+      if (text('since'))
+        return t('messages.notice.work_outage_details', {
+          since: text('since'),
+          engine: text('engine') || '–',
+          reason: t(
+            `inbox.alerts.work_outage.reasons.${text('problem') as ProviderOutageProblem | 'engine'}`,
+            {
+              provider: text('outage'),
+              engine: text('engine') || '–',
+            },
+          ),
+          tasks: text('tasks') || '–',
+        });
       return t('messages.notice.work_outage', { outage: text('outage'), tasks: text('tasks') || '–' });
     case 'waiting_digest':
       return t('messages.notice.waiting_digest', {

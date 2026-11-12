@@ -2,7 +2,7 @@ import type { LabelView, TaskHandoff } from '@projectman/shared';
 import clsx from 'clsx';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -24,13 +24,14 @@ import {
 } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
-import { LabelChip } from '../../components/LabelChip';
+import { LabelChip, LabelCountChip } from '../../components/LabelChip';
+import { summarizeLabels } from '../../lib/labelSummary';
 import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
-  task: Task;
-  subtasks?: readonly Task[];
+  task: BoardCard;
+  subtasks?: readonly BoardCard[];
   state: TaskState;
   pipeline: PipelineIndex;
   to: string;
@@ -134,8 +135,15 @@ export function TaskCard({
   const pr = prChip(task);
   const rows = stageRows(task, pipeline);
   // A label the status line already names ("● Válaszra vár") is not a chip as well; the drawer lists them all.
-  const chipLabels = task.labels.filter((label) => !state.holdingLabels?.includes(label));
-  const showMeta = pr !== null || chipLabels.length > 0;
+  const summary = summarizeLabels({
+    labels: task.labels,
+    definitions: labels,
+    stages: pipeline.stages,
+    done: state.phase === 'done',
+  });
+  const chipLabels = summary.shown.filter((label) => !state.holdingLabels?.includes(label));
+  const foldedCount = summary.folded.filter((label) => !state.holdingLabels?.includes(label)).length;
+  const showMeta = pr !== null || chipLabels.length > 0 || foldedCount > 0;
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
@@ -253,6 +261,12 @@ export function TaskCard({
           {chipLabels.map((label) => (
             <LabelChip key={label} id={label} labels={labels} />
           ))}
+          {foldedCount > 0 ? (
+            <LabelCountChip
+              count={foldedCount}
+              text={t('taskCard.processLabelsMore', { count: foldedCount })}
+            />
+          ) : null}
         </span>
       ) : null}
       {rows.length > 0 ? (
@@ -310,7 +324,7 @@ export function TaskCard({
               </span>
             ))}
           </span>
-        ) : state.next ? (
+        ) : state.next && state.wait?.reason !== 'collecting' ? (
           <NextLine
             next={state.next}
             className={styles.statusText}

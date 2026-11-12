@@ -1,4 +1,5 @@
 import {
+  cardReviewer,
   closedCardsSince,
   countCardRounds,
   DEFAULT_CLOSED_CARDS_DAYS,
@@ -72,6 +73,7 @@ export class CardMeasure {
         task,
         sessions.get(task.key) ?? [],
         countCardRounds(events.get(task.key) ?? [], config),
+        cardReviewer(events.get(task.key) ?? [], config),
       ),
     );
     return { since, days, cards };

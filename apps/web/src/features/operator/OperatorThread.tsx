@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy } from '@projectman/shared';
 import type {
   ProjectManagerCorner,
@@ -12,7 +12,7 @@ import type {
 import { MessageAttachments } from '../messages/MessageAttachments';
 import { Icon } from '../../components/Icon';
 import { useIsMobile } from '../../lib/hooks';
-import { useBoard, useConversation, useReadTeamMessages } from '../../api/queries';
+import { useBoard, useConversation } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Markdown } from '../../components/Markdown';
@@ -22,7 +22,8 @@ import { formatDayHeading, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
-import { READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../messages/ConversationThread';
+import { STICK_PX } from '../messages/ConversationThread';
+import { useReadWhenVisible } from '../messages/useReadWhenVisible';
 import { ProcessingLines } from '../messages/ProcessingLines';
 import { TaskChip } from '../messages/TaskChip';
 import { OperatorPlaces } from './OperatorPlaces';
@@ -137,8 +138,8 @@ export function OperatorThread({
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
   const conversation = useConversation(key, handle);
-  const readMessages = useReadTeamMessages(key);
-  const visible = useDocumentVisible();
+  // The project manager's replies are read when they have been on the screen (PM-1386), not when the panel opens.
+  const watchUnread = useReadWhenVisible(key);
   const member = members.get(handle);
   const readOnly = channel.readOnly;
 
@@ -164,18 +165,6 @@ export function OperatorThread({
   const entries = operatorEntries(messages, unanchoredSignals);
   const retainSignal = (id: string) =>
     setDismissedHere((previous) => (previous.has(id) ? previous : new Set([...previous, id])));
-
-  // Opening is reading: the project manager's unread replies, while the panel is visible.
-  const unreadKey = messages
-    .filter((m) => m.from === handle && isUnreadBy(m, myHandle))
-    .map((m) => m.id)
-    .join(',');
-  const { mutate: markRead } = readMessages;
-  useEffect(() => {
-    if (!unreadKey || !visible) return;
-    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [unreadKey, visible, markRead]);
 
   // The thread opens at its end and follows new messages while the reader is near the bottom.
   const scroller = useRef<HTMLDivElement>(null);
@@ -233,6 +222,13 @@ export function OperatorThread({
     const mine = message.from === myHandle;
     const signal = signalByMessage.get(message.id);
     const steps = anchors.byMessage.get(message.id) ?? [];
+    // The label at the start of the content: the message counts as read once it has been on the screen (PM-1386).
+    const unreadMark =
+      message.from === handle && isUnreadBy(message, myHandle) ? (
+        <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+          {t('messages.thread.unread')}
+        </span>
+      ) : null;
     return (
       <div key={message.id} className={styles.entry}>
         {entry.day ? (
@@ -246,6 +242,7 @@ export function OperatorThread({
             message={message}
             operatorHandle={handle}
             readOnly={readOnly}
+            unreadMark={unreadMark}
           />
         ) : signal?.[0] ? (
           <OperatorSignalCard
@@ -253,6 +250,7 @@ export function OperatorThread({
             message={message}
             operatorHandle={handle}
             readOnly={readOnly}
+            unreadMark={unreadMark}
           />
         ) : (
           <div
@@ -264,6 +262,7 @@ export function OperatorThread({
               </span>
             )}
             <div className={styles.col}>
+              {unreadMark}
               {entry.showTask && message.taskKey ? cardKey(message.taskKey) : null}
               <div className={styles.bubble}>
                 {message.body ? (

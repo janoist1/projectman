@@ -610,6 +610,21 @@ describe('EmailChannelService', () => {
       expect(emailChannel.setContactByMember('AR', 'dev-1', ask)).toEqual({ handle: 'acme', wants: true });
     });
 
+    it('offers the daily pruning of parked mails to the kernel and keeps going when it fails (PM-1394)', async () => {
+      const { emailChannel, harness } = await setup();
+      const prune = vi.spyOn(harness.repos.emailChannel, 'prune').mockImplementationOnce(() => {
+        throw new Error('database is locked');
+      });
+      expect(emailChannel.pruneSweep).toMatchObject({
+        name: 'email-channel-prune',
+        everyMs: 24 * 3600_000,
+        atStart: true,
+      });
+      await expect(emailChannel.pruneSweep.run()).resolves.toBeUndefined();
+      await emailChannel.pruneSweep.run();
+      expect(prune).toHaveBeenCalledTimes(2);
+    });
+
     it('lists contacts with an address flag only', async () => {
       const { emailChannel } = await setup();
       const contacts = emailChannel.contactsForMember('AR');

@@ -109,8 +109,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   let rpc: EngineRpc | null = null;
   /**
    * Whether the cloud of this connection repeats its acknowledgement as a heartbeat (an older one sends none).
-   * The wire carries no flag: an ack equal to the highest one of this connection (the welcome's included) can
-   * only be a repeat, because a cloud acknowledges an event once and never an old sequence again.
+   * The welcome announces it (`heartbeatMs`); for a welcome without it, an ack equal to the highest one of this
+   * connection (the welcome's included) can only be a repeat, because a cloud acknowledges an event once and
+   * never an old sequence again.
    */
   let cloudHeartbeats = false;
   let highestAck = 0;
@@ -283,7 +284,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         welcomed = true;
         clearTimeout(handshake);
         rpc = connection;
-        cloudHeartbeats = false;
+        // A cloud that announces its heartbeat is judged by its silence from the welcome on: a link that
+        // goes half-dead right after the welcome never delivers the repeated ack the other way would wait for.
+        cloudHeartbeats = frame.heartbeatMs !== undefined;
         highestAck = frame.ackedSeq;
         failures = 0;
         connectedAt = now();
@@ -338,8 +341,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       // `ENGINE_HEARTBEAT_MS` as an app-level heartbeat (idle links included): if no frame came for
       // `ENGINE_DEAD_AFTER_MS`, reconnect. It takes two ticks in a row: after a stalled event loop Node runs
       // the timer before it reads the frames queued meanwhile, so one late tick alone does not prove the
-      // cloud went silent. Only a cloud seen repeating its acknowledgement is judged by it: an older one
-      // is quiet when idle, and reconnecting would only repeat that every few minutes.
+      // cloud went silent. Only a cloud that announced its heartbeat in the welcome, or was seen repeating its
+      // acknowledgement, is judged by it: an older one is quiet when idle, and reconnecting would only repeat
+      // that every few minutes.
       watchdog = setInterval(() => {
         const silent = !!socket && !!rpc && cloudHeartbeats && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
         silentTicks = silent ? silentTicks + 1 : 0;

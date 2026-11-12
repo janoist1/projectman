@@ -14,6 +14,7 @@ import { MergeCheckRunner } from './merge-test';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { StageOwnerPick } from './stage-owner-pick';
 import { WorkOutage } from './outage';
 import { TaskReadyHold } from './ready-hold';
 
@@ -302,6 +303,8 @@ export const Task = z.object({
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),
   merged: TaskMerged.optional(),
+  /** Who the step stage the card stands in gave it to, decided on entry (PM-1378); absent: no small-card rule there. */
+  stageOwnerPick: StageOwnerPick.nullable().optional(),
   /** The loop open on the card (PM-261); absent when there is none. */
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. */
@@ -353,6 +356,22 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
+/**
+ * A card as the board carries it (PM-1336): the task without its description and with only the tile's part
+ * of `merged` (that it is merged, into which repository and when). The description and the whole merge come
+ * with the task's detail (`GET task`).
+ */
+export const BoardCard = Task.omit({ description: true, merged: true }).extend({
+  merged: TaskMerged.pick({ repo: true, at: true }).optional(),
+});
+export type BoardCard = z.infer<typeof BoardCard>;
+
+/** The board's summary of a task. */
+export function boardCard(task: Task): BoardCard {
+  const { description: _description, merged, ...card } = task;
+  return merged ? { ...card, merged: { repo: merged.repo, at: merged.at } } : card;
+}
+
 /** Whoever looks at a task: a project member's access level (`ai` for an AI member) and handle. */
 export interface TaskViewer {
   access: HumanAccess | 'ai';
@@ -370,6 +389,22 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
  */
 export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
+}
+
+/** Open sub-cards carry the work of an open collecting card (PM-1345). */
+export function isCollectingTask(
+  task: Pick<Task, 'key' | 'kind' | 'status'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return isOpenTask(task) && !isTheme(task) && openSubtaskCount(task, tasks) > 0;
+}
+
+/** Done and cancelled sub-cards do not keep a collecting card waiting. */
+export function openSubtaskCount(
+  task: Pick<Task, 'key'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): number {
+  return tasks.filter((child) => child.parentKey === task.key && isOpenTask(child)).length;
 }
 
 /** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */

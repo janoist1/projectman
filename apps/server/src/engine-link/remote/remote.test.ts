@@ -78,7 +78,7 @@ describe('cloud mode remote parts', () => {
   let spool: string;
   let sessionEngines: Map<string, string>;
   let domain: CloudDomain & {
-    reconciled: Array<{ engine: string; reported: string[] }>;
+    reconciled: Array<{ engine: string; reported: string[]; paused: string[] }>;
     /** The calls on the sessions and the pause service in order: `reconcile:<engine>`, `resume:<engine>`, `pause:<engine>:<waitMs>`. */
     calls: string[];
   };
@@ -108,9 +108,9 @@ describe('cloud mode remote parts', () => {
         resolveToken: (token) =>
           token === 'tok-abc' ? { sessionId: 's1', projectKey: 'AR', member: 'dev', taskKey: null } : null,
         engineOf: (sessionId) => (sessionEngines.get(sessionId) ?? 'eng_other') as never,
-        async reconcileEngine(engine, reported) {
+        async reconcileEngine(engine, reported, _starting, paused = new Set()) {
           domain.calls.push(`reconcile:${engine}`);
-          domain.reconciled.push({ engine, reported: [...reported] });
+          domain.reconciled.push({ engine, reported: [...reported], paused: [...paused] });
         },
       },
       pauses: {
@@ -732,14 +732,24 @@ describe('cloud mode remote parts', () => {
       expect(remote.runner.isRunning('s1')).toBe(false);
     });
 
-    it('keeps a session the engine still reports across a reconnect', async () => {
+    it('keeps a session the engine still reports across a reconnect, and does not reach it while the link is down', async () => {
       const engine = await online();
       engine.answer('session.start', (params) => running(params.sessionId));
       await remote.runner.start(spec());
+      expect(remote.runner.reaches?.('s1')).toBe(true);
       engine.disconnect();
-      await online('eng_a', { running: [running('s1')] });
+      await vi.waitFor(() => expect(remote.runner.reaches?.('s1')).toBe(false));
+      // The mirror still has it running: only the link tells that a release would not get there (PM-1348).
       expect(remote.runner.isRunning('s1')).toBe(true);
-      expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1'] });
+      await online('eng_a', { running: [running('s1')] });
+      expect(remote.runner.reaches?.('s1')).toBe(true);
+      expect(remote.runner.isRunning('s1')).toBe(true);
+      expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1'], paused: [] });
+    });
+
+    it('tells the reconcile which reported sessions the engine holds for a pause (PM-1403)', async () => {
+      await online('eng_a', { running: [running('s1'), { ...running('s2'), paused: true }] });
+      expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1', 's2'], paused: ['s2'] });
     });
 
     it('resumes the sessions the engine paused for its shutdown only after the reconcile (PM-1159)', async () => {
@@ -899,6 +909,15 @@ describe('cloud mode remote parts', () => {
         });
         nanogptKey = 'key-from-store';
         await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        expect(asked).toHaveBeenCalledTimes(1);
+      });
+
+      it('answers every member of a provider from one engine call', async () => {
+        const engine = await online();
+        const asked = vi.fn(async () => reported());
+        engine.answer('provider.status', asked);
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-1' });
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-2' });
         expect(asked).toHaveBeenCalledTimes(1);
       });
 

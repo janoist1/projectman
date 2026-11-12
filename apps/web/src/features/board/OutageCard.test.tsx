@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { outageReason, outageStuckLabel, outageStuckTitle } from '../../lib/outage';
-import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
+import { deriveTaskState, groupOpenInboxByTask, groupSubtasksByParent } from '../../lib/taskState';
 import type { TaskStateContext } from '../../lib/taskState';
 import { inbox, tasks } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
@@ -35,6 +35,7 @@ const ctx: TaskStateContext = {
   members,
   openInboxByTask: groupOpenInboxByTask(inbox),
   tasksByKey: new Map(tasks.map((task) => [task.key, task])),
+  subtasksByParent: groupSubtasksByParent(tasks),
   myHandle: 'owner',
 };
 

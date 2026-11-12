@@ -146,6 +146,52 @@ describe('a message from an AI member starts only members with a role on the car
     expect(h.repos.messages.pending('AR', 'dev-2')).toHaveLength(0);
   });
 
+  it('an involvement gives the role: the waiting message starts the member with no resend (PM-1267)', async () => {
+    h = await createDomainHarness({ adjust: widen });
+    await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    const sent = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-1',
+      { to: ['dev-2'], text: 'Take over the cart work.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1') },
+    );
+    expect(sent.recipients[0]).toMatchObject({ noWake: 'no_card_role' });
+    await flush();
+    expect(sessionsOf('dev-2')).toEqual([]);
+
+    await h.domain.involvements.involve('AR', 'AR-1', 'dev-2', 'Knows the cart', OWNER_ACTOR);
+    await flush();
+
+    const sessions = sessionsOf('dev-2');
+    expect(sessions).toHaveLength(1);
+    const specs = h.runner.started.filter((spec) => spec.sessionId === sessions[0]!.id);
+    expect(specs[0]!.initialMessage).toContain('Take over the cart work.');
+    expect(h.repos.messages.pending('AR', 'dev-2')).toHaveLength(0);
+    // A later message wakes the member too, and a member nobody involved still waits.
+    const again = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-1',
+      { to: ['dev-2', 'dev-3'], text: 'And the totals.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1') },
+    );
+    expect(again.recipients.find((r) => r.handle === 'dev-2')?.noWake).toBeUndefined();
+    expect(again.recipients.find((r) => r.handle === 'dev-3')?.noWake).toBe('no_card_role');
+  });
+
+  it('an involvement on the parent card gives the role on its subtask (PM-1267)', async () => {
+    h = await createDomainHarness({ adjust: widen });
+    const parent = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    const child = await h.domain.tasks.create('AR', { title: 'Cart', parentKey: parent.key }, OWNER_ACTOR);
+    await h.domain.involvements.involve('AR', parent.key, 'dev-2', 'Knows checkout', OWNER_ACTOR);
+    const result = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-1',
+      { to: ['dev-2'], text: 'Cart question.', taskKey: child.key },
+      { actor: aiActor('dev-1') },
+    );
+    expect(result.recipients[0]!.noWake).toBeUndefined();
+  });
+
   it('an @mention in an AI member’s comment starts a member without a role no more than a message does', async () => {
     h = await createDomainHarness({ adjust: widen });
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);

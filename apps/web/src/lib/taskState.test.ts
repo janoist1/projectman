@@ -6,7 +6,13 @@ import { formatStamp } from '../i18n/format';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { cardsLine, workingCardKeys } from './members';
-import { cardWorkerRows, deriveTaskState, groupOpenInboxByTask, startWaitingHint } from './taskState';
+import {
+  cardWorkerRows,
+  deriveTaskState,
+  groupOpenInboxByTask,
+  groupSubtasksByParent,
+  startWaitingHint,
+} from './taskState';
 import type { TaskStateContext } from './taskState';
 
 const COMMAND = 'Bash: npm test';
@@ -138,6 +144,7 @@ function contextWith(
     members,
     openInboxByTask: groupOpenInboxByTask([]),
     tasksByKey: new Map(tasks.map((task) => [task.key, task])),
+    subtasksByParent: groupSubtasksByParent(tasks),
     myHandle: 'owner',
     labels: config.pipeline.labels.map((label) => ({ ...label, holders: [] })),
   };

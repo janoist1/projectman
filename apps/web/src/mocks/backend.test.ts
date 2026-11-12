@@ -153,6 +153,114 @@ describe('integrator credential policy in the fake (PM-759)', () => {
     expect(backend.handle('PUT', `${base}/merge-queue/order`, body).status).toBe(409);
   });
 });
+
+/**
+ * One inbox-resolve rule for the server and the fake (S-03): the server's super-access-api.test.ts holds the same
+ * cases and expects the same refusals. An assignee `null` is the resolving owner.
+ */
+const RESOLVE_PARITY_CASES = [
+  {
+    mode: 'own',
+    kind: 'approval',
+    assignees: [null],
+    payload: {
+      operator: {
+        requestId: 'opr_fixture',
+        stepId: 'ops_fixture',
+        quote: 'Pause the team',
+        action: 'project_pause',
+        operation: { op: 'project_pause' },
+        changes: [],
+        consequence: 'project_pause',
+        baseVersion: null,
+        session: null,
+        stale: null,
+      },
+    },
+    request: { optionId: 'approve' },
+    status: 409,
+    code: 'inbox_item_closed',
+  },
+  {
+    mode: 'own',
+    kind: 'decision',
+    assignees: ['someone-else'],
+    payload: {},
+    request: { optionId: 'approve' },
+    status: 403,
+    code: 'not_an_assignee',
+  },
+  {
+    mode: 'own',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'answer' },
+    status: 400,
+    code: 'answer_required',
+  },
+  {
+    mode: 'own',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'nope' },
+    status: 400,
+    code: 'unknown_option',
+  },
+  {
+    mode: 'read',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'answer', note: 'Yes' },
+    status: 403,
+    code: 'integrator_read_only',
+  },
+  {
+    mode: 'super',
+    kind: 'permission',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'allow' },
+    status: 403,
+    code: 'owner_approval_required',
+  },
+] satisfies {
+  mode: 'own' | 'super' | 'read';
+  kind: 'approval' | 'decision' | 'question' | 'permission';
+  assignees: (string | null)[];
+  payload: Record<string, unknown>;
+  request: { optionId: string; note?: string };
+  status: number;
+  code: string;
+}[];
+
+it.each(RESOLVE_PARITY_CASES)(
+  '$mode resolving a $kind with $request.optionId is refused as the server does: $code',
+  ({ mode, kind, assignees, payload, request, status, code }) => {
+    const backend = new MockBackend();
+    backend.integratorMode = mode === 'own' ? null : mode;
+    const item = {
+      ...backend.inbox[0]!,
+      id: 'parity',
+      kind,
+      source: 'dev',
+      sessionId: null,
+      state: 'open' as const,
+      assignees: assignees.map((handle) => handle ?? backend.viewerHandle),
+      payload,
+      resolution: null,
+      options: ['approve', 'answer', 'allow'].map((id) => ({ id, label: id, style: 'primary' as const })),
+    };
+    backend.inbox.push(item);
+    const response = backend.handle('POST', `${base}/inbox/${item.id}/resolve`, request);
+    expect(response.status).toBe(status);
+    expect(errorCode(response)).toBe(code);
+    expect(backend.inbox.find((row) => row.id === item.id)?.state).toBe('open');
+  },
+);
+
 function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }

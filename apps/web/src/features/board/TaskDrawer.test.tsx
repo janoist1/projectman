@@ -38,6 +38,32 @@ const openMenu = async () =>
   fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.title') }));
 
 describe('task drawer lifecycle', () => {
+  it('shows the collecting refusal when an old view still offers Start', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    const start = await screen.findByRole('button', { name: t('task.start') });
+    project.backend.findTask('AC-17')!.parentKey = 'AC-24';
+    fireEvent.click(start);
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      t('errors.codes.collecting_task_not_startable'),
+    );
+    expect(project.backend.findTask('AC-24')!.assignee).toBeNull();
+  });
+
+  it('offers no start or assignee picker for a card with an open sub-card', async () => {
+    const project = mockProject();
+    const task = project.backend.findTask('AC-24')!;
+    project.backend.findTask('AC-17')!.parentKey = task.key;
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    await screen.findByRole('heading', { name: task.title });
+    await waitFor(() => expect(screen.queryByRole('button', { name: t('task.start') })).toBeNull());
+    expect(screen.queryByLabelText(t('task.assigneeLabel'))).toBeNull();
+    expect(await screen.findByText(t('taskStatus.collecting', { count: 1 }))).toBeTruthy();
+    expect(screen.getByText(t('taskStatus.next.short.collecting', { count: 1 }))).toBeTruthy();
+    expect(screen.getByText(t('taskStatus.next.todo.collecting'))).toBeTruthy();
+    expect(screen.getByText(t('task.whyBox.nobodyAuto'))).toBeTruthy();
+  });
+
   // The other reasons read their sentence and hint from the same key-by-reason path as ai_limit_reached.
   it.each(['ai_limit_reached', 'member_at_capacity', 'repo_required'] as const)(
     'shows the waiting label and owner hint for %s',
@@ -367,6 +393,32 @@ describe('task drawer labels', () => {
       { remove: ['waiting-answer'] },
       { add: ['needs-info'], comment: 'Which Acme market?' },
     ]);
+  });
+
+  it('folds the process labels of a done card behind a button and still lists every label to edit', async () => {
+    const project = mockProject();
+    project.backend.updateTask('AC-16', { labels: ['checkout', 'code-review-ok', 'qa-ok'] });
+    project.render(drawer, '/p/AC/tasks/AC-16');
+    const section = await labelsSection();
+    expect(section.querySelector('[data-label="checkout"]')).not.toBeNull();
+    const toggle = within(section).getByRole('button', { name: t('task.labels.foldedShow', { count: 2 }) });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // The controlled list is in the page even when closed, so aria-controls always points at something.
+    const folded = section.querySelector<HTMLElement>(`[id="${toggle.getAttribute('aria-controls')}"]`)!;
+    expect(folded.hidden).toBe(true);
+
+    fireEvent.click(toggle);
+    const hide = within(section).getByRole('button', { name: t('task.labels.foldedHide', { count: 2 }) });
+    expect(hide.getAttribute('aria-expanded')).toBe('true');
+    expect(folded.hidden).toBe(false);
+    expect(within(folded).getAllByText(/Code review rendben|QA rendben/)).toHaveLength(2);
+
+    fireEvent.click(hide);
+    expect(folded.hidden).toBe(true);
+
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    expect(within(section).getByText(t('task.labels.pickerAll'))).toBeTruthy();
+    expect(within(section).getByRole('button', { name: /Code review rendben/ })).toBeTruthy();
   });
 
   it('explains why a label cannot be set', async () => {
@@ -1132,6 +1184,20 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(await refineButton()).toBeTruthy();
     await waitFor(() => expect(screen.queryByText(t('task.startLoading'))).toBeNull());
     expectNoStart();
+  });
+
+  it('shows no Start placeholder for a collector while configuration is loading', async () => {
+    const project = mockProject();
+    project.backend.findTask('AC-17')!.parentKey = 'AC-24';
+    const release = holdConfig(project);
+    try {
+      project.render(drawer, '/p/AC/tasks/AC-24');
+      await screen.findByText(t('taskStatus.collecting', { count: 1 }));
+      expect(screen.queryByText(t('task.startLoading'))).toBeNull();
+      expectNoStart();
+    } finally {
+      release();
+    }
   });
 
   it('offers the Start of a card that can be started once the configuration has loaded (PM-291)', async () => {

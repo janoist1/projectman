@@ -411,6 +411,19 @@ describe('the project manager’s authority in the rules (PM-1284)', () => {
   );
 });
 
+describe('the project manager’s right to bring a member in (PM-1267)', () => {
+  it.each([
+    ['people', 'noInvolve'],
+    ['people_and_project_manager', 'involve'],
+  ] as const)('says in the rights panel what the setting %s allows', async (setting, key) => {
+    const project = mockProject();
+    project.backend.config.team.memberInvolvement = setting;
+    renderPage(project, '/?show=rule:project_manager_rights');
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(t(`howWeWork.rules.project_manager_rights.${key}`))).toBeTruthy();
+  });
+});
+
 describe('the reasons of the rules (PM-1137)', () => {
   const reasonKey = 'howWeWork.rules.assignee_fit.why';
   const ruleRow = (id: string) => ruleRows().find((row) => row.getAttribute('data-show') === `rule:${id}`);

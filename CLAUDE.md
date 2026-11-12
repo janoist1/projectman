@@ -104,6 +104,8 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
 
 - TypeScript strict, ESM, `moduleResolution: bundler` (extensionless relative imports).
 - `erasableSyntaxOnly`: no enums, namespaces or constructor parameter properties.
+- A UI change: self-check it against `docs/design/style.md#checklist-for-a-designers-review` (focus after an action
+  included) before asking for the design review.
 - `verbatimModuleSyntax`: use `import type` for type-only imports.
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).

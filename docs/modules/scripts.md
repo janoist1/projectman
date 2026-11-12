@@ -5,6 +5,23 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
+## Sorted registries and generated barrels (PM-1339)
+
+Run `npm run generate:barrels` from the repository root after adding, removing or renaming a
+source file in `packages/shared/src/` or `apps/server/src/contracts/`, and commit the generated
+`index.ts` files with the source change. Do not edit these barrels by hand. The generator
+(`scripts/barrels/generate.ts`) recursively exports TypeScript source files, excluding tests,
+declarations, snapshots and the root barrel itself. Its explicit shared-helper exclusions preserve
+the existing public API. A new private helper belongs in that exclusion list.
+
+Exports are sorted by extensionless relative module path using JavaScript's default string sort
+(case-sensitive, locale-independent). `ERROR_CODES` in `packages/shared/src/api/error-codes.ts`
+uses the same order by code: insert a new code at its alphabetical position, keeping any code-specific
+comment with it, and add its translations to both web locales. MCP imports in
+`apps/server/src/mcp/tools.ts` are sorted by module path; `TEAM_TOOL_GROUPS` is sorted by constant name.
+`apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
+committed barrels with the generator output; handover-check selects it for changes in these folders.
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -165,9 +182,17 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
-  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
-  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  Paths only a few server tests read by path run those tests (PM-1354): `deploy/mac/**` and
+  `.github/workflows/*.yml`, `projectman.structure.yaml` and `apps/server/test/architecture/**`, and
+  `scripts/merge-test/**` each have an `OWNED_PATH_RULES` entry (`scripts/merge-test/scope.ts`) with its
+  test list; a diff made only of such paths (and the rules' own tests) gets the `owned` scope: server
+  type check and those tests. A guard test fails when a server test that reads one of these paths is
+  not named by a rule. A `packages/templates/**` change runs the templates workspace and the
+  workspaces that import `@projectman/templates` (the server through the module/test graph seeded by
+  its importers); next to a shared source change it requires all workspaces.
+  Changes to `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, such paths next to other code or
+  unknown paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
   `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds

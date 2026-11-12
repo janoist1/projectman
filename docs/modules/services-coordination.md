@@ -23,7 +23,8 @@ older events and messages name it.
 - **Moves and priority.** `actorMoveRefusal` binds the project manager to the stage moves the project's
   `team.projectManagerMoves` allows; `priorityRefusal` lets it set the priority only when `team.prioritySetters`
   covers it (people and the connected owner always may). `labelRefusal`: no AI member sets a label only a person may
-  set. `reassign_task`, `cancel_task` and `reopen_task` need `team.projectManagerLifecycle` to list the action.
+  set. `reassign_task`, `cancel_task` and `reopen_task` need `team.projectManagerLifecycle` to list the action;
+  `involve_member` (PM-1267) needs `team.memberInvolvement` = `people_and_project_manager`.
 - **Prompt.** `projectManagerRule` and `projectManagerDetails` (`apps/server/src/context/system-prompt.ts`): the
   authority limits and the procedure index; the procedures are read on demand from the role guide.
 - **Configuration changes.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
@@ -181,7 +182,7 @@ up). Its source is `message`, `answer`, `approval` or `queue` (a member queue it
 
 **Write guard** (`ToolCaller.caller(ctx, tool)`, `mcp/caller.ts`). The project manager calls the reading tools
 (`OPERATOR_READ_TOOLS`) at any time; the screening tools (`OPERATOR_SCREENING_TOOLS`: `combine_questions`,
-`screen_question`, `dismiss_signal`, `triage_loop`) and the card tools (`reassign_task`, `cancel_task`, `reopen_task`)
+`screen_question`, `dismiss_signal`, `triage_loop`) and the card tools (`reassign_task`, `cancel_task`, `reopen_task`, `involve_member`)
 need no request and log no step; every other write needs an open request (`operator_no_request` 403). The decisions of
 other members, hand-overs, merges and release proposals are not coordination tools at all. The guard hands the request
 it found on to the step log, so a request expiring between the two cannot leave a write without its step. Its

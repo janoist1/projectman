@@ -1,5 +1,6 @@
 import type { EmailChannelView, EmailContact, EmailLogResponse, InboxItem } from '@projectman/shared';
 import type { Resolver } from '../../core/inbox';
+import type { Sweep } from '../../kernel';
 import type { EmailChannelEnv } from './config';
 
 export type Verdict = 'pass' | 'fail' | 'gray' | 'unknown';
@@ -29,9 +30,8 @@ export interface EmailInbound {
 export interface EmailChannelService {
   /** Processes mails the provider reader hands over and the delivery events of outgoing mails. */
   inbound: EmailInbound;
-  /** Starts the daily pruning of parked mails; `stop` ends it. */
-  start(): void;
-  stop(): void;
+  /** The daily pruning of parked mails, for the kernel's sweep list (PM-1394). */
+  pruneSweep: Sweep;
   configured(): boolean;
   view(projectKey: string): Promise<EmailChannelView>;
   setContact(projectKey: string, handle: string, wants: boolean, by: { handle: string }): EmailContact;

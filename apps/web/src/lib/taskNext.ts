@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_PROVIDER, handOnRequestOf } from '@projectman/shared';
-import type { InboxItem, LabelView, Task, TaskWait } from '@projectman/shared';
+import type { BoardCard, InboxItem, LabelView, TaskWait } from '@projectman/shared';
 import { joinNames, t } from '../i18n/t';
 import { capacityHint, capacityIntro, capacityOf, capacityReason } from './capacity';
 import { labelName } from './labels';
@@ -95,7 +95,7 @@ interface Parts {
   toStageId?: string | null;
 }
 
-export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): TaskNext | null {
+export function deriveNext(task: BoardCard, wait: TaskWait, ctx: TaskNextContext): TaskNext | null {
   const { members, pipeline, labels, myHandle } = ctx;
   const stageName = (id: string | null | undefined) => (id ? (pipeline.stageById.get(id)?.name ?? id) : '');
   const here = stageName(task.stageId);
@@ -130,6 +130,13 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
   };
 
   switch (wait.reason) {
+    case 'collecting':
+      return build({
+        head: nobodyAuto,
+        waiting: t('taskStatus.next.short.collecting', { count: wait.openSubtaskCount ?? 0 }),
+        long: t('taskStatus.next.long.collecting'),
+        todo: t('taskStatus.next.todo.collecting'),
+      });
     case 'working':
     case 'handing_off':
       return null;

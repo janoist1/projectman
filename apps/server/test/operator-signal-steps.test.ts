@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   MemberConfig,
@@ -8,9 +7,8 @@ import {
 import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 
 import type { ToolContext } from '../src/contracts';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
+
 import type { MergeRecord } from '../src/db';
-import { migrations } from '../src/db/migrations';
 import { OperatorRequests } from '../src/services/coordination';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -421,55 +419,6 @@ describe('start_member on a card', () => {
     });
     expect(h.domain.sessions.list('AR', { member: 'dev-2' })).toEqual([]);
     await expect(ask('dev-1')).resolves.toMatchObject({ recipient: { handle: 'dev-1' } });
-  });
-});
-
-describe('migration 57', () => {
-  it('keeps the old requests and steps, allows the signal source and leaves no dangling reference', () => {
-    const db = new Database(':memory:');
-    try {
-      const before = migrations.filter((item) => item.version < 57);
-      for (const migration of before) db.exec(migration.sql);
-      db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
-        INSERT INTO operator_requests (id, project_key, session_id, source, from_handle, quote, opened_at)
-          VALUES ('opr_1', 'AR', 'ses_1', 'message', 'owner', 'Do it', '2026-01-01T00:00:00.000Z');
-        INSERT INTO operator_steps (id, request_id, at, action, status)
-          VALUES ('ops_1', 'opr_1', '2026-01-01T00:01:00.000Z', 'task_start', 'done');
-        INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
-          VALUES ('sig_1', 'AR', 'idle', 'idle:AR-1:development', 'open', '2026-01-01T00:00:00.000Z');`);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(db.pragma('foreign_key_check')).toEqual([]);
-      const repos = createRepositories(db);
-      expect(repos.operatorRequests.steps('opr_1')).toMatchObject([
-        { id: 'ops_1', action: 'task_start', status: 'done', signalId: null },
-      ]);
-      expect(repos.operatorSignals.get('sig_1')).toMatchObject({
-        caseKey: 'idle:AR-1:development',
-        followUpAt: null,
-      });
-      db.prepare(
-        `INSERT INTO operator_requests (id, project_key, session_id, source, from_handle, quote, opened_at)
-          VALUES ('opr_2', 'AR', 'ses_1', 'signal', '@signals', '', '2026-01-02T00:00:00.000Z')`,
-      ).run();
-      db.prepare(
-        `INSERT INTO operator_steps (id, request_id, at, action, status, signal_id)
-          VALUES ('ops_2', 'opr_2', '2026-01-02T00:01:00.000Z', 'task_start', 'done', 'sig_1')`,
-      ).run();
-      expect(repos.operatorRequests.stepsOfSignal('sig_1')).toMatchObject([
-        { id: 'ops_2', signalId: 'sig_1' },
-      ]);
-      expect(() =>
-        db
-          .prepare(
-            `INSERT INTO operator_requests (id, project_key, session_id, source, from_handle, quote, opened_at)
-              VALUES ('opr_3', 'AR', 'ses_1', 'bogus', 'x', '', '2026-01-02T00:00:00.000Z')`,
-          )
-          .run(),
-      ).toThrow();
-    } finally {
-      db.close();
-    }
   });
 });
 

@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AuthService } from '../src/auth';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, migrations, openDatabase } from '../src/db';
+import { createRepositories, openDatabase } from '../src/db';
 import type { Db, Repositories } from '../src/db';
 
 const START = '2026-10-17T10:00:00.000Z';
@@ -229,101 +228,5 @@ describe('integrator key modes and lifecycle', () => {
     repos.ownerAccounts.revoke('other', 'owner', START);
     expect(auth.resolveIntegratorCredential(foreign.secret, 'rest')).toBeNull();
     expect(auth.integratorAccessKeys('other')[0]!.lastUsedAt).toBeNull();
-  });
-});
-
-describe('integrator credential migration', () => {
-  it('audits only newly revoked legacy rows and leaves explicit keys and earlier audit untouched', () => {
-    const db = openDatabase(':memory:');
-    try {
-      const repos = createRepositories(db);
-      repos.users.insert(user('owner'));
-      const insert = db.prepare(`INSERT INTO integrator_keys
-        (id, user_id, prefix, token_hash, created_at, mode, revoked_at, expires_at)
-        VALUES (?, 'owner', ?, ?, ?, ?, ?, ?)`);
-      for (const [id, mode, revokedAt, expiresAt] of [
-        ['active', 'legacy', null, null],
-        ['revoked', 'legacy', START, null],
-        ['super', 'super', null, null],
-        ['read', 'read', null, null],
-      ] as const)
-        insert.run(id, id, id, START, mode, revokedAt, expiresAt);
-      repos.integratorKeyAudit.insert('owner', {
-        keyId: 'revoked',
-        prefix: 'revoked',
-        mode: 'legacy',
-        action: 'revoked',
-        at: START,
-      });
-      const migration = migrations.find((m) => m.name === 'revoke legacy integrator keys')!;
-      db.transaction(() => db.exec(migration.sql))();
-      const keys = repos.integratorKeys.list('owner', START);
-      expect(keys.filter((k) => k.mode !== 'legacy').map((k) => k.state)).toEqual(['active', 'active']);
-      expect(keys.filter((k) => k.mode === 'legacy').every((k) => k.state === 'revoked')).toBe(true);
-      const entries = repos.integratorKeyAudit.list('owner', { limit: 50 }).entries;
-      expect(entries).toHaveLength(2);
-      expect(entries.find((e) => e.keyId === 'revoked')!.at).toBe(START);
-      for (const id of ['active'])
-        expect(entries.find((e) => e.keyId === id)).toMatchObject({
-          action: 'revoked',
-          mode: 'legacy',
-          at: keys.find((k) => k.id === id)!.revokedAt,
-        });
-      db.transaction(() => db.exec(migration.sql))();
-      expect(repos.integratorKeyAudit.list('owner', { limit: 50 }).entries).toEqual(entries);
-    } finally {
-      db.close();
-    }
-  });
-
-  it('revokes an old credential, preserves its history and migrates idempotently', () => {
-    const db = new Database(':memory:');
-    try {
-      const version = migrations.find(
-        (migration) => migration.name === 'explicit integrator key modes and lifecycle audit',
-      )!.version;
-      for (const migration of migrations.filter((migration) => migration.version < version))
-        db.exec(migration.sql);
-      db.pragma(`user_version = ${version - 1}`);
-      db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
-        'owner',
-        'Owner',
-        'owner@example.com',
-        'hash',
-        START,
-      );
-      db.prepare(
-        `INSERT INTO integrator_keys (id, user_id, prefix, token_hash, created_at, last_used_at)
-        VALUES ('old', 'owner', 'pmi_old', 'old-hash', ?, ?)`,
-      ).run(START, START);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(repos.integratorKeys.list('owner', START)).toEqual([
-        {
-          id: 'old',
-          prefix: 'pmi_old',
-          state: 'revoked',
-          createdAt: START,
-          lastUsedAt: START,
-          expiresAt: null,
-          revokedAt: expect.any(String),
-          mode: 'legacy',
-          lastUsedChannel: null,
-        },
-      ]);
-      expect(repos.integratorKeys.resolveKey('old-hash', START)).toBeNull();
-      const entries = repos.integratorKeyAudit.list('owner', { limit: 50 }).entries;
-      expect(entries).toEqual([
-        expect.objectContaining({
-          keyId: 'old',
-          mode: 'legacy',
-          action: 'revoked',
-          at: repos.integratorKeys.list('owner', START)[0]!.revokedAt,
-        }),
-      ]);
-    } finally {
-      db.close();
-    }
   });
 });

@@ -2,7 +2,12 @@ import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
-import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
+import {
+  BASELINE_VERSION,
+  LATEST_SCHEMA_VERSION,
+  hasSchemaObjects,
+  schemaRefusal,
+} from '../../apps/server/src/db';
 import { LIVE_SESSION_STATES } from '../../apps/server/src/runtime/sessions';
 import { databaseFiles, databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository, redactRemoteUrl } from './git';
@@ -378,12 +383,17 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
     try {
       const db = snapshot.db;
       database.schemaVersion = Number(db.pragma('user_version', { simple: true }));
-      if (database.schemaVersion > LATEST_SCHEMA_VERSION)
+      const refusal = schemaRefusal(database.schemaVersion, hasSchemaObjects(db));
+      if (refusal)
         add(
           'blocker',
-          'schema_newer',
+          database.schemaVersion > LATEST_SCHEMA_VERSION
+            ? 'schema_newer'
+            : database.schemaVersion < BASELINE_VERSION && database.schemaVersion > 0
+              ? 'schema_before_baseline'
+              : 'schema_unversioned',
           'db.sqlite',
-          `the database is at schema ${database.schemaVersion}, this build knows ${LATEST_SCHEMA_VERSION}: use a newer build, never an older one`,
+          refusal,
         );
       else if (database.schemaVersion < LATEST_SCHEMA_VERSION)
         add(

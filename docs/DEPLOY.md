@@ -3,6 +3,29 @@
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
 and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and the connected Claude's access.
 
+## A database from before the baseline (PM-1381)
+
+The schema baseline replaces migrations 1–152. A database at version 1–151 must
+first be opened once with **BASELINE_RELEASE_PENDING** (the release immediately before
+this change), or a later release from before the baseline switch. Only then start
+the current release. The server refuses an older database before applying any migration
+and names the required release in its error.
+
+This includes a Litestream point-in-time restore from before schema 152, the pre-hybrid
+Mac database used by `instance activate --discard-cloud-data`, and an old development
+home (`~/.projectman-dev`). Keep the original backup and perform the upgrade on its
+restored copy. For the cloud, start the pre-baseline release image against that copy
+once, then deploy the current image. Build artifacts expire after seven days: if the
+old image is unavailable, rebuild at the pre-baseline release commit using
+`projectman-job.yml` or `image-build`. For Mac single mode, use that release's packaged
+server for the first start.
+
+The engine does not open the database. The regular release order remains hub first,
+then engines; before deploying the baseline build the hub must already be at schema
+152 or later. An existing database at that version needs no schema change. A rollback
+to the preceding image is safe when the new release adds no further migrations.
+The release notes for the switch must also name the pre-baseline release above.
+
 ## Engine app build (PM-1104, PM-1122)
 
 Build on the release Mac with full Xcode, using the self-contained package produced by

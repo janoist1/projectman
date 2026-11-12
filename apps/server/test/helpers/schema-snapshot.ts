@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Db } from '../../src/db/database';
 
 /** Stable schema evidence, independent of creation order and SQLite's internal tables. */
-export function schemaSnapshot(db: Db) {
+function schemaSnapshot(db: Db) {
   const shadows = new Set(
     (db.pragma('table_list') as { name: string; type: string }[])
       .filter((table) => table.type === 'shadow')

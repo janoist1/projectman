@@ -2,7 +2,12 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDomainContext, createEventBus } from '../src/core/base';
 import { createRepositories, migrate } from '../src/db';
-import { CHANGE_TRIGGER_TABLES, UNJOURNALED_TABLES, changeTriggerName } from '../src/db/change-triggers';
+import {
+  CHANGE_TRIGGER_TABLES,
+  UNJOURNALED_TABLES,
+  changeTriggerName,
+  changeTriggerSql,
+} from '../src/db/change-triggers';
 import type { Repositories } from '../src/db';
 import { capturingLogger } from './helpers/fakes';
 
@@ -36,16 +41,26 @@ describe('project change journal (database)', () => {
   afterEach(() => db.close());
 
   it('has a trigger for every table and statement it announces (a table rebuild must create them again)', () => {
-    const names = new Set(
-      (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'`).all() as { name: string }[]).map(
-        (row) => row.name,
-      ),
-    );
-    for (const entry of CHANGE_TRIGGER_TABLES)
-      for (const statement of entry.on)
-        expect(names.has(changeTriggerName(entry.table, statement)), `${entry.table} ${statement}`).toBe(
-          true,
-        );
+    const triggers = () =>
+      new Map(
+        (
+          db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").all() as {
+            name: string;
+            sql: string;
+          }[]
+        ).map((row) => [row.name, row.sql.replace(/\s+/g, ' ').trim()]),
+      );
+    const before = triggers();
+    for (const entry of CHANGE_TRIGGER_TABLES) {
+      for (const statement of entry.on) {
+        const name = changeTriggerName(entry.table, statement);
+        expect(before.has(name), `${entry.table} ${statement}`).toBe(true);
+        db.exec(`DROP TRIGGER "${name}"`);
+      }
+      // Future migrations rebuild these triggers from the current registry, not historical snapshots.
+      db.exec(changeTriggerSql(entry));
+    }
+    expect(triggers()).toEqual(before);
   });
 
   it('keeps a stable generation and numbers the entries in commit order', () => {

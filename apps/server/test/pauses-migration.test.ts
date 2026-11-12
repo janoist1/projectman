@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
-import { migrations } from '../src/db/migrations';
 
 const pause = {
   id: 'pau_1',
@@ -16,13 +15,14 @@ const pause = {
   forceAfterMs: 300_000,
 };
 
-describe('pauses migration (PM-219)', () => {
-  it('adds the tables to a database from before them, with one open pause per scope', () => {
+describe('pauses baseline schema', () => {
+  it('allows one open pause per scope', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 30)) db.exec(migration.sql);
-      db.pragma('user_version = 30');
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`);
+      migrate(db);
+      db.exec(
+        `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`,
+      );
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(31);
       const { pauses } = createRepositories(db);
@@ -48,11 +48,10 @@ describe('pauses migration (PM-219)', () => {
     }
   });
 
-  it("keeps the pauses of a database from before the engine scope and lets an engine's shutdown pause in (PM-1159)", () => {
+  it('keeps engine shutdown pauses separate from project pauses', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 135)) db.exec(migration.sql);
-      db.pragma('user_version = 135');
+      migrate(db);
       db.exec(
         `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
          INSERT INTO pauses (id, scope, project_key, kind, source, reason, requested_by, requested_at, force_after_ms)

@@ -60,7 +60,7 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   time), never a rule and never content.
 - **Coverage matrix.** `CHANGE_TRIGGER_TABLES` lists the tables the card's read model is made of, with the
   statements that announce, the project and the entity: the card and its side tables (links, attachments,
-  covers, fix limits, hand-ons and hand-overs, review pins, loops, waits, deferred starts, full-test runs)
+  covers, fix limits, hand-ons and hand-overs, review pins, loops, deferred starts, full-test runs)
   name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the project manager's requests (`operator_requests`) and
@@ -71,7 +71,9 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
   stale, so a new table makes someone decide. A migration that rebuilds a covered table drops its
   triggers and must create them again (the same test); a new state table needs a migration that calls
-  `changeTriggerSql`.
+  `changeTriggerSql(entry)` and a new entry in the list. PM-1381 freezes the existing
+  triggers in `db/schema/baseline-0152.ts`; historical version-specific trigger lists
+  are no longer replayed.
 - **Configuration.** The configuration is git's; the `projects` record carries its version
   (`config_version`). The `configuration` entry (entity `null`) is written when a project is created and
   when the record gets a **new** version, whichever path writes it (a commit, a revert, the sync from the

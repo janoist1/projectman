@@ -1004,8 +1004,13 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes), and `feedback_deletions` (PM-1189, migration 138: who deleted a mark and when, with no
 content; the mark, its thread and its screenshot are deleted for good, a card it led to stays and gets
 a `feedback_deleted` timeline line); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
-queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
-the server refuses a database a newer build migrated.
+queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table.
+Fresh databases start from the frozen schema baseline in
+`apps/server/src/db/schema/baseline-0152.ts` (PM-1381); subsequent schema changes are
+numbered migrations in `apps/server/src/db/migrations.ts`. The server refuses databases
+at versions 1–151, naming the pre-baseline release that must upgrade them first
+([recovery procedure](DEPLOY.md#a-database-from-before-the-baseline-pm-1381)).
+It also refuses a database a newer build migrated and an unversioned nonempty database.
 
 **Handle columns (PM-1025).** Every column that stores a member handle is registered in
 `apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,

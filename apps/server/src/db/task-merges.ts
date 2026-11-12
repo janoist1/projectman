@@ -268,7 +268,16 @@ export function createTaskMergeRepository(db: Db) {
           { state: MergeRecord['state']; queueRank: number | null; prioritizedAt: string | null } | undefined;
         if (['merged', 'failed', 'blocked', 'cancelled'].includes(row.state))
           row = { ...row, retry: undefined };
-        if (row.state === 'queued' && previous?.state !== 'queued' && !row.retry) {
+        if (
+          row.state === 'queued' &&
+          previous?.state === 'running' &&
+          previous.queueRank !== null &&
+          !row.retry
+        ) {
+          // A system requeue (shutdown, recovery, a retired train) did not take the merge out of the queue:
+          // it keeps the place it had. Only a person's request, failure or fix puts a row at the tail.
+          row = { ...row, queueRank: previous.queueRank };
+        } else if (row.state === 'queued' && previous?.state !== 'queued' && !row.retry) {
           const rank = db
             .prepare(
               "SELECT MAX(queue_rank) AS rank FROM task_merges WHERE project_key = ? AND repo = ? AND state = 'queued'",

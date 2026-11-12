@@ -1528,6 +1528,67 @@ describe('merge train execution', () => {
     expect(h.domain.tasks.get('AR', 'AR-2').merged?.check?.runId).toBe('original-check');
   });
 
+  describe('a running manifest whose first member left it', () => {
+    /** A `running` train of every queued row, the first one blamed alone (failed, no `trainId`): no run holds it. */
+    async function interruptedSplit(count: number) {
+      await setup(count);
+      peerBusy = true;
+      const rows = Array.from({ length: count }, (_, i) => row(`AR-${i + 1}`)!);
+      const trainId = 'mrg_recovery0002';
+      h.repos.mergeTrains.save({
+        id: trainId,
+        projectKey: 'AR',
+        repo: 'web',
+        base: 'main',
+        engineId: 'local',
+        reviewTest,
+        state: 'running',
+        step: 'merging',
+        landed: 'nowhere',
+        members: rows.map((r) => ({
+          mergeId: r.id,
+          taskKey: r.taskKey,
+          commit: r.commit!,
+          branch: r.branch!,
+          startedBy: r.startedBy!,
+          startedAt: r.startedAt!,
+        })),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      rows.forEach((r, i) =>
+        h.repos.taskMerges.save(
+          i === 0
+            ? { ...r, state: 'failed', step: undefined }
+            : { ...r, trainId, state: 'running', step: 'merging' },
+        ),
+      );
+      return trainId;
+    }
+
+    it('queues the first member still in it at startup', async () => {
+      const trainId = await interruptedSplit(3);
+      await h.domain.merges.init();
+      expect(row('AR-2')?.state).toBe('queued');
+      expect(row('AR-3')?.state).toBe('running');
+      expect(h.repos.mergeTrains.get(trainId)?.state).toBe('running');
+    });
+
+    it('retires the manifest at startup when no member is left in it', async () => {
+      const trainId = await interruptedSplit(2);
+      h.repos.taskMerges.save({ ...row('AR-2')!, state: 'failed', trainId: undefined });
+      await h.domain.merges.init();
+      expect(h.repos.mergeTrains.get(trainId)?.state).toBe('cancelled');
+      expect(h.repos.mergeTrains.listRunning()).toHaveLength(0);
+    });
+
+    it('is recovered by merge_task on a member instead of answered as fine', async () => {
+      await interruptedSplit(3);
+      await h.domain.merges.start('AR', 'AR-3', aiActor('dev-1'));
+      expect(row('AR-2')?.state).toBe('queued');
+    });
+  });
+
   it('recovers local-only publication after a DB transaction failure without another check or advance', async () => {
     await setup(2, false);
     const save = h.repos.mergeTrains.save.bind(h.repos.mergeTrains);

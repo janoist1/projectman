@@ -350,7 +350,15 @@ export class Merges {
         // restart has none yet. Without either, the row is stuck.
         const holder = this.queue.slot(projectKey, row.repo);
         if (holder && runs(holder, row)) return task;
-        if (row.trainId && this.deps.ctx.repos.mergeTrains.get(row.trainId)?.state === 'running') return task;
+        const train = row.trainId ? this.deps.ctx.repos.mergeTrains.get(row.trainId) : null;
+        if (train?.state === 'running') {
+          // No run holds the slot for this train: recover it as at startup (its leader queues, or it retires).
+          if (!holder) {
+            await this.trains.scheduleRecovery(train);
+            this.pump();
+          }
+          return tasks.get(projectKey, taskKey);
+        }
         await this.steps.abandon(
           { row, pushing: row.landed === 'remote' },
           new Error('the merge lost its run; retry with merge_task to resume safely'),

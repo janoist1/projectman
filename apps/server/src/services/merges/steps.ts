@@ -910,18 +910,20 @@ export class MergeSteps {
 
   /** The merge fails for good, with the event and the notification; a train blames a member through it too (PM-844). */
   async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
-    const { ctx, timeline } = this.deps;
-    ctx.unitOfWork(() => {
-      this.save(row, { state: 'failed', step: undefined, failure, block: undefined });
-      this.clearAlert(row);
-      timeline.append({
-        projectKey: row.projectKey,
-        taskKey: row.taskKey,
-        actor: SYSTEM_ACTOR,
-        type: 'task_merge_failed',
-        data: { ...failure, mergeId: row.id },
-      });
-    });
+    this.deps.ctx.unitOfWork(() => this.markFailed(row, failure));
     await this.notify(row, config);
+  }
+
+  /** The state, alert and event of `fail`, without the notification: the caller holds the unit of work. */
+  markFailed(row: MergeRecord, failure: MergeFailure): void {
+    this.save(row, { state: 'failed', step: undefined, failure, block: undefined });
+    this.clearAlert(row);
+    this.deps.timeline.append({
+      projectKey: row.projectKey,
+      taskKey: row.taskKey,
+      actor: SYSTEM_ACTOR,
+      type: 'task_merge_failed',
+      data: { ...failure, mergeId: row.id },
+    });
   }
 }

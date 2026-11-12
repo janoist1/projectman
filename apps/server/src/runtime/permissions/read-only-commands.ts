@@ -80,8 +80,9 @@ const gitRule: Rule = (args) => {
     case 'branch':
       return isBranchListing(rest);
     case 'grep':
-      // `-O` and `--open-files-in-pager` run a program with the matching files.
-      return !rest.some((arg) => arg.startsWith('-O') || namesOption(arg, '--open-files-in-pager', 4));
+      // `-O` and `--open-files-in-pager` run a program with the matching files, `-O` in a short
+      // option cluster too.
+      return !rest.some((arg) => hasShortOption(arg, 'O') || namesOption(arg, '--open-files-in-pager', 4));
     default:
       return true;
   }

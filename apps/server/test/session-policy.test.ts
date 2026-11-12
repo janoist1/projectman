@@ -167,6 +167,13 @@ describe('automatic command policy', () => {
     'npm test && git push',
     'git\tpush',
     'git commit -m "Example" && gh pr create',
+    // The runner's rule reads past global options and quotes.
+    'git -C . push origin HEAD',
+    'git --no-pager push',
+    "git 'push'",
+    'gh -R o/r pr create',
+    // A quote inside a here-document's body ends with the body.
+    "cat <<EOF\nx'\nEOF\ngit push 'y'",
   ])('denies local-only publishing: %s', (command) => {
     expect(verdict(command)).toEqual({
       behavior: 'deny',
@@ -180,6 +187,8 @@ describe('automatic command policy', () => {
     'gh pr view 12',
     'git status',
     'git remote add push-mirror /example',
+    "git commit -F - <<'EOF'\nDon't publish yet\nEOF",
+    "git commit -m \"$(cat <<'EOF'\nDon't publish yet\nEOF\n)\"",
   ])('does not treat quoted prose or other commands as publishing: %s', (command) => {
     expect(verdict(command)).toBeNull();
   });
@@ -192,7 +201,7 @@ describe('automatic command policy', () => {
     expect(verdict(command)).toEqual({ behavior: 'allow' });
   });
 
-  // Whatever the allow rules understand, the deny rule reads the raw text: a command the parser
+  // Whatever the allow rules understand, the deny rule scans any line: a command the parser
   // refuses is denied just the same.
   it.each([
     'git push origin HEAD &',
@@ -208,6 +217,9 @@ describe('automatic command policy', () => {
     'npm ci && gh pr merge 12 || true',
     'git status && git push',
     'git log | head && git push',
+    // A shell that reads its script from the input may publish: the scan cannot see the script.
+    'ls | sh',
+    'npm ci | sh',
   ])(
     'denies local-only publishing in a command that cannot be parsed or is otherwise allowed: %s',
     (command) => {
@@ -229,9 +241,10 @@ describe('automatic command policy', () => {
   );
 
   it('leaves publishing from GitHub repositories for a human, regardless of cwd', () => {
-    expect(
-      commandVerdict({ ...input, task: { repo: 'web' }, toolInput: { command: 'git push' } }),
-    ).toBeNull();
+    for (const command of ['git push', 'ls | sh'])
+      expect(
+        commandVerdict({ ...input, task: { repo: 'web' }, readableRoots: [cwd], toolInput: { command } }),
+      ).toBeNull();
     expect(
       commandVerdict({
         ...input,
@@ -239,6 +252,19 @@ describe('automatic command policy', () => {
         toolInput: { command: 'git push' },
       })?.behavior,
     ).toBe('deny');
+  });
+
+  // Each `eval` reads the rest of its command again: the scan keeps to a budget and stops there.
+  it('denies at once a line whose nested readings outgrow the scan', () => {
+    const started = Date.now();
+    expect(verdict(`${'eval '.repeat(60)}ls`)?.behavior).toBe('deny');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('reads a long command only as far as it decides', () => {
+    const files = Array.from({ length: 300 }, (_, i) => `f${i}.ts`).join(' ');
+    expect(verdict(`git add ${files}`)?.behavior).not.toBe('deny');
+    expect(verdict(`git -C . ${'-p '.repeat(200)}status`)?.behavior).toBe('deny');
   });
 
   it.each([
@@ -991,7 +1017,6 @@ describe('the commands of the first trial', () => {
       'npm ci | cat ../outside',
       'npm ci | tail -f log',
       'npm ci | rm -rf dist',
-      'npm ci | sh',
       'npm ci | xargs rm',
       'npm ci | npm ci',
       'npm ci | git add -A',
@@ -2096,7 +2121,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'ls || rm -rf x',
     'ls | rm',
     'rm | ls',
-    'ls | sh',
     'git status && npm install left-pad',
     '/bin/cat README.md',
     './cat README.md',

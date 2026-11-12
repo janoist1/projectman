@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { Link } from 'react-router';
-import type { MemberView, Task } from '@projectman/shared';
+import type { BoardCard, MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import { capacityHint, capacityRows } from '../../lib/capacity';
@@ -18,7 +18,7 @@ export function CapacityNote({
 }: {
   member: Pick<MemberView, 'displayName'>;
   capacity: Capacity;
-  cards: readonly Task[];
+  cards: readonly BoardCard[];
 }) {
   const { key } = useProject();
   const rows = capacityRows(capacity);

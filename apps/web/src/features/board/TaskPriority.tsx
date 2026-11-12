@@ -1,6 +1,6 @@
 import { useId, useRef } from 'react';
 import { TASK_PRIORITIES } from '@projectman/shared';
-import type { Task, TaskPriority as Priority } from '@projectman/shared';
+import type { BoardCard, TaskPriority as Priority } from '@projectman/shared';
 import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { PriorityMark } from '../../components/PriorityMark';
@@ -10,7 +10,7 @@ import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
 
 /** Shared by the drawer and expanded view; saves immediately and follows live card updates. */
-export function TaskPrioritySelect({ task, help }: { task: Task; help?: string }) {
+export function TaskPrioritySelect({ task, help }: { task: BoardCard; help?: string }) {
   const { key, can } = useProject();
   const update = useUpdateTask(key);
   const id = useId();

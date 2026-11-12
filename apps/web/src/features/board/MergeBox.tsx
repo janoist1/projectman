@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { useRef, useState } from 'react';
 import { isMergeFixer, MERGE_ENGINE_WAIT_MINUTES, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
-import type { ProjectConfig, StartMergeRequest, Task, TaskMergeState } from '@projectman/shared';
+import type { BoardCard, ProjectConfig, StartMergeRequest, TaskMergeState } from '@projectman/shared';
 import { usePrioritizeMerge, useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -31,7 +31,7 @@ import styles from './SignalBox.module.css';
 import box from './MergeBox.module.css';
 
 interface MergeBoxProps {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   myHandle: string | null;
   config?: ProjectConfig;

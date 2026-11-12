@@ -109,6 +109,19 @@ describe('web GET contracts and SQL budgets', () => {
     }
   });
 
+  // PM-1336: the descriptions made most of the board's bytes; the drawer reads them from the task's detail.
+  it('keeps the board cards without descriptions and within a size budget per card', async () => {
+    const { domain } = h.app.projectman;
+    await domain.tasks.create('AR', { title: 'Long card', description: 'x'.repeat(20_000) }, OWNER_ACTOR);
+    const response = await inject(h.app, 'GET', routes.board('AR'), cookie);
+    const { tasks } = response.json() as { tasks: Record<string, unknown>[] };
+    expect(tasks.length).toBeGreaterThan(20);
+    for (const card of tasks) {
+      expect(card).not.toHaveProperty('description');
+      expect(JSON.stringify(card).length).toBeLessThanOrEqual(BOARD_CARD_BYTES);
+    }
+  });
+
   it('keeps the closed card measure SQL count constant from 20 to 200 measured cards', async () => {
     const { domain, repos } = h.app.projectman;
     const template = repos.tasks.get('AR-1')!;
@@ -171,3 +184,6 @@ describe('web GET contracts and SQL budgets', () => {
     }
   });
 });
+
+/** The most bytes one card may take on the board. */
+const BOARD_CARD_BYTES = 1000;

@@ -314,7 +314,7 @@ export const PROXIMITIES = ['direct', 'rule', 'module', 'name', 'graph'] as cons
 /** How many of the `name` tests run whatever the cap says (the best-ranked ones). */
 export const NAME_TESTS_ALWAYS = 10;
 /** How many of the `module` tests run whatever the cap says (the best-ranked ones). */
-export const MODULE_TESTS_ALWAYS = 10;
+const MODULE_TESTS_ALWAYS = 10;
 export type Proximity = (typeof PROXIMITIES)[number];
 
 const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({

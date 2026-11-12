@@ -165,6 +165,7 @@ import {
   holdersAllow,
   isArchivedTheme,
   isBuiltInRole,
+  isBusySession,
   isLiveSession,
   isOnLeave,
   isRequiredProjectManager,
@@ -6713,13 +6714,7 @@ export class MockBackend {
     if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
       return 'previous_run_live';
     if (this.memberLoad(member.handle) >= member.capacity) return 'member_at_capacity';
-    if (
-      aiLimitReached(
-        this.config,
-        live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length,
-      )
-    )
-      return 'ai_limit_reached';
+    if (aiLimitReached(this.config, live.filter(isBusySession).length)) return 'ai_limit_reached';
     // Like the server: after the AI limit, before the plan usage (PM-324).
     if (provider === 'nanogpt') {
       const status = this.providerStatus.nanogpt;
@@ -6847,7 +6842,7 @@ export class MockBackend {
   }
 
   private flushTeamMessages(session: Session): void {
-    if (!['idle', 'waiting_input'].includes(session.state)) return;
+    if (session.state !== 'idle' && session.state !== 'waiting_input') return;
     // Held while the team is paused; the resume flushes them.
     if (this.pauses.isPaused()) return;
     for (const message of this.messages) {

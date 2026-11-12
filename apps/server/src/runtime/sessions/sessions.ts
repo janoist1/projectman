@@ -1,6 +1,7 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
+  isBusySession,
   isLiveSessionState,
   LIVE_SESSION_STATES,
   SESSION_CHAT_WINDOW,
@@ -115,8 +116,6 @@ import { memberAudience } from './audience';
 import { SessionContextInput } from './context-input';
 
 export { LIVE_SESSION_STATES } from '@projectman/shared';
-/** A turn is in progress: these count against `maxConcurrentAi`. */
-const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 
 export { MESSAGE_SEPARATOR } from './launch';
 export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
@@ -718,8 +717,9 @@ export class SessionOrchestrator {
 
   /** Running AI sessions with a turn in progress, across all projects. */
   busyCount(): number {
-    return this.ctx.repos.sessions.listInStates(BUSY_SESSION_STATES).filter((s) => this.isRunning(s.id))
-      .length;
+    return this.ctx.repos.sessions
+      .listInStates(LIVE_SESSION_STATES)
+      .filter((s) => isBusySession(s) && this.isRunning(s.id)).length;
   }
 
   /**

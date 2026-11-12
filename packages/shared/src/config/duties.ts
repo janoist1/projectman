@@ -2,7 +2,7 @@ import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain
 import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
-import { isLiveSession } from '../domain/live-session';
+import { isEngagedSessionState, isLiveSession } from '../domain/session-state';
 import type { Session, SessionState } from '../domain/session';
 import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
@@ -118,12 +118,6 @@ export function hasCardRole(
   return stage?.kind === 'step' && stageOwners(config, stage).includes(handle);
 }
 /**
- * Session states of a member that is doing something now: a turn runs, or it waits for an answer.
- * The server's `BUSY_SESSION_STATES` (the concurrency limit) leaves out `waiting_input`: a session
- * waiting for a person's answer does no work, but its member still holds the task.
- */
-const ENGAGED_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission', 'waiting_input'];
-/**
  * Whether a member's live session on an open task is work it does now (what counts against its
  * capacity): a turn is running or waiting for an answer, or the task sits in a stage the member
  * works in (the assignee of a work stage, an owner of a step or release stage). A session idling after the
@@ -168,7 +162,7 @@ export function isSessionAtWork(
   session: Pick<Session, 'state'>,
   signals: { awaitsFirstTurn: boolean; pendingInput: boolean; messageOnItsWay: boolean },
 ): boolean {
-  if (ENGAGED_SESSION_STATES.includes(session.state)) return true;
+  if (isEngagedSessionState(session.state)) return true;
   return (
     session.state === 'idle' && (signals.awaitsFirstTurn || signals.pendingInput || signals.messageOnItsWay)
   );
@@ -182,7 +176,7 @@ function isWorkingInStage(
   handle: string,
   sessionState: SessionState,
 ): boolean {
-  if (ENGAGED_SESSION_STATES.includes(sessionState)) return true;
+  if (isEngagedSessionState(sessionState)) return true;
   if (!stage) return false;
   if (stage.kind === 'work') return task.assignee ? task.assignee === handle : stage.owners.includes(handle);
   return stage.kind !== 'queue' && stage.kind !== 'done' && stage.owners.includes(handle);

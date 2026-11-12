@@ -4,7 +4,7 @@ import {
   memberOf,
   stageIndex,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   SYSTEM_SENDER,
 } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -141,7 +141,7 @@ export class StageHandOver {
     const { projectKey, key: taskKey } = change.task;
     const config = this.projects.cachedConfig(projectKey);
     const stage = config && stageOf(config, change.to);
-    const owners = config && stage ? stageOwners(config, stage) : [];
+    const owners = config && stage ? cardStageOwners(config, stage, change.task) : [];
     let waitsFor =
       resumeMember ??
       (stage?.kind === 'work'
@@ -157,7 +157,7 @@ export class StageHandOver {
         : stage?.kind === 'step' &&
             !isRefinementStage(stage) &&
             task.assignee !== resumeMember &&
-            stageOwners(config, stage).includes(resumeMember);
+            cardStageOwners(config, stage, task).includes(resumeMember);
     };
     return {
       key: resumeMember
@@ -241,7 +241,7 @@ export class StageHandOver {
           throw conflict('full_test_pending', `task ${taskKey} waits for the full test of its commit`, {
             taskKey,
           });
-        const owners = stageOwners(config, stage)
+        const owners = cardStageOwners(config, stage, task)
           .filter((handle) => !resumeMember || handle === resumeMember)
           .map((handle) => memberOf(config, handle))
           .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);

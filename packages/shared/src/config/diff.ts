@@ -98,6 +98,8 @@ const STAGE_KEYS = {
   columnId: 'column',
   duty: 'duty',
   owners: 'owners',
+  // The small-card rule only changes who owns the stage; history shows it as an owners change.
+  smallCards: 'owners',
   gate: 'gate',
 } as const satisfies { [K in keyof Stage]-?: StageField | null };
 

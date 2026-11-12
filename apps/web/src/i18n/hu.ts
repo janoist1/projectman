@@ -8079,6 +8079,10 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
+      small_cards_not_step: 'A kis kártyák szabálya csak lépés fajtájú lépésen állhat.',
+      small_cards_unknown_owner: 'A kis kártyák gazdája nem tagja a projektnek.',
+      small_cards_invalid_path:
+        'Hibás útvonalminta: nem lehet üres, ‹/›-rel kezdődő, ‹.› vagy ‹..› szegmenses, és legfeljebb 200 karakter.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
       compute_jobs_github: 'A gépi feladatokhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',

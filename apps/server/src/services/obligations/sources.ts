@@ -10,7 +10,7 @@ import {
   pullSourceStage,
   stageIndex,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   stepResult,
 } from '@projectman/shared';
 import type {
@@ -293,7 +293,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
         // A card in a merge is the merge's: the `merge` kind follows it.
         if (stage?.kind !== 'step' || task.merge) continue;
         const since = stageEntered(task);
-        for (const owner of stageOwners(config, stage)) {
+        for (const owner of cardStageOwners(config, stage, task)) {
           if (!isAi(config, owner)) continue;
           const result = stepResult(config, task, owner);
           if (!result || result.gate.every((label) => task.labels.includes(label))) continue;
@@ -320,7 +320,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       const { config } = project;
       const stage = stageOf(config, stageIdOf(row));
       if (!task || task.status === 'cancelled' || stage?.kind !== 'step') return 'cancelled';
-      if (!stageOwners(config, stage).includes(responsibleOf(row))) return 'cancelled';
+      if (!cardStageOwners(config, stage, task).includes(responsibleOf(row))) return 'cancelled';
       const subjectIndex = stageIndex(config.pipeline, stage.id);
       const nowIndex = stageIndex(config.pipeline, task.stageId);
       if (nowIndex > subjectIndex) return 'fulfilled';

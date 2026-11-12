@@ -1583,6 +1583,43 @@ describe('system prompt', () => {
     });
   });
 
+  it('tells the reviewer a card is small only when the stage gave it to them as a small card (PM-1378)', () => {
+    const project = buildProject();
+    project.pipeline.stages.find((s) => s.id === 'code_review')!.smallCards = {
+      maxPoints: 3,
+      owners: ['code-review'],
+      centralPaths: [],
+    };
+    const promptOf = (small: boolean) =>
+      builder.build(
+        input({
+          handle: 'code-review',
+          project,
+          task: makeTask({
+            stageId: 'code_review',
+            stageOwnerPick: { stageId: 'code_review', small, reason: { code: 'small', points: 2 } },
+          }),
+        }),
+      ).appendSystemPrompt;
+    expect(promptOf(true)).toContain('This is a small card');
+    expect(promptOf(false)).not.toContain('This is a small card');
+  });
+
+  it('names the holders of the duty as owners of a stage that lists none, with the small-card rule on or off (PM-1378)', () => {
+    const stageLine = (rule: boolean) => {
+      const project = buildProject();
+      const stage = project.pipeline.stages.find((s) => s.id === 'code_review')!;
+      delete stage.owners;
+      if (rule) stage.smallCards = { maxPoints: 3, owners: ['fe-1'], centralPaths: [] };
+      const prompt = builder.build(
+        input({ handle: 'code-review', project, task: makeTask({ stageId: 'code_review' }) }),
+      ).appendSystemPrompt;
+      return prompt.split('\n').find((line) => line.startsWith('- Stage: '));
+    };
+    expect(stageLine(false)).toContain('you own this stage');
+    expect(stageLine(true)).toBe(stageLine(false));
+  });
+
   it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {
     const heading = '# E-mail channel';
     const project = buildProject();

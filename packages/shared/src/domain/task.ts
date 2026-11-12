@@ -14,6 +14,7 @@ import { MergeCheckRunner } from './merge-test';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { StageOwnerPick } from './stage-owner-pick';
 import { WorkOutage } from './outage';
 import { TaskReadyHold } from './ready-hold';
 
@@ -302,6 +303,8 @@ export const Task = z.object({
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),
   merged: TaskMerged.optional(),
+  /** Who the step stage the card stands in gave it to, decided on entry (PM-1378); absent: no small-card rule there. */
+  stageOwnerPick: StageOwnerPick.nullable().optional(),
   /** The loop open on the card (PM-261); absent when there is none. */
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. */

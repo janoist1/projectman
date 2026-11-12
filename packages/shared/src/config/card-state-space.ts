@@ -4,7 +4,7 @@ import { TaskReadyHold } from '../domain/ready-hold';
 import { TaskStartWaiting } from '../domain/task';
 import type { Task } from '../domain/task';
 import { cardDuty } from './card-duty';
-import { stageOwners } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
 import { isOnLeave } from './leave';
 import { labelDefinition } from './labels';
 import { memberOf, stageOf } from './lookup';
@@ -81,7 +81,7 @@ function namedHandles(state: CardState, reason: TaskWait['reason'], next: readon
   if (reason === 'held')
     return openItems.filter((item) => isPendingQuestion(item)).flatMap((i) => i.assignees);
   const stage = stageOf(config, task.stageId);
-  return reason === 'queued' && next.length === 0 && stage ? stageOwners(config, stage) : [...next];
+  return reason === 'queued' && next.length === 0 && stage ? cardStageOwners(config, stage, task) : [...next];
 }
 
 /**

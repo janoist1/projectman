@@ -32,6 +32,8 @@ export function scopeLine(scope: MergeTestScope): string {
     return `merge-test scope: shared (exports: ${scope.exports.length}); workspaces: ${scope.workspaces.join(', ')}; typecheck: all; fallback: ${scope.fallback ?? 'none'}; selected tests: ${scope.tests?.join(', ') ?? (scope.workspaces.includes('apps/server') ? 'apps/server/*' : 'none')}`;
   if (scope.kind === 'cloud')
     return `merge-test scope: cloud; workspaces: apps/server; test filters: ${CLOUD_TEST_FILTERS.join(', ')}; fallback: none`;
+  if (scope.kind === 'owned')
+    return `merge-test scope: owned (${scope.rules.join(', ')}); workspaces: apps/server; test filters: ${scope.tests.join(', ')}; fallback: none`;
   if (scope.kind === 'modules')
     return `merge-test scope: modules (${scope.modules.join(', ')}); tests: ${scope.tests.length}; workspaces: ${scope.workspaces.join(', ')}; fallback: none; selected tests: ${scope.tests.join(', ')}`;
   if (scope.kind === 'workspaces' && scope.fallback)
@@ -62,6 +64,7 @@ export function mergeTestSteps(scope: MergeTestScope): MergeTestStep[] {
     ];
   if (scope.kind === 'cloud')
     return [typecheckStep('apps/server'), testStep('apps/server', CLOUD_TEST_FILTERS)];
+  if (scope.kind === 'owned') return [typecheckStep('apps/server'), testStep('apps/server', scope.tests)];
   if (scope.kind === 'shared')
     return [
       ...MERGE_TEST_WORKSPACES.map((workspace) => typecheckStep(workspace, true)),

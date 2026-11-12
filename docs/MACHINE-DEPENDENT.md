@@ -797,7 +797,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   trees without a checkout and only prints the scope and commands. Cloud-only infrastructure diffs under `scripts/cloud/`,
   `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
   changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
-  prefixes. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
+  prefixes. Diffs of `deploy/mac/**`, workflows, the structure map, `apps/server/test/architecture/**`
+  and `scripts/merge-test/**` run their rule's test list (`OWNED_PATH_RULES`, PM-1354); the rules are
+  machine-independent path matches. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
   scripts retain full checks; test-only diffs select the changed tests. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`

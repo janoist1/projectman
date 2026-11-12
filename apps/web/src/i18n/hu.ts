@@ -7738,7 +7738,7 @@ export const hu = {
       /** Whether the merger's own approval also queues the merge (PM-1379). */
       mergeAfterReview: {
         question: 'Beolvasztás rögtön a jóváhagyás után',
-        note: 'A beolvasztó a `merge_task` hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
+        note: 'A beolvasztó a merge_task hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
         noEffect: 'Most nincs hatása: a beolvasztó nem a kódátnéző.',
         readOnlyLabel: 'Beolvasztás a jóváhagyás után',
         value: {

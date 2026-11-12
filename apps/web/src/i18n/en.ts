@@ -7700,7 +7700,7 @@ export const en = {
       /** Whether the merger’s own approval also queues the merge (PM-1379). */
       mergeAfterReview: {
         question: 'Merge right after approval',
-        note: 'The merger merges with the `merge_task` call. When this is on and they are also the card’s code reviewer, their approval makes that call too, as long as the card has no open or unconfirmed acceptance item. If the merge cannot be queued, the reply to their approval tells them why and what to do.',
+        note: 'The merger merges with the merge_task call. When this is on and they are also the card’s code reviewer, their approval makes that call too, as long as the card has no open or unconfirmed acceptance item. If the merge cannot be queued, the reply to their approval tells them why and what to do.',
         noEffect: 'No effect now: the merger is not the code reviewer.',
         readOnlyLabel: 'Merge after approval',
         value: {

@@ -79,6 +79,8 @@ export const PatchConfigRequest = z
     projectManagerLifecycle: ProjectConfig.shape.team.shape.projectManagerLifecycle,
     /** Who may override an open prerequisite (PM-1099). */
     prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
+    /** Who may involve a member on a card it has no role on (PM-1267). */
+    memberInvolvement: ProjectConfig.shape.team.shape.memberInvolvement,
     /** What the PM may do on its own authority (PM-1284). Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectConfig.shape.team.shape.projectManagerAuthority,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
@@ -341,6 +343,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.prerequisiteOverride !== undefined
         ? { prerequisiteOverride: patch.prerequisiteOverride }
         : {}),
+      ...(patch.memberInvolvement !== undefined ? { memberInvolvement: patch.memberInvolvement } : {}),
       ...(patch.projectManagerAuthority !== undefined
         ? { projectManagerAuthority: patch.projectManagerAuthority }
         : {}),

@@ -471,6 +471,8 @@ export const en = {
         'The project manager can only put a ready card to work; the owner does every other move.',
       project_manager_lifecycle_refused:
         'The project’s settings don’t allow the project manager this card action.',
+      member_involvement_refused:
+        'The project’s settings let only people involve a member on a card: ask a person to message the member.',
       builtin_role: 'A built-in role can’t be changed.',
       role_id_mismatch: 'The role’s id doesn’t match.',
       not_human_member: 'This isn’t a person.',
@@ -3749,6 +3751,7 @@ export const en = {
       member_hired: 'Hired: {handle}',
       member_retired: 'Retired: {handle}',
       member_renamed: 'Handle renamed: {from} → {to}',
+      member_involved: 'Involved on the card: {member}. Reason: {reason}',
       member_retired_handover: 'Retired: {handle}, their work moved to {to}',
       config_changed: 'Setting changed: {message}',
       focus_added: 'Added to the focus: {title}, position {position}',

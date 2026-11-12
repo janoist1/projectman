@@ -115,6 +115,8 @@ export const ERROR_CODES = [
   'project_manager_move_refused',
   // 403: the PM took a lifecycle action the project settings do not list (PM-1098)
   'project_manager_lifecycle_refused',
+  // 403: an AI member tried to involve a member on a card, which the project settings do not allow it (PM-1267)
+  'member_involvement_refused',
   'builtin_role',
   'role_id_mismatch',
   'already_member',

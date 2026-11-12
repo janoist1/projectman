@@ -278,7 +278,8 @@ export class MessageRouter implements MessageRouting {
   /**
    * Whether a message about `task` waits for its AI recipient's turn (PM-255): the card is being
    * refined and the recipient is not the member whose turn it is (nobody's turn counts too). Looks at
-   * the message's own card only.
+   * the message's own card only. A member involved on this card (PM-1267) is invited, so its message
+   * does not wait: the hold keeps out uninvited parallel work.
    */
   private heldForTurn(
     config: ProjectConfig,
@@ -287,7 +288,8 @@ export class MessageRouter implements MessageRouting {
     opts: { readonly duringRefinement?: boolean },
   ): boolean {
     if (opts.duringRefinement || !task || !isRefining(task, config)) return false;
-    return this.refinement.turnMember(task.projectKey, task.key) !== handle;
+    if (this.refinement.turnMember(task.projectKey, task.key) === handle) return false;
+    return !this.ctx.repos.timeline.involvedOn(task.projectKey, [task.key], handle);
   }
 
   /**

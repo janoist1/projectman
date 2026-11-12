@@ -345,6 +345,14 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   when a card gets its assignee the waiting messages of the new assignee wake them. People, the
   connected-Claude (`via: 'integrator'`) and `system` messages start anyone; a message about no card or a theme is not
   limited.
+  PM-1267: where `team.memberInvolvement` is `people_and_project_manager` the selected project manager can give
+  such a member a role with `involve_member { task_key, member, reason }`: `InvolvementService.involve` writes a
+  `member_involved` timeline event (hidden from client viewers) and a domain event of the same name, on which the
+  member queue wakes the member, so a message that waited with `no_card_role` starts them with no resend.
+  `recipientHasCardRole` reads the event (`timeline.involvedOn`) on the card or its parent, and
+  `MessageRouter.heldForTurn` lets an involved member through a refinement turn that is not theirs. The
+  involvement gives no label or approval right: those read the label setters, never the card role. With the
+  default `people` the tool is refused with `member_involvement_refused`.
   PM-662: REST team-message sends, MCP `send_message` and the project manager's `start_member` check for
   same-role workers before review rounds, repinning or recording anything. Only an action that
   is not held, is placed on this open non-theme card and reaches a running session or would wake

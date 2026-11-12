@@ -102,6 +102,12 @@ export function createTimelineRepository(db: Db) {
          AND task_key IN (SELECT value FROM json_each(?))
          AND type IN (${ROUND_EVENT_TYPES}) ORDER BY seq`,
     ),
+    // PM-1267: served by timeline_project_type.
+    involvedOn: db.prepare(
+      `SELECT 1 FROM timeline_events WHERE project_key = ? AND type = 'member_involved'
+         AND task_key IN (SELECT value FROM json_each(?))
+         AND json_extract(data, '$.member') = ? LIMIT 1`,
+    ),
     latestOfType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = ? ORDER BY seq DESC LIMIT 1',
     ),
@@ -332,6 +338,11 @@ export function createTimelineRepository(db: Db) {
       return row ? toEvent(row) : null;
     },
     /** The most recent event of a type on a card, or null. */
+    /** Whether `member` was involved (PM-1267) on any of the cards: the card and its parent. */
+    involvedOn(projectKey: string, taskKeys: readonly string[], member: string): boolean {
+      if (taskKeys.length === 0) return false;
+      return !!statements.involvedOn.get(projectKey, JSON.stringify(taskKeys), member);
+    },
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {
       const row = statements.latestOfType.get(projectKey, taskKey, type) as TimelineRow | undefined;
       return row ? toEvent(row) : null;

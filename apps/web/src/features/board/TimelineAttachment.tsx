@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { attachmentPreviewOf, routes } from '@projectman/shared';
-import type { Task, TimelineEvent } from '@projectman/shared';
+import type { BoardCard, TimelineEvent } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import { AttachmentImageDialog } from './AttachmentImageDialog';
@@ -23,7 +23,7 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '');
  * stays plain text (its route would answer 404).
  */
 export function useAttachmentRows(
-  task: Task,
+  task: BoardCard,
   events: readonly TimelineEvent[],
 ): { renderText: (event: TimelineEvent) => ReactNode; dialog: ReactNode } {
   const { key } = useProject();

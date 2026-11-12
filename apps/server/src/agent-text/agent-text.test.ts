@@ -106,6 +106,14 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it('shows follow-up items and their review label', () => {
+    const line = describeEvent(
+      event('review_follow_ups', { items: ['Reuse helper', 'Add test'], label: 'qa-ok' }),
+      280,
+    );
+    expect(line).toContain('qa-ok');
+    expect(line).toContain('1) Reuse helper; 2) Add test');
+  });
   it.each([
     { text: 'With text', comment: false },
     { text: 'With text', comment: true },

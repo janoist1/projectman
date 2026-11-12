@@ -732,12 +732,17 @@ describe('cloud mode remote parts', () => {
       expect(remote.runner.isRunning('s1')).toBe(false);
     });
 
-    it('keeps a session the engine still reports across a reconnect', async () => {
+    it('keeps a session the engine still reports across a reconnect, and does not reach it while the link is down', async () => {
       const engine = await online();
       engine.answer('session.start', (params) => running(params.sessionId));
       await remote.runner.start(spec());
+      expect(remote.runner.reaches?.('s1')).toBe(true);
       engine.disconnect();
+      await vi.waitFor(() => expect(remote.runner.reaches?.('s1')).toBe(false));
+      // The mirror still has it running: only the link tells that a release would not get there (PM-1348).
+      expect(remote.runner.isRunning('s1')).toBe(true);
       await online('eng_a', { running: [running('s1')] });
+      expect(remote.runner.reaches?.('s1')).toBe(true);
       expect(remote.runner.isRunning('s1')).toBe(true);
       expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1'] });
     });
@@ -899,6 +904,15 @@ describe('cloud mode remote parts', () => {
         });
         nanogptKey = 'key-from-store';
         await expect(remote.runner.providerStatus!('nanogpt')).resolves.toMatchObject({ loggedIn: true });
+        expect(asked).toHaveBeenCalledTimes(1);
+      });
+
+      it('answers every member of a provider from one engine call', async () => {
+        const engine = await online();
+        const asked = vi.fn(async () => reported());
+        engine.answer('provider.status', asked);
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-1' });
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-2' });
         expect(asked).toHaveBeenCalledTimes(1);
       });
 

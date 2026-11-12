@@ -4,7 +4,6 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
-  // Acceptance items of a card (PM-1135)
   'acceptance_item_not_found',
   'acceptance_item_refused',
   'administration_boot_mismatch',
@@ -28,9 +27,7 @@ export const ERROR_CODES = [
   // (`team.assigneeFit`, PM-1136); details: member, reason, points, limit.
   'assignee_unfit',
   'attachment_storage_failed',
-  // Attachments
   'attachment_too_large',
-  // Requests, login and access
   'bad_request',
   'board_column_chronological',
   // A board move (PM-118): the card or the anchor is not where the request saw it (409); the column
@@ -96,7 +93,6 @@ export const ERROR_CODES = [
   'email_login_name_required',
   'email_login_no_access',
   'email_login_rate_limited',
-  // E-mail login of invited clients (PM-670)
   'email_login_unavailable',
   'email_mailbox_taken',
   'email_not_configured',
@@ -111,7 +107,6 @@ export const ERROR_CODES = [
   // administration call for an engine that is not the host's (409), the host's NanoGPT key asked for or
   // started on an engine of another owner (409), an operation of the host owner's key only (403).
   'engine_not_bound',
-  // AI work: admission, task starts, schedules and sessions
   'engine_not_found',
   'engine_not_host',
   // Project–engine binding (PM-1060): not the engine's owner, a session still on it, the project's base engine.
@@ -154,7 +149,6 @@ export const ERROR_CODES = [
   'gate_blocked',
   // A super-mode card update left the requested stage or assignee unchanged (PM-929).
   'hand_on_requested',
-  // Members, roles and invitations
   'handle_taken',
   'handoff_not_open',
   // The handed-over work has uncommitted changes (PM-183)
@@ -163,7 +157,6 @@ export const ERROR_CODES = [
   'history_source_changed',
   // The private search statistics are not for this caller or this request (403, PM-787).
   'history_stats_forbidden',
-  // History search (PM-786).
   // The search index cannot be used now (503).
   'history_unavailable',
   'host_only',
@@ -172,7 +165,6 @@ export const ERROR_CODES = [
   // A request to the host (PM-1064): the project's owners include the host (409), five are open already (409),
   // or it was answered or withdrawn already (409).
   'host_request_not_needed',
-  // Inbox and messages
   'inbox_item_closed',
   // A standby copy of the installation (PM-143, `instance.json`): only the active instance starts AI work
   'instance_standby',
@@ -183,7 +175,6 @@ export const ERROR_CODES = [
   'integrator_not_allowed',
   'integrator_read_only',
   'internal_error',
-  // Websocket
   'invalid_command',
   'invalid_config',
   'invalid_credentials',
@@ -286,7 +277,6 @@ export const ERROR_CODES = [
   'prerequisite_open',
   'previous_run_live',
   'priority_humans_only',
-  // Projects and configuration
   'project_exists',
   // 403: the PM took a lifecycle action the project settings do not list (PM-1098)
   'project_manager_lifecycle_refused',
@@ -311,7 +301,6 @@ export const ERROR_CODES = [
   'relation_duplicate_of_duplicate',
   'relation_not_found',
   'relation_parent_exists',
-  // Relations between cards (PM-192)
   'relation_self',
   'relation_target_not_found',
   'relation_target_project',
@@ -367,7 +356,6 @@ export const ERROR_CODES = [
   'subtask_parent_not_found',
   'subtask_parent_project',
   'subtask_self_parent',
-  // Themes (PM-192)
   'subtask_theme',
   // No executor is registered for the command in this installation (503).
   'super_executor_unavailable',
@@ -385,7 +373,6 @@ export const ERROR_CODES = [
   'super_owner_decision_pending',
   // The answer cannot be relayed for the owner (403).
   'super_relay_refused',
-  // Super mode durable handoff (PM-762).
   // The same request id arrived with another command (409).
   'super_request_conflict',
   // The forwarding mode does not allow the action (409).
@@ -396,7 +383,6 @@ export const ERROR_CODES = [
   'system_feedback_limit',
   // Only the Operator records system feedback (403).
   'system_feedback_operator_only',
-  // System feedback (PM-472).
   // The item is not in the state the action needs (409).
   'system_feedback_wrong_state',
   'task_closed',
@@ -430,7 +416,6 @@ export const ERROR_CODES = [
   'unknown_option',
   'unknown_repo',
   'unknown_role',
-  // Tasks, labels and gates
   'unknown_stage',
   'unknown_template',
   'unknown_version',
@@ -446,7 +431,6 @@ export const ERROR_CODES = [
   // The work queues (PM-1294): the viewer's access reads none of them, or not this one.
   'work_queues_forbidden',
   'workspace_branch_missing',
-  // Member workspaces (PM-138)
   'workspace_busy',
   'workspace_codex_config',
   'workspace_dependencies_failed',

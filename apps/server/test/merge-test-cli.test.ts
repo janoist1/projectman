@@ -478,6 +478,46 @@ describe('merge test runner', () => {
     expect(npmCalls()).toHaveLength(10);
     expect(log.mock.calls[0]?.[0]).toContain('fallback: shared consumer in packages/templates');
   });
+  describe('templates change', () => {
+    const templatesTree = [
+      ...sourceTree,
+      ['packages/templates/src/render.ts', 'export const render = 1;'],
+      ['apps/web/src/b.ts', "import { render } from '@projectman/templates';"],
+      ['apps/server/src/logging/uses-templates.ts', "import { render } from '@projectman/templates';"],
+    ];
+    it('runs the templates, the importing web workspace and only the server tests reaching the importers', async () => {
+      const log = output();
+      mockTrees(['packages/templates/src/render.ts'], templatesTree);
+      expect(await run([])).toBe(0);
+      const tests = npmCalls().filter((args) => args[0] === 'test');
+      expect(tests.map((args) => args[2])).toEqual(['apps/server', 'apps/web', 'packages/templates']);
+      expect(tests[0]!.slice(3)).not.toEqual([]);
+      expect(log.mock.calls[0]?.[0]).toContain('merge-test scope: modules');
+    });
+    it('keeps the web and widget workspaces out when nothing imports the templates there', async () => {
+      output();
+      mockTrees(
+        ['packages/templates/src/render.ts'],
+        templatesTree.filter(([path]) => !path!.startsWith('apps/')),
+      );
+      expect(await run([])).toBe(0);
+      expect(
+        npmCalls()
+          .filter((args) => args[0] === 'test')
+          .map((args) => args[2]),
+      ).toEqual(['packages/templates']);
+    });
+    it('runs everything next to a shared source change', async () => {
+      const log = output();
+      mockTrees(
+        ['packages/templates/src/render.ts', 'packages/shared/src/leaf.ts'],
+        [...sharedTree, ...templatesTree],
+      );
+      expect(await run([])).toBe(0);
+      expect(npmCalls()).toHaveLength(10);
+      expect(log.mock.calls[0]?.[0]).toContain('packages/templates with packages/shared');
+    });
+  });
   it('runs everything with an explicit shared-analysis fallback reason', async () => {
     const log = output();
     mockTrees(
@@ -660,6 +700,8 @@ describe('merge test runner', () => {
         resolve('apps/server/test/release-'),
         resolve('apps/server/test/architecture'),
         resolve('apps/server/test/merge-test-'),
+        resolve('apps/server/test/memory-profile.test.ts'),
+        resolve('apps/server/test/history-semantic-profile.test.ts'),
         resolve('apps/server/test/control-socket.integration.test.ts'),
       ],
     ]);

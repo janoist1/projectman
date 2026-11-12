@@ -78,7 +78,8 @@ function footer(selection: HandoverSelection): string[] {
   return [
     ...(selection.omitted
       ? [
-          `handover-check: ran ${selection.cap} of ${selection.reached} (cap ${selection.cap}); the merge-test runs the other ${selection.omitted}`,
+          `handover-check: ran ${selection.reached - selection.omitted} of ${selection.reached} (cap ${selection.cap} cuts only the farther tests, the ${selection.nearest} nearest always run); the merge-test runs the other ${selection.omitted}`,
+          `handover-check: the cap cut ${selection.omitted} test(s)`,
         ]
       : []),
     ...(selection.omitted

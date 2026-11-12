@@ -412,6 +412,8 @@ export class MergeSteps {
       }
       if (row.landed === 'remote') {
         if (!row.mergeCommit) return this.block(running, 'merge_error', 'the landed merge has no commit');
+        if (await merger.isAncestor(ref, { ancestor: row.mergeCommit, commit: base.local }))
+          return this.finish(row, config);
         const advance = await merger.advance(ref, { base: row.base, from: base.local, to: row.mergeCommit });
         if (!advance.ok) return this.block(running, 'local_checkout', advance.message);
         return this.finish(row, config);
@@ -521,14 +523,22 @@ export class MergeSteps {
       if (repo.reviewTest) {
         // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
         this.save(row, { step: 'check_waiting' });
-        const passed = ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
-          // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
-          (run) =>
-            run.status === 'passed' &&
-            run.runner === 'engine' &&
-            run.projectKey === row.projectKey &&
-            run.repo === row.repo,
-        );
+        // A passed engine run stands in only when the repository allows it, the run ran the same command and the
+        // approved commit has one parent: a diff-selecting command sees another diff on a merge commit (PM-1377).
+        // An older engine does not report the parents: no reuse.
+        const { command: checkCommand, reusePassedRun } = repo.reviewTest;
+        const passed =
+          reusePassedRun === false || base.commitParents !== 1
+            ? undefined
+            : ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
+                // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
+                (run) =>
+                  run.status === 'passed' &&
+                  run.runner === 'engine' &&
+                  run.projectKey === row.projectKey &&
+                  run.repo === row.repo &&
+                  run.command === checkCommand,
+              );
         if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             step: 'checking',

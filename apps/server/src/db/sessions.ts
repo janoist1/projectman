@@ -187,6 +187,11 @@ export function tokenUsageOf(r: UsageRow): TokenUsage {
   };
 }
 
+/** Decode measured usage identically for individual sessions and batched card measurements. */
+function sessionUsage(since: string | null, rows: UsageRow[]): Session['usage'] {
+  return since ? { since, rows: mergeTokenUsage(rows.map(tokenUsageOf)) } : undefined;
+}
+
 type SessionPatch = Partial<
   Pick<
     Session,
@@ -309,6 +314,15 @@ export function createSessionRepository(db: Db) {
       `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task' AND work_item_ref = ?
        ORDER BY started_at, id`,
     ),
+    listForTasks: db.prepare(
+      `SELECT s.id AS session_id, s.work_item_ref AS task_key, s.member, s.usage_since, u.model, u.scope,
+         SUM(u.input_tokens) AS input, SUM(u.output_tokens) AS output,
+         SUM(u.cache_read_tokens) AS cache_read, SUM(u.cache_write_tokens) AS cache_write
+       FROM sessions s LEFT JOIN token_usage u ON u.session_id = s.id AND s.usage_since IS NOT NULL
+       WHERE s.project_key = ? AND s.work_item_type = 'task'
+         AND s.work_item_ref IN (SELECT value FROM json_each(?))
+       GROUP BY s.id, u.model, u.scope ORDER BY s.started_at, s.id, u.model, u.scope`,
+    ),
     listByMemberAndTask: db.prepare(
       `SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = 'task'
          AND work_item_ref = ? ORDER BY started_at, id`,
@@ -333,8 +347,7 @@ export function createSessionRepository(db: Db) {
     const pause = pauseOf.get(r.id) as SessionPause | undefined;
     if (pause) session = { ...session, pause: { since: pause.since, point: pause.point, tool: pause.tool } };
     if (!r.usage_since) return session;
-    const rows = (usageOf.all(r.id) as UsageRow[]).map(tokenUsageOf);
-    return { ...session, usage: { since: r.usage_since, rows: mergeTokenUsage(rows) } };
+    return { ...session, usage: sessionUsage(r.usage_since, usageOf.all(r.id) as UsageRow[]) };
   };
 
   const get = (id: string): Session | null => {
@@ -414,6 +427,34 @@ export function createSessionRepository(db: Db) {
               ? statements.listByTask.all(projectKey, filter.taskKey)
               : statements.list.all(projectKey);
       return (rows as SessionRow[]).map(toSession);
+    },
+    /** Only the member and measured usage of the selected cards' sessions, in one read. */
+    listForTasks(
+      projectKey: string,
+      taskKeys: readonly string[],
+    ): Map<string, Pick<Session, 'member' | 'usage'>[]> {
+      const byTask = new Map<string, Pick<Session, 'member' | 'usage'>[]>();
+      if (taskKeys.length === 0) return byTask;
+      type MeasureRow = Omit<UsageRow, 'model'> & {
+        model: string | null;
+        session_id: string;
+        task_key: string;
+        member: string;
+        usage_since: string | null;
+      };
+      const sessions = new Map<string, { row: MeasureRow; usage: UsageRow[] }>();
+      for (const row of statements.listForTasks.all(projectKey, JSON.stringify(taskKeys)) as MeasureRow[]) {
+        const entry = sessions.get(row.session_id) ?? { row, usage: [] };
+        if (row.model !== null) entry.usage.push({ ...row, model: row.model });
+        sessions.set(row.session_id, entry);
+      }
+      for (const { row, usage } of sessions.values()) {
+        const entries = byTask.get(row.task_key) ?? [];
+        const measured = sessionUsage(row.usage_since, usage);
+        entries.push({ member: row.member, ...(measured ? { usage: measured } : {}) });
+        byTask.set(row.task_key, entries);
+      }
+      return byTask;
     },
     /**
      * The project's sessions that are not closed (not `exited` or `failed`), optionally one member's: the

@@ -40,6 +40,7 @@ import { HistorySemanticFailure } from '../../contracts';
 import { historyContentHash, historyDocumentEntityId, historyFullText } from '../../db';
 import type { HistoryDocumentRow, HistoryDocStateRow } from '../../db';
 import { DomainError, conflict, forbidden, newId, notFound, unavailable } from '../../kernel';
+import type { Sweep } from '../../kernel';
 import { chunkExcerpt, excerptOf } from './excerpt';
 import { createHistoryIndexer } from './indexer';
 import { QueryError, translateQuery } from './query';
@@ -110,7 +111,10 @@ interface SemanticFindings {
   extras: HistorySemanticCandidate[];
 }
 
-export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
+/** The history service and its periodic round (flush, retry of the preparation, daily purge) for the kernel's sweep list (PM-1394). */
+export type HistoryServiceWithSweep = HistoryService & { readonly sweep: Sweep };
+
+export function createHistoryService(deps: HistoryServiceDeps): HistoryServiceWithSweep {
   const { repos, logger } = deps;
   const history = repos.history;
   const indexer = createHistoryIndexer({
@@ -125,7 +129,6 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
   let ready = false;
   let stopped = false;
   let initializing: Promise<void> | null = null;
-  let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let wakeTimer: ReturnType<typeof setTimeout> | null = null;
   let unsubscribe: (() => void) | null = null;
   let lastPurgeAt = 0;
@@ -173,12 +176,6 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       });
     await initializing;
     if (stopped) return;
-    sweepTimer ??= setInterval(() => {
-      if (deps.now().getTime() - lastPurgeAt >= DAY_MS) purgeSearchLogSafely();
-      if (ready) flush();
-      else void init();
-    }, deps.sweepMs ?? SWEEP_MS);
-    sweepTimer.unref?.();
     if (deps.bus && !unsubscribe)
       unsubscribe = deps.bus.subscribe((event) => {
         if (WAKE_EVENTS.has(event.type)) wake();
@@ -804,9 +801,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
   async function stop(): Promise<void> {
     stopped = true;
     ready = false;
-    if (sweepTimer) clearInterval(sweepTimer);
     if (wakeTimer) clearTimeout(wakeTimer);
-    sweepTimer = null;
     wakeTimer = null;
     unsubscribe?.();
     unsubscribe = null;
@@ -817,6 +812,17 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
     init,
     flush,
     stop,
+    sweep: {
+      name: 'history',
+      everyMs: deps.sweepMs ?? SWEEP_MS,
+      run: async () => {
+        if (stopped) return;
+        if (deps.now().getTime() - lastPurgeAt >= DAY_MS) purgeSearchLogSafely();
+        if (ready) flush();
+        else void init();
+      },
+      onError: (err) => logger.error({ err }, 'the history sweep failed'),
+    },
     search,
     read,
     stats,

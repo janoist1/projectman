@@ -333,12 +333,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
-    case 'task_merge_requested':
+    case 'task_merge_requested': {
+      const startedBy = str(d.startedBy);
       return normal(
-        t('timeline.events.task_merge_requested', {
-          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
-        }),
+        startedBy
+          ? t('timeline.events.task_merge_requested_on_approval', {
+              startedBy: nameOf(startedBy, ctx.members, ctx.myHandle),
+            })
+          : t('timeline.events.task_merge_requested', {
+              merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+            }),
       );
+    }
     case 'task_merge_prioritized': {
       const ahead = strings(d.ahead);
       return normal(
@@ -670,6 +676,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(checkLine(str(d.check), str(d.to)));
     case 'task_labels_changed':
       return normal(labelsChanged(d, ctx));
+    case 'review_follow_ups':
+      return normal(
+        t('timeline.events.review_follow_ups', {
+          label: d.label ? ` (${str(d.label)})` : '',
+          items: strings(d.items)
+            .map((item, i) => `${i + 1}) ${item}`)
+            .join('; '),
+        }),
+      );
     case 'refinement_turn': {
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));

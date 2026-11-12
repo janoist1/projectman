@@ -1,8 +1,8 @@
 import clsx from 'clsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent, ReactNode } from 'react';
-import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
+import type { ReactNode } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import {
   InboxKind,
   fixLimitDecisionOf,
@@ -412,24 +412,6 @@ export function InboxPage() {
     }),
     [key],
   );
-  const openedKey = useMatch('/p/:projectKey/inbox/tasks/:taskKey/*')?.params.taskKey ?? null;
-  // The item whose card row opened the drawer: closing it, the focus returns to that row's link.
-  const openedFrom = useRef<string | null>(null);
-  useEffect(() => {
-    if (openedKey) return;
-    const itemId = openedFrom.current;
-    openedFrom.current = null;
-    if (!itemId) return;
-    document
-      .getElementById(inboxItemDomId(itemId))
-      ?.querySelector<HTMLElement>('[data-inbox-card-link]')
-      ?.focus();
-  }, [openedKey]);
-  const rememberOpener = (event: MouseEvent<HTMLElement>) => {
-    const link = (event.target as Element).closest('[data-inbox-card-link]');
-    const id = link?.closest('article')?.id;
-    if (id) openedFrom.current = id.slice(inboxItemDomId('').length);
-  };
   // The drawer of a card opened by its address shows before the list does.
   const withDrawer = (page: ReactNode) => (
     <DrawerBaseContext.Provider value={drawerBase}>
@@ -593,7 +575,7 @@ export function InboxPage() {
   );
 
   return withDrawer(
-    <div className={styles.page} onClick={rememberOpener}>
+    <div className={styles.page}>
       <div className={styles.main}>
         <PageHeader
           className={styles.header}

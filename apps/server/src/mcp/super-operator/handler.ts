@@ -418,6 +418,7 @@ export class ExternalTools implements ExternalToolsHandler {
         ...(args.complexity ? { complexity: args.complexity } : {}),
         addLabels: args.addLabels,
         removeLabels: args.removeLabels,
+        ...(args.followUps ? { followUps: args.followUps } : {}),
         note: args.note,
         ...(args.replyTo ? { replyTo: args.replyTo } : {}),
         stageId: args.stageId,

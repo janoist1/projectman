@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { DEFAULT_CLOSED_CARDS_DAYS, sortClosedCards } from '@projectman/shared';
+import { DEFAULT_CLOSED_CARDS_DAYS, failedChecksByReviewer, sortClosedCards } from '@projectman/shared';
 import type { ClosedCardsSort } from '@projectman/shared';
 import { useClosedCardsMeasure } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -8,7 +8,7 @@ import { Fold } from '../../components/Fold';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
 import { WeightedTokensList } from '../../components/TokenUsage';
-import { formatDate, formatTokens } from '../../i18n/format';
+import { formatDate, formatTokens, numberFormat } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import styles from './ClosedCardsComparison.module.css';
@@ -17,7 +17,8 @@ const PERIODS = [7, DEFAULT_CLOSED_CARDS_DAYS, 30] as const;
 
 /**
  * The cards closed lately side by side (PM-222): who carried them with which model, what they
- * cost in weighted tokens (per model too) and how many review rounds and send-backs they took.
+ * cost in weighted tokens (per model too) and how many review rounds, send-backs and failed
+ * merges (PM-1341) they took.
  * It shows what a cheaper model brings: more rounds, or not.
  */
 export function ClosedCardsComparison() {
@@ -27,15 +28,24 @@ export function ClosedCardsComparison() {
   const [days, setDays] = useState<number>(DEFAULT_CLOSED_CARDS_DAYS);
   const [sort, setSort] = useState<ClosedCardsSort>('closedAt');
   const query = useClosedCardsMeasure(key, days, allowed);
+  const sectionRef = useRef<HTMLElement>(null);
+  const retryFocus = useRef(false);
+  useEffect(() => {
+    if (!query.isError && retryFocus.current) {
+      retryFocus.current = false;
+      sectionRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
+    }
+  }, [query.isError]);
   const { members } = useProjectIndexes(key);
   const cards = useMemo(() => sortClosedCards(query.data?.cards ?? [], sort), [query.data, sort]);
+  const reviewers = useMemo(() => failedChecksByReviewer(query.data?.cards ?? []), [query.data]);
   if (!allowed) return null;
 
   const unmeasuredCards = cards.filter((card) => card.unmeasuredSessions > 0);
   const unmeasuredSessions = unmeasuredCards.reduce((sum, card) => sum + card.unmeasuredSessions, 0);
 
   return (
-    <section className={styles.section} aria-labelledby="closed-cards">
+    <section ref={sectionRef} className={styles.section} aria-labelledby="closed-cards">
       <div className={styles.head}>
         <h2 id="closed-cards">{t('cardMeasure.title')}</h2>
         <SegmentedControl<string>
@@ -50,7 +60,14 @@ export function ClosedCardsComparison() {
         />
       </div>
       {query.isError ? (
-        <ErrorState compact error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState
+          compact
+          error={query.error}
+          onRetry={() => {
+            retryFocus.current = true;
+            void query.refetch();
+          }}
+        />
       ) : !query.data ? (
         <LoadingState compact />
       ) : cards.length === 0 ? (
@@ -62,12 +79,30 @@ export function ClosedCardsComparison() {
           <Fold summary={t('cardMeasure.weightedHintSummary')}>
             <p className={styles.hint}>{t('cardMeasure.weightedHint')}</p>
           </Fold>
-          <div className={styles.tableWrap}>
+          {reviewers.length >= 2 ? (
+            <p className={styles.reviewerSummary}>
+              <strong>{t('cardMeasure.failedByReviewer')}</strong>{' '}
+              {reviewers.map(({ reviewer, failed, total }) => (
+                <span key={reviewer} className={styles.reviewerGroup}>
+                  {t('cardMeasure.reviewerRatio', {
+                    name: nameOf(reviewer, members, myHandle),
+                    failed,
+                    total,
+                    percent: numberFormat({ style: 'percent', maximumFractionDigits: 0 }).format(
+                      failed / total,
+                    ),
+                  })}
+                </span>
+              ))}
+            </p>
+          ) : null}
+          <div className={styles.tableWrap} tabIndex={0} role="region" aria-label={t('cardMeasure.title')}>
             <table className={styles.table}>
               <thead>
                 <tr>
                   <th scope="col">{t('cardMeasure.columns.card')}</th>
                   <th scope="col">{t('cardMeasure.columns.implementer')}</th>
+                  <th scope="col">{t('cardMeasure.columns.reviewer')}</th>
                   <SortHeader
                     sort="tokens"
                     label={t('cardMeasure.columns.tokens')}
@@ -81,6 +116,8 @@ export function ClosedCardsComparison() {
                     onSort={setSort}
                   />
                   <th scope="col">{t('cardMeasure.columns.sendBacks')}</th>
+                  <th scope="col">{t('cardMeasure.columns.mergeConflicts')}</th>
+                  <th scope="col">{t('cardMeasure.columns.mergeChecksFailed')}</th>
                   <SortHeader
                     sort="closedAt"
                     label={t('cardMeasure.columns.closedAt')}
@@ -108,6 +145,13 @@ export function ClosedCardsComparison() {
                       ) : null}
                     </td>
                     <td>
+                      {card.reviewer ? (
+                        nameOf(card.reviewer, members, myHandle)
+                      ) : (
+                        <span aria-label={t('cardMeasure.reviewerUnknown')}>–</span>
+                      )}
+                    </td>
+                    <td>
                       <span className={styles.tokens}>{formatTokens(card.tokens)}</span>
                       <WeightedTokensList models={card.byModel} />
                       {card.unmeasuredSessions > 0 ? (
@@ -124,7 +168,16 @@ export function ClosedCardsComparison() {
                         </span>
                       ) : null}
                     </td>
-                    <td className={styles.number}>{card.rounds.sendBacks}</td>
+                    <td className={styles.number}>
+                      {card.rounds.sendBacks}
+                      {card.rounds.testsFailed > 0 ? (
+                        <span className={styles.models}>
+                          {t('cardMeasure.reviewTestsFailedOf', { count: card.rounds.testsFailed })}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className={styles.number}>{card.rounds.mergeConflicts}</td>
+                    <td className={styles.number}>{card.rounds.mergeChecksFailed}</td>
                     <td>{formatDate(card.closedAt)}</td>
                   </tr>
                 ))}

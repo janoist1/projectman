@@ -93,6 +93,13 @@ export function describeEvent(
       const why = text('note') ? `: ${text('note')}` : '';
       return (text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it') + why;
     }
+    case 'review_follow_ups':
+      return `left follow-ups for a later card${text('label') ? ` (${text('label')})` : ''}: ${oneLine(
+        list('items')
+          .map((item, i) => `${i + 1}) ${item}`)
+          .join('; '),
+        textLimit,
+      )}`;
     case 'task_labels_changed': {
       const added = list('added').map((id) => style.label(id));
       const removed = list('removed').map((id) => style.label(id));

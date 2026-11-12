@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { applyServerEvent } from '../../api/cache';
 import { setFetchImplementation } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import { t } from '../../i18n/t';
 import { openTab } from '../../test/cardStory';
 import { createMockFetch, mockProject } from '../../test/mockProject';
@@ -49,6 +50,33 @@ const box = () =>
 const column = async () => within(await screen.findByRole('list', { name: t('task.view.thread') }));
 
 describe('the Comments view (PM-1304)', () => {
+  it('finishes sending while all independent cache refreshes are still pending', async () => {
+    const project = mockProject();
+    const { client } = project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const input = await box();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const invalidate = vi.spyOn(client, 'invalidateQueries').mockReturnValue(held);
+    try {
+      fireEvent.change(input, { target: { value: 'A new comment' } });
+      const send = within(input.closest('form')!).getByRole('button', { name: t('common.send') });
+      fireEvent.click(send);
+      await waitFor(() => expect(comments(project)).toHaveLength(1));
+      await waitFor(() => expect(input.value).toBe(''));
+      expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+        queryKeys.taskComments('AC', 'AC-20'),
+        queryKeys.attachments('AC', 'AC-20'),
+        queryKeys.inbox('AC'),
+        queryKeys.inboxHistory('AC'),
+        queryKeys.messages('AC'),
+      ]);
+      fireEvent.change(input, { target: { value: 'Ready for another comment' } });
+      expect((send as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      release();
+    }
+  });
+
   it('lists the comments in one column, oldest first, and names the viewer "Te"', async () => {
     const project = mockProject();
     comment(project, 'be-1', 'First words', {}, 30);

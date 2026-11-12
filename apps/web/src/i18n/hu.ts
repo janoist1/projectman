@@ -1556,16 +1556,23 @@ export const hu = {
     unmeasured:
       '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
     noImplementer: 'nincs megvalósító',
+    reviewerUnknown: 'Nincs átnézőadat',
+    failedByReviewer: 'Bukott merge-ellenőrzés átnézőnként:',
+    reviewerRatio: '{name}: {failed} / {total} kártyán ({percent})',
     sessionsWithoutData: '{count} munkamenet mérés nélkül',
     columns: {
       card: 'Kártya',
       implementer: 'Megvalósító és modellje',
+      reviewer: 'Átnéző',
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',
+      mergeConflicts: 'Beolvasztási ütközések',
+      mergeChecksFailed: 'Bukott beolvasztási ellenőrzések',
       closedAt: 'Lezárva',
     },
     changeRequestsOf: 'ebből javítást kért: {count}',
+    reviewTestsFailedOf: 'ebből az átnézés teljes tesztje bukott: {count}',
     sortBy: 'Rendezés: {column}',
   },
 
@@ -2996,6 +3003,7 @@ export const hu = {
     earlier: {
       title: 'Korábbi beszélgetések ({count})',
       readOnly: 'Csak olvasható.',
+      loadFailed: 'Nem sikerült betölteni a korábbi beszélgetéseket.',
       to: 'Címzett: {names}',
       none: 'Nincs számodra látható gépi üzenet.',
     },
@@ -5934,6 +5942,7 @@ export const hu = {
         owner_topic_missing: 'hiányzó téma',
         signal_not_for_owner: 'nem a tulajdonosnak szóló jelzés',
         pm_matter: 'projektmenedzseri ügy',
+        pm_affected: 'a kiesés a projektmenedzsert is akadályozza',
         no_pm: 'nincs projektmenedzser',
         information: 'tájékoztatás',
         human_duty: 'emberi feladat',
@@ -6064,6 +6073,7 @@ export const hu = {
       assignment_note: '{line} Indok: {note}',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a kártyát',
+      review_follow_ups: 'Megjegyzések egy későbbi kártyához{label}: {items}',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Előre húzta a rendszer: {from} → {to}; a kártya sürgős',
@@ -6071,6 +6081,7 @@ export const hu = {
         'Előre húzta a rendszer: {from} → {to}; a fókusz {position}. helye miatt ({title}, {key})',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_requested_on_approval: 'Jóváhagyással sorba állt a beolvasztás: {startedBy}.',
       task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
       task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
@@ -6965,6 +6976,7 @@ export const hu = {
   },
 
   messages: {
+    readFailed: 'Nem sikerült olvasottnak jelölni.',
     new: 'Új üzenet',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
@@ -6989,6 +7001,8 @@ export const hu = {
       relation_check:
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
       work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
+      work_outage_details:
+        'A munka {since} óta áll: {reason}. Motor: {engine}; érintett kártyák: {tasks}. Teendő: a szolgáltatói bejelentkezés vagy beállítás helyreállítása, illetve a motor újracsatlakoztatása.',
       waiting_digest:
         '{todos} gépi teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
     },
@@ -7728,6 +7742,17 @@ export const hu = {
         value: {
           automaticAndAi: 'Az AI-tagok kiosztása is illeszkedik',
           automatic: 'Csak a rendszer választása illeszkedik',
+        },
+      },
+      /** Whether the merger's own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Beolvasztás rögtön a jóváhagyás után',
+        note: 'A beolvasztó a merge_task hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
+        noEffect: 'Most nincs hatása: a beolvasztó nem a kódátnéző.',
+        readOnlyLabel: 'Beolvasztás a jóváhagyás után',
+        value: {
+          on: 'Bekapcsolva',
+          off: 'Kikapcsolva',
         },
       },
       /** Who may open a new card (PM-1100). */

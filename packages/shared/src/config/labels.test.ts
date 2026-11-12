@@ -4,6 +4,7 @@ import type { LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Task } from '../domain/task';
 import {
   approvalRefusal,
+  canLeaveFollowUps,
   expiredLabels,
   gateLabels,
   labelDefinition,
@@ -17,6 +18,14 @@ import {
 } from './labels';
 import type { LabelChangePlan } from './labels';
 import { ProjectConfig } from './schema';
+
+it.each([
+  ['rev', 'dev-1', true],
+  ['rev', 'rev', false],
+  ['dev-1', null, false],
+] as const)('checks follow-up permission for %s assigned to %s', (handle, assignee, allowed) => {
+  expect(canLeaveFollowUps(config(), { assignee, links: [] }, handle)).toBe(allowed);
+});
 
 it('denies integrator approvals including conditional gates, but permits removal and plain tags', () => {
   const c = config();

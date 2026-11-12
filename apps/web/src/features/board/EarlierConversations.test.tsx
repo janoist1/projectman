@@ -71,12 +71,15 @@ describe('the earlier conversations of the Process view (PM-1290)', () => {
   it('reads an unread message only once its mark has been on the screen of the open block (PM-1386)', async () => {
     const project = mockProject();
     const unread = project.backend.sendTeamMessage('fe-1', ['owner'], 'AC-21', 'Earlier unread');
+    // A message to a person is a direct conversation; the block holds what the card thread held before.
+    delete project.backend.messages.find((message) => message.id === unread.id)!.conversation;
     const reads = () =>
       project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
     project.render(card, '/p/AC/tasks/AC-21/steps');
     const button = await toggle(cardMessages(project, 'AC-21').length);
-    const mark = () => row(unread.id)?.querySelector<HTMLElement>('p span:last-child');
-    expect(mark()?.textContent).toBe(t('messages.thread.unread'));
+    const mark = () =>
+      within(screen.getByText('Earlier unread').closest('li')!).getByText(t('messages.thread.unread'));
+    expect(mark()).toBeTruthy();
     // Opening the block is no reading.
     fireEvent.click(button);
     await new Promise((resolve) => setTimeout(resolve, 1500));

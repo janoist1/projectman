@@ -7,13 +7,13 @@ import { t } from '../../i18n/t';
 import { codeMessage } from '../../lib/errors';
 
 /** A message counts as read once its unread mark has been wholly on the screen this long without a break (L-03). */
-export const READ_AFTER_MS = 1000;
+const READ_AFTER_MS = 1000;
 /** The ids that became eligible are gathered this long, from the first one, and go in one request. */
-export const READ_BATCH_MS = 200;
+const READ_BATCH_MS = 200;
 /** A mark is "wholly" shown from this share on: layout rounding keeps a fully shown one just below 1. */
 const SHOWN_RATIO = 0.95;
 
-export function useDocumentVisible(): boolean {
+function useDocumentVisible(): boolean {
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   useEffect(() => {
     const update = () => setVisible(document.visibilityState !== 'hidden');

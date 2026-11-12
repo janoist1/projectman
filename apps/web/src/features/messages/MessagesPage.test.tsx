@@ -135,7 +135,7 @@ describe('a conversation', () => {
     expect(within(log).getByText('Mail subject').tagName).toBe('STRONG');
   });
 
-  const unreadMarks = (log: HTMLElement) => within(log).queryAllByText(t('messages.thread.unread'));
+  const unreadMarks = (_log?: HTMLElement) => screen.queryAllByText(t('messages.thread.unread'));
   const readByOwner = (p: ReturnType<typeof mockProject>, text: string) =>
     Boolean(
       p.backend.messages.find((m) => m.body === text)?.receipts?.find((r) => r.handle === 'owner')?.readAt,
@@ -212,14 +212,17 @@ describe('a conversation', () => {
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme one');
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme two');
     const mockFetch = createMockFetch(p.backend, p.requests);
-    setFetchImplementation(async (path, init) =>
-      init?.method === 'POST' && String(path).endsWith('/messages/read')
-        ? new Response(JSON.stringify({ error: { code: 'not_a_recipient', message: 'no' } }), {
-            status: 403,
-            headers: { 'content-type': 'application/json' },
-          })
-        : mockFetch(String(path), init),
-    );
+    let refused = 0;
+    setFetchImplementation(async (path, init) => {
+      if (init?.method !== 'POST' || !String(path).endsWith('/messages/read')) {
+        return mockFetch(String(path), init);
+      }
+      refused += 1;
+      return new Response(JSON.stringify({ error: { code: 'not_a_recipient', message: 'no' } }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
     p.render(
       <ToastProvider>
         <Pages />
@@ -237,7 +240,7 @@ describe('a conversation', () => {
     const [first] = unreadMarks(log) as [HTMLElement];
     hideFromScreen(first);
     showOnScreen(first);
-    await waitFor(() => expect(readRequests(p)).toHaveLength(2), { timeout: 3000 });
+    await waitFor(() => expect(refused).toBe(2), { timeout: 3000 });
   });
 
   it('sends the typed text to the member of the thread with the chosen task', async () => {
@@ -648,8 +651,8 @@ describe('the open thread', () => {
     await within(log).findByText('Acme from the frontend');
     // Someone else writes: the list reorders, the open thread stays.
     p.backend.sendTeamMessage('qa', ['owner'], null, 'Acme from QA');
-    // Nothing pushes in the test: the list learns of it when the tab comes back to the front.
-    document.dispatchEvent(new Event('visibilitychange'));
+    // Nothing pushes in the test: the list learns of it when the visible message is read and the lists reload.
+    showOnScreen(within(log).getByText(t('messages.thread.unread')));
     const nav = screen.getByRole('navigation', { name: t('messages.list.label') });
     await waitFor(() => expect(within(nav).getAllByRole('link')[0]!.getAttribute('href')).toContain('/qa'));
     expect(where()).toBe('/p/AC/messages/with/fe-1');

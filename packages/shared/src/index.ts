@@ -102,6 +102,7 @@ export * from './config/shell-publishing';
 export * from './config/labels';
 export * from './config/gates';
 export * from './config/stage-owner-pick';
+export * from './config/small-cards-warnings';
 export * from './config/path-pattern';
 export * from './config/approval-question';
 export * from './config/refinement';

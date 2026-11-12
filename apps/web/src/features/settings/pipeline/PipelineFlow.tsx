@@ -11,7 +11,7 @@ import { FlowRow, FlowStation } from '../../../components/flow/FlowStation';
 import { StageGlyph } from '../../../components/flow/StageGlyph';
 import { Icon } from '../../../components/Icon';
 import { LeaveChip } from '../../../components/LeaveChip';
-import { t } from '../../../i18n/t';
+import { joinNames, t } from '../../../i18n/t';
 import { labelName } from '../../../lib/labels';
 import { memberLike } from '../../how-we-work/MapContext';
 import { labelViews } from '../../how-we-work/model';
@@ -423,6 +423,14 @@ function Station({
       </span>
       <span className={styles.stKind}>
         {entry.duty ? t('settings.pipeline.kindDuty', { kind, duty: t(`dutyNames.${entry.duty}`) }) : kind}
+        {entry.smallCards
+          ? ` · ${t('howWeWork.flow.smallCards', {
+              points: entry.smallCards.maxPoints,
+              names: joinNames(
+                entry.smallCards.owners.map((handle) => members.get(handle)?.displayName ?? handle),
+              ),
+            })}`
+          : null}
       </span>
       {stage.description ? <span className={styles.stSub}>{stage.description}</span> : null}
     </FlowStation>

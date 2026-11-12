@@ -2105,6 +2105,19 @@ export const en = {
     repoNone: 'no repo selected',
     workspaceRoot: 'workspace root',
     next: 'Next',
+    /** Why the stage gave the card to those who carry it (PM-1378): a line under the state of the card, and in the timeline. */
+    ownerPick: {
+      small: 'Small card: {points|# point|# points}, touches no central file.',
+      no_points: 'It has no points, so it does not count as a small card.',
+      over_limit: '{points|# point|# points}; the limit for small cards is {maxPoints|# point|# points}.',
+      central_files: 'Touches a central file:',
+      central_more: '(and {count} more)',
+      no_branch: 'It has no handed-over branch, so it cannot be told whether it touches a central file.',
+      unreadable: 'The changed files could not be read, so the stage’s handlers got it.',
+      small_owner_is_author:
+        'The small cards’ handler is the card’s developer, so the stage’s handlers got it.',
+      small_owners_on_leave: 'The small cards’ handlers are on leave, so the stage’s handlers got it.',
+    },
     nextStageNoOwner: '{stage}',
     lastStage: 'This is the last stage.',
     notFound: 'No such card: {key}',
@@ -2465,6 +2478,7 @@ export const en = {
       loop: 'To fix: the work goes back to the developer ({stage}) · limit: {limit|# round|# rounds}',
       noOwner: 'no stage owner',
       ownersMore: '{names} and {count} more',
+      smallCards: 'small cards (up to {points|# point|# points}): {names}',
       ownerCount: '{count|# member|# members}',
       refine: 'Refinement here:',
       refineOneAtATime: '· one member at a time',
@@ -3611,6 +3625,8 @@ export const en = {
       },
       merge_target_unknown: 'the next step',
       task_stage_changed_pinned: 'Moved on: {from} → {to}; handed-over commit: {commit}',
+      owner_pick: '{names} got it. {reason}',
+      owner_repick: 'After a new commit the card went to the stage’s handlers: {names}. {reason}',
       task_stage_changed_parts_closed:
         'Closed: {from} → {to}, without gates, because all its sub-cards were closed ({parts})',
       task_stage_changed_parts_closed_by:
@@ -7595,6 +7611,40 @@ export const en = {
         releaseRule:
           'A release always needs a human approval: the gate takes a label that only members of the “Release approval” duty can set, on every card.',
         details: 'Details',
+        smallRule: {
+          toggle: 'Small cards have their own handlers',
+          intro:
+            'Small cards that touch no central file go to other handlers. Every other card stays with the handlers above.',
+          group: 'Small card',
+          pointsBefore: 'at most',
+          pointsAfter: 'points',
+          owners: 'Handlers',
+          paths: 'Central files',
+          pathsHelp:
+            'One pattern per line, relative to the repository root (** matches any depth). If the card’s branch changes even one of them, the handlers above get the card.',
+          summarySmall: '{points} points or fewer, no central file → {names}',
+          summaryNobody: '{points} points or fewer, no central file → no handler yet',
+          summaryOthers: 'Every other card → {names}',
+          whenTitle: 'When do the handlers above get a small card anyway?',
+          whenPoints: 'It has no points, or more than the limit.',
+          whenFiles:
+            'Its branch changes a central file, it has no handed-over branch yet, or the changed files cannot be read.',
+          whenAuthor: 'Every handler of the small cards is the card’s developer, or on leave.',
+          whenEntry:
+            'The rule checks the points and the files when the card enters this stage; changing the limit or the patterns applies to cards that enter afterwards. Changing the small cards’ handlers also applies to small cards already in the stage, and turning the rule off gives those back to the handlers above.',
+          errors: {
+            noOwner: 'Pick a handler for the small cards.',
+            unknownOwner: '{handle} is not a member of the team.',
+            invalidPath:
+              'Line {line} is not a valid pattern: “{pattern}”. Give it relative to the repository root, with no leading slash and no ‹.› or ‹..› segments.',
+            tooManyPaths: 'At most 50 patterns are allowed.',
+          },
+          warnings: {
+            cannotSetLabel: '{name} cannot set the label {label}, so could not pass the card on.',
+            labelSetters: 'Who can set labels',
+            onLeave: '{name} is on leave: small cards go to the handlers above until they return.',
+          },
+        },
       },
     },
     team: {

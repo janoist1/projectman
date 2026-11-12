@@ -19,6 +19,44 @@ export interface StageDraft {
   ownersMode: 'duty' | 'names';
   members: string[];
   conditions: GateCondition[];
+  /** The small-card rule (PM-1378); the values stay while the rule is switched off, so switching it on again finds them. */
+  smallEnabled: boolean;
+  smallPoints: SmallCardsRule['maxPoints'];
+  smallOwners: string[];
+  /** The central patterns as typed: one per line, blank lines kept so an error can name its line. */
+  smallPaths: string;
+}
+
+type SmallCardsRule = NonNullable<Stage['smallCards']>;
+
+/** The limits the point choice offers. */
+export const SMALL_CARD_POINTS: readonly SmallCardsRule['maxPoints'][] = [1, 2, 3, 5, 8];
+
+/** The small-card fields of a stage without the rule: switched off, with the starting values. */
+export const NO_SMALL_CARDS = {
+  smallEnabled: false,
+  smallPoints: 3,
+  smallOwners: [],
+  smallPaths: '',
+} satisfies Pick<StageDraft, 'smallEnabled' | 'smallPoints' | 'smallOwners' | 'smallPaths'>;
+
+/** The patterns of the text: trimmed, a blank line goes nowhere. */
+function pathLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+/** The line (counting from 1, blank lines included) that holds the pattern of the given index. */
+function lineOfPattern(text: string, index: number): number {
+  let seen = -1;
+  const lines = text.split('\n');
+  for (let line = 0; line < lines.length; line++) {
+    if (lines[line]!.trim() !== '') seen += 1;
+    if (seen === index) return line + 1;
+  }
+  return lines.length;
 }
 
 export function draftOf(stage: Stage): StageDraft {
@@ -32,6 +70,10 @@ export function draftOf(stage: Stage): StageDraft {
     ownersMode: stage.owners !== undefined || !stage.duty ? 'names' : 'duty',
     members: stage.owners ?? [],
     conditions: stage.gate?.conditions.map((condition) => ({ ...condition })) ?? [],
+    smallEnabled: stage.smallCards !== undefined,
+    smallPoints: stage.smallCards?.maxPoints ?? NO_SMALL_CARDS.smallPoints,
+    smallOwners: stage.smallCards?.owners ?? [],
+    smallPaths: (stage.smallCards?.centralPaths ?? []).join('\n'),
   };
 }
 
@@ -47,6 +89,13 @@ export function stageOf(draft: StageDraft): Stage {
   // Only the chosen way is saved; without a duty, nobody chosen is the same as no list.
   if (draft.ownersMode === 'names' && (draft.members.length > 0 || draft.duty)) stage.owners = draft.members;
   if (draft.conditions.length > 0) stage.gate = { conditions: draft.conditions };
+  // The rule belongs to a step stage that has it switched on; any other leaves the field out.
+  if (draft.kind === 'step' && draft.smallEnabled)
+    stage.smallCards = {
+      maxPoints: draft.smallPoints,
+      owners: draft.smallOwners,
+      centralPaths: pathLines(draft.smallPaths),
+    };
   return stage;
 }
 
@@ -55,7 +104,7 @@ export function sortIssues(
   issues: readonly IssueRef[],
   config: ProjectConfig,
   stageId: string,
-  draft: Pick<StageDraft, 'name' | 'conditions'>,
+  draft: Pick<StageDraft, 'name' | 'conditions' | 'smallPaths'>,
 ): { fields: Map<string, FieldIssue[]>; other: FieldIssue[] } {
   const fields = new Map<string, FieldIssue[]>();
   const other: FieldIssue[] = [];
@@ -83,7 +132,21 @@ export function sortIssues(
       } else if (part === 'kind' || part === 'duty' || part === 'description') field = part;
       else if (part === 'columnId') field = 'column';
       else if (part === 'owners' || part.startsWith('owners.')) field = 'owners';
-      else {
+      else if (part.startsWith('smallCards.owners')) {
+        field = 'smallOwners';
+        if (issue.code === 'small_cards_unknown_owner')
+          message = t('settings.pipeline.edit.smallRule.errors.unknownOwner', { handle: issue.detail ?? '' });
+        else message = t('settings.pipeline.edit.smallRule.errors.noOwner');
+      } else if (part.startsWith('smallCards.centralPaths')) {
+        field = 'smallPaths';
+        const index = /^smallCards\.centralPaths\.(\d+)$/.exec(part)?.[1];
+        if (issue.code === 'small_cards_invalid_path' && index !== undefined)
+          message = t('settings.pipeline.edit.smallRule.errors.invalidPath', {
+            line: lineOfPattern(draft.smallPaths, Number(index)),
+            pattern: issue.detail ?? '',
+          });
+        else message = t('settings.pipeline.edit.smallRule.errors.tooManyPaths');
+      } else {
         const row = /^gate\.conditions\.(\d+)(?:\.(label|when|type))?$/.exec(part);
         if (row) {
           field = `gate:${row[1]}`;

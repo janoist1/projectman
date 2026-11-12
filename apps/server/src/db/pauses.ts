@@ -157,6 +157,12 @@ export function createPauseRepository(db: Db) {
       `SELECT sp.* FROM session_pauses sp JOIN pauses p ON p.id = sp.pause_id
        WHERE sp.project_key = ? AND sp.resumed_at IS NULL AND p.scope != 'engine' ORDER BY sp.since, sp.session_id`,
     ),
+    // The rows a resume left open because it stopped before it started the session again (PM-1347).
+    openSessionsOfEndedPauses: db.prepare(
+      `SELECT sp.* FROM session_pauses sp JOIN pauses p ON p.id = sp.pause_id
+       WHERE sp.resumed_at IS NULL AND p.resumed_at IS NOT NULL
+       ORDER BY sp.since, sp.session_id`,
+    ),
     closeSession: db.prepare(
       'UPDATE session_pauses SET resumed_at = ? WHERE session_id = ? AND resumed_at IS NULL',
     ),
@@ -235,6 +241,10 @@ export function createPauseRepository(db: Db) {
     /** The open rows the team's pauses hold, not an engine's. */
     openTeamSessions(): SessionPauseRecord[] {
       return (statements.openTeamSessions.all() as SessionPauseRow[]).map(toSessionPause);
+    },
+    /** The open rows whose pause (a team's or an engine's) has ended already: a resume that did not finish releasing them. */
+    openSessionsOfEndedPauses(): SessionPauseRecord[] {
+      return (statements.openSessionsOfEndedPauses.all() as SessionPauseRow[]).map(toSessionPause);
     },
     openSessionsOfProject(projectKey: string): SessionPauseRecord[] {
       return (statements.openSessionsOfProject.all(projectKey) as SessionPauseRow[]).map(toSessionPause);

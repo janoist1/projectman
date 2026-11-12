@@ -539,6 +539,26 @@ export class PauseService {
   async resumeAfterStartup(): Promise<void> {
     for (const pause of this.ctx.repos.pauses.open().filter((p) => p.kind === 'shutdown'))
       await this.resume(targetOf(pause), { userId: null, source: 'system' });
+    await this.releaseUnfinished();
+  }
+
+  /**
+   * The sessions a resume did not finish with (the hub stopped while it started them again, PM-1347): their row is
+   * open although the pause has ended. They go on as the resume would have let them.
+   */
+  private async releaseUnfinished(): Promise<void> {
+    const { pauses, sessions } = this.ctx.repos;
+    const byPause = new Map<string, SessionPauseRecord[]>();
+    for (const row of pauses.openSessionsOfEndedPauses()) {
+      // An engine's pause ended because the engine connected; one that is not connected now goes on at its next connect.
+      const session = sessions.get(row.sessionId);
+      if (session && this.waitsForEngine(session)) continue;
+      byPause.set(row.pauseId, [...(byPause.get(row.pauseId) ?? []), row]);
+    }
+    for (const [pauseId, rows] of byPause) {
+      const pause = pauses.get(pauseId);
+      if (pause) await this.release(pause, new Map(), rows);
+    }
   }
 
   /**
@@ -547,8 +567,9 @@ export class PauseService {
    * again.
    */
   async resumeEngine(engineId: EngineId): Promise<void> {
-    if (!this.ctx.repos.pauses.findOpenEngine(engineId)) return;
-    await this.resume({ scope: 'engine', engineId }, { userId: null, source: 'system' });
+    if (this.ctx.repos.pauses.findOpenEngine(engineId))
+      await this.resume({ scope: 'engine', engineId }, { userId: null, source: 'system' });
+    await this.releaseUnfinished();
   }
 
   /**
@@ -688,11 +709,19 @@ export class PauseService {
     await this.afterResume(closed, projectKeys);
   }
 
-  /** The sessions of the resumed pause whose project no pause covers any more go on. */
-  private async release(pause: PauseRecord, actors: ReadonlyMap<string, Actor>): Promise<void> {
+  /**
+   * The sessions of the resumed pause whose project no pause covers any more go on. A session's row closes only
+   * once it started again or went on, so a stop of the hub in between leaves the row for the next start
+   * (`releaseUnfinished`, PM-1347).
+   */
+  private async release(
+    pause: PauseRecord,
+    actors: ReadonlyMap<string, Actor>,
+    rows: readonly SessionPauseRecord[] = this.heldBy(pause),
+  ): Promise<void> {
     const { pauses } = this.ctx.repos;
     const stillPaused = pauses.open();
-    for (const row of this.heldBy(pause)) {
+    for (const row of rows) {
       if (isWorkPaused(stillPaused, row.projectKey)) {
         // An engine's pause is the only one that holds its rows: a pause of the team that covers the project takes it over.
         const covering = stillPaused.find((p) => p.scope === 'instance' || p.projectKey === row.projectKey);
@@ -704,20 +733,30 @@ export class PauseService {
         this.handOverToEngine(session, row, pause);
         continue;
       }
-      pauses.closeSession(row.sessionId, isoNow(this.ctx));
-      if (!session) continue;
+      if (!session) {
+        pauses.closeSession(row.sessionId, isoNow(this.ctx));
+        continue;
+      }
       try {
         if (this.sessions.isRunning(session.id)) this.letGo(session, row);
-        // No point: the process was cut before it answered (the stop of the server), in a turn.
-        else if (row.needsRestart || row.point === null || (await this.holdsOpenWork(session)))
-          await this.restart(session, row, pause.kind, actors.get(session.projectKey));
         else {
-          // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
-          this.delivery.dropPauseHeld(session.id);
-          await this.messageRouter.wakeWaiting(session);
+          // No point: the process was cut before it answered (the stop of the server), in a turn.
+          if (row.needsRestart || row.point === null || (await this.holdsOpenWork(session)))
+            await this.restart(session, row, pause.kind, actors.get(session.projectKey));
+          else {
+            // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
+            this.delivery.dropPauseHeld(session.id);
+            await this.messageRouter.wakeWaiting(session);
+          }
+          // What was held while the row was open (the session runs again, so it counts as paused) goes in now.
+          pauses.closeSession(row.sessionId, isoNow(this.ctx));
+          const current = this.ctx.repos.sessions.get(session.id);
+          if (current && this.sessions.isRunning(current.id)) this.delivery.deliverPauseHeld(current);
         }
       } catch (err) {
+        // A failure in this process (not a stop of the hub) must not leave the session held, deaf to its messages.
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
+        pauses.closeSession(row.sessionId, isoNow(this.ctx));
       }
       this.publishSession(session.id);
     }
@@ -786,6 +825,7 @@ export class PauseService {
         ? this.sessions.pauseNudge(row.point, row.tool, false)
         : undefined;
     this.runner.release(session.id, nudge ? { nudge } : undefined);
+    this.ctx.repos.pauses.closeSession(session.id, isoNow(this.ctx));
     this.delivery.deliverPauseHeld(session);
     const current = this.ctx.repos.sessions.get(session.id);
     if (!current) return;

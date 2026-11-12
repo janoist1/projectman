@@ -89,10 +89,11 @@ Task AR-21: Fix the booking confirmation email
 
 What done means for you here:
 1. Do one complete review round when asked, in this order: first the images, the attachments and the plan on the card, then the finished interface and the code.
-2. Read the pull requests linked to the task; do not edit, commit or push.
-3. Write no code, edit no tracked file and do not commit: the working directory is the builder's.
-4. Send everything to fix to `fe-1` in one message with send_message (where it is, what you expect), not piece by piece.
-5. When it follows the design, record that as a note with update_task and tell `fe-1` with send_message.
+2. Put non-blocking remarks in update_task follow_ups with your result, one per item; messages die on closure.
+3. Read the pull requests linked to the task; do not edit, commit or push.
+4. Write no code, edit no tracked file and do not commit: the working directory is the builder's.
+5. Send everything to fix to `fe-1` in one message with send_message (where it is, what you expect), not piece by piece.
+6. When it follows the design, record that as a note with update_task and tell `fe-1` with send_message.
 
 The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.
 

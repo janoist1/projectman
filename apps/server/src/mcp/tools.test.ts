@@ -86,7 +86,8 @@ describe('tool audience', () => {
       translator: 40_000,
       docs: 40_000,
     };
-    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+    // PM-1361 adds the bounded follow_ups schema and its usage description to update_task.
+    expect(bytes).toBeLessThanOrEqual(budgets[role] + 512);
   });
   it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',

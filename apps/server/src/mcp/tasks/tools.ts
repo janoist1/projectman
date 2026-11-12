@@ -160,6 +160,7 @@ interface UpdateTaskArgs {
   add_labels?: string[] | undefined;
   remove_labels?: string[] | undefined;
   note?: string | undefined;
+  follow_ups?: string[] | undefined;
   reply_to?: string | undefined;
   title?: string | undefined;
   description?: string | undefined;
@@ -192,6 +193,7 @@ async function runUpdateTask<C>({
     add_labels: addLabels,
     remove_labels: removeLabels,
     note,
+    follow_ups: followUps,
     reply_to: replyTo,
     title,
     description,
@@ -212,6 +214,7 @@ async function runUpdateTask<C>({
     !addLabels?.length &&
     !removeLabels?.length &&
     !note &&
+    !followUps?.length &&
     !title &&
     !description &&
     repo === undefined &&
@@ -221,7 +224,7 @@ async function runUpdateTask<C>({
   ) {
     throw new TeamToolError(
       'invalid',
-      'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
+      'Nothing to update: pass stage_id, add_labels, remove_labels, note, follow_ups, title, description, repo, ' +
         'add_relations, remove_relations, theme_key, archived, priority, complexity and/or acceptance.',
     );
   }
@@ -236,6 +239,7 @@ async function runUpdateTask<C>({
     ...(addLabels?.length ? { addLabels } : {}),
     ...(removeLabels?.length ? { removeLabels } : {}),
     ...(note ? { note } : {}),
+    ...(followUps ? { followUps } : {}),
     ...(replyTo ? { replyTo } : {}),
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
@@ -386,6 +390,14 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .max(TASK_COMMENT_MAX)
           .optional()
           .describe('Timeline note: findings, decisions, what changed; with labels, their comment.'),
+        follow_ups: z
+          .array(z.string().trim().min(1).max(500))
+          .min(1)
+          .max(10)
+          .optional()
+          .describe(
+            'Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.',
+          ),
         reply_to: z.string().max(100).optional().describe('Comment event id: reply to it.'),
         title: z
           .string()

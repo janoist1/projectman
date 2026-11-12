@@ -2,11 +2,11 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { mergeTestReport, regeneratedWriteDirs } from '@projectman/shared';
+import { mergeTestPlaces, mergeTestReport, placeWorkers, regeneratedWriteDirs } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
 import { STALE_LEFTOVER_MS } from '../contracts';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
-import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
+import { acquireHeavyLock, HeavyLockError, machineHost } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
 import { failedFiles, failureReport, passedOutputTail } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
@@ -216,9 +216,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         if (spec.requireHeavyLock) return signal.aborted ? failure('killed', Date.now()) : unavailable();
       } else {
         try {
+          const places = spec.requireHeavyLock ? mergeTestPlaces(machineHost(), spec.maxWorkers) : undefined;
           lock = await acquireHeavyLock({
             dir: options.heavyLockDir,
             label: `server full test ${path.basename(spec.cwd)}`,
+            ...(places ? { places: { min: places, max: places } } : {}),
             signal,
           });
         } catch (err) {
@@ -237,7 +239,9 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         // The run's turn has come (or it needs none): a run stopped while it waited never starts.
         if (!signal.aborted) onStarted?.();
         return await runLocked(
-          spec,
+          lock && spec.requireHeavyLock
+            ? { ...spec, maxWorkers: Math.min(spec.maxWorkers, placeWorkers(lock.granted, machineHost())) }
+            : spec,
           signal,
           lock && options.heavyLockDir ? { ticket: lock.ticket, dir: options.heavyLockDir } : undefined,
         );

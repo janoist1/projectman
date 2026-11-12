@@ -1653,7 +1653,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
 - **Machine places** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
   `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
-  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
+  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); merge checks reserve main + usable
+  workers up to `max(2, capacity - 2)` places (`mergeTestPlaces`, PM-1338), and cap workers to that grant.
+  The server also respects its configured worker limit. Other heavy runs take `all`, or 2 to 4
   for a workspace vitest and `handover-check`, 2 for the root typecheck and the members' `npm ci`, 3 for
   screenshots, 1 for a workspace typecheck or build (PM-1316, PM-1278 C; a run inside a holder asks for
   none), and its worker count comes from the places it was granted

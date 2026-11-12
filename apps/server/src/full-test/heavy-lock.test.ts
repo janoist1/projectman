@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mergeTestPlaces, placeWorkers } from '@projectman/shared';
 import {
   acquireHeavyLock,
   endHeavySessionRuns,
@@ -516,6 +517,18 @@ describe('the heavy-run lock', () => {
 
 /** The pool of places: four of them, whatever the machine is. */
 describe('the pool of places', () => {
+  it('runs a two-place developer check beside a merge check on a six-place machine', async () => {
+    const host = { cpus: 8, memoryBytes: 16 * 2 ** 30 };
+    const places = mergeTestPlaces(host);
+    const merge = await acquire('merge check', { capacity: 6, places: { min: places, max: places } });
+    const developer = await acquire('handover check', {
+      capacity: 6,
+      places: { min: 2, max: 4 },
+      maxWaitMs: 1000,
+    });
+    expect([merge.granted, developer.granted]).toEqual([4, 2]);
+    expect(placeWorkers(merge.granted, host)).toBe(3);
+  });
   const POOL = { capacity: 4 };
   const some = (min: number, max = min) => ({ ...POOL, places: { min, max } });
 

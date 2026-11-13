@@ -949,6 +949,49 @@ describe('AgentSession', () => {
     expect(pty.typed().enters).toBe(2);
   });
 
+  describe('a typed message whose submission was lost (PM-1364)', () => {
+    /** Sends a message and watches how its delivery ends; the Enter is lost, no UserPromptSubmit follows. */
+    async function sendLost() {
+      const started = await ready();
+      const result = { outcome: 'pending' as 'pending' | 'taken' | 'refused' };
+      started.session.send('hello').then(
+        () => (result.outcome = 'taken'),
+        () => (result.outcome = 'refused'),
+      );
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      return { ...started, result };
+    }
+    const { submitTimeoutMs, lateSubmitMs, enterRetryMs } = CLAUDE_TIMING;
+    const SUBAGENT_BASH = {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_use_id: 'sub-1',
+      agent_id: 'agent-1',
+    };
+
+    it('is not taken as delivered by a subagent hook, in the submit window or after it', async () => {
+      const { hook, result } = await sendLost();
+      await hook({ hook_event_name: 'PreToolUse', ...SUBAGENT_BASH });
+      await vi.advanceTimersByTimeAsync(submitTimeoutMs + enterRetryMs);
+      expect(result.outcome).toBe('pending'); // waits late rather than taken unconfirmed
+      await hook({ hook_event_name: 'PostToolUse', ...SUBAGENT_BASH });
+      await hook({ hook_event_name: 'Stop', agent_id: 'agent-1' });
+      expect(result.outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(lateSubmitMs + enterRetryMs);
+      expect(result.outcome).toBe('refused');
+    });
+
+    it('is not taken as delivered by the Stop of an earlier turn arriving while the session is idle', async () => {
+      const { hook, session, result } = await sendLost();
+      expect(session.state.state).toBe('idle');
+      await hook({ hook_event_name: 'Stop' });
+      await vi.advanceTimersByTimeAsync(submitTimeoutMs + enterRetryMs);
+      expect(result.outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(lateSubmitMs + enterRetryMs);
+      expect(result.outcome).toBe('refused');
+    });
+  });
+
   it('describes a resumed session stalled after a completed turn with bounded screen and hook metadata', async () => {
     const logger = silentLogger();
     const warn = vi.spyOn(logger, 'warn');
@@ -1341,11 +1384,25 @@ describe('AgentSession of Codex', () => {
     return started;
   }
 
-  it('reports its first input as sent when it is started with it on the command line', () => {
-    const { events } = resumedWithPrompt();
+  it('reports its command-line first input as sent only after the CLI submits it', async () => {
+    const { events, hook } = resumedWithPrompt();
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Your session was restarted.' });
     expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([
       { type: 'first_input_sent', sessionId: 'ses_1' },
     ]);
+  });
+
+  it('reports failure when the command-line prompt times out even if the CLI is busy', async () => {
+    const { events, hook } = resumedWithPrompt();
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/tmp/file' } });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.argumentSubmitTimeoutMs + CODEX_TIMING.enterRetryMs);
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([
+      { type: 'first_input_failed', sessionId: 'ses_1' },
+    ]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'late prompt' });
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
   });
 
   it.each(['startup', 'resume', 'clear'])(
@@ -1475,6 +1532,42 @@ describe('pausing (PM-218)', () => {
     await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
     expect(s.pty.typed().pastes).toEqual(['Carry on.', 'first']);
     expect(s.session.release()).toBe(false);
+  });
+
+  it('reports the nudge of a release as failed, with its text, when the CLI never takes it (R-04)', async () => {
+    const s = await ready();
+    await s.session.pause();
+    expect(s.session.release({ nudge: 'Carry on.' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(
+      CODEX_TIMING.stepDelayMs +
+        CODEX_TIMING.enterDelayMs +
+        CODEX_TIMING.submitTimeoutMs +
+        CODEX_TIMING.lateSubmitMs +
+        CODEX_TIMING.enterRetryMs,
+    );
+    expect(s.pty.typed().pastes).toEqual(['Carry on.']);
+    expect(s.events.filter((e) => e.type === 'nudge_failed')).toEqual([
+      { type: 'nudge_failed', sessionId: 'ses_1', text: 'Carry on.' },
+    ]);
+  });
+
+  it('reports no failed nudge when the CLI took it (R-04)', async () => {
+    const s = await ready();
+    await s.session.pause();
+    s.session.release({ nudge: 'Carry on.' });
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await submit(s);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(s.events.map((e) => e.type)).not.toContain('nudge_failed');
+  });
+
+  it('reports a held session as paused in its info, and says nothing when it is not (PM-1403)', async () => {
+    const s = await ready();
+    expect(s.session.info()).not.toHaveProperty('paused');
+    await s.session.pause();
+    expect(s.session.info().paused).toBe(true);
+    s.session.release();
+    expect(s.session.info()).not.toHaveProperty('paused');
   });
 
   it('halts the tool call that comes next: it does not run, and the session stops before it', async () => {

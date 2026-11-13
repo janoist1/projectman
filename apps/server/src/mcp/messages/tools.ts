@@ -10,7 +10,7 @@ import {
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import { formatSentMessage } from '../format';
-import { defineTool, type TeamToolGroup, MAX_PATH_CHARS, unique } from '../kit';
+import { defineTool, type TeamToolGroup, MAX_PATH_CHARS, PM_ONLY, unique } from '../kit';
 const MAX_MESSAGE_CHARS = 20_000;
 
 export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
@@ -99,6 +99,13 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
               'when they ask to be taken somewhere or to find something. Only places every recipient can see. ' +
               'The app writes the button text; a plain-text reply carries no buttons.',
           ),
+      },
+      fieldAudience: {
+        signal_id: PM_ONLY,
+        signal_actionable: PM_ONLY,
+        signal_ids: PM_ONLY,
+        actionable_signal_ids: PM_ONLY,
+        places: PM_ONLY,
       },
       external: {
         access: 'write',

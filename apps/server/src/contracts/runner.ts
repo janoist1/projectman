@@ -235,6 +235,11 @@ export type RunnerEvent =
    */
   | { type: 'first_input_failed'; sessionId: string }
   /**
+   * The nudge a pause's release typed (`release`'s `nudge`) was never taken by the CLI (R-04): `text` is
+   * the nudge, which the hub stores as a message so that the member still gets it.
+   */
+  | { type: 'nudge_failed'; sessionId: string; text: string }
+  /**
    * The agent CLI's own conversation id, when the runner learns it instead of choosing it
    * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
    */
@@ -329,6 +334,8 @@ export interface RunningSessionInfo {
   state: SessionState;
   cols: number;
   rows: number;
+  /** The session's input is held by a pause (PM-1403). Set only when true, so an older hub reads the hello as before. */
+  paused?: boolean;
 }
 
 /** Where a paused session stopped (PM-218). */

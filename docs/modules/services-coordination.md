@@ -10,10 +10,9 @@ still say "operator" (`OperatorRequests`, `OPERATOR_READ_TOOLS`, `operator_*` er
 is in the Project plan, chapter 4; this file describes only what the code does.
 
 The project manager has no member of its own role to ask: a project has no built-in Operator member. The shared rules
-that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_ROLE`,
-`RETIRED_OPERATOR_HANDLE`), which let the configuration migration `removeOperator`
-(`apps/server/src/config/migrations.ts`) find and drop the member an older project still holds. The handle `operator`
-stays taken for good: older events and messages name it.
+that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_HANDLE`). Configurations containing the retired member must be rewritten before upgrading;
+runtime configuration converters were removed in PM-1383. The handle `operator` stays taken for good:
+older events and messages name it.
 
 ## Rules that bind the project manager
 
@@ -24,7 +23,8 @@ stays taken for good: older events and messages name it.
 - **Moves and priority.** `actorMoveRefusal` binds the project manager to the stage moves the project's
   `team.projectManagerMoves` allows; `priorityRefusal` lets it set the priority only when `team.prioritySetters`
   covers it (people and the connected owner always may). `labelRefusal`: no AI member sets a label only a person may
-  set. `reassign_task`, `cancel_task` and `reopen_task` need `team.projectManagerLifecycle` to list the action.
+  set. `reassign_task`, `cancel_task` and `reopen_task` need `team.projectManagerLifecycle` to list the action;
+  `involve_member` (PM-1267) needs `team.memberInvolvement` = `people_and_project_manager`.
 - **Prompt.** `projectManagerRule` and `projectManagerDetails` (`apps/server/src/context/system-prompt.ts`): the
   authority limits and the procedure index; the procedures are read on demand from the role guide.
 - **Configuration changes.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
@@ -33,7 +33,7 @@ stays taken for good: older events and messages name it.
   `approval`. Everything not named is `approval`, so a new configuration field is closed until a rule opens it.
   `integratorConfigRefusal` and `ownerOnlyChanges` name more that is at least `approval`. The rules run on the
   server. (The approval waiver setting `team.operatorApprovalWaiver`, with the verdict's `waiverEligible`, was
-  removed in PM-1259: nothing read it. A configuration migration drops the field from older configurations.)
+  removed in PM-1259: nothing read it.)
 - **Targeted configuration edits.** `get_role_configuration` reads one built-in role (the version, the stored override
   or `null`, the effective full bundle) and needs an open owner request. A `config_patch` command can replace only
   named roles (`roleOverrides`; `null` resets one) or label entries (`labels`: `name`, `color`, `meaning` per label id);
@@ -68,9 +68,9 @@ path under its own key.
 
 The fields of every kind come from the guide topic `operations` (generated from the schemas).
 
-A decision on an old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
-events keep rendering (`operatorApprovalOf`, `OperatorApproval.tsx`), and configuration history reads the
-`Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
+Migration 157 (PM-1384) rewrote the closed `release` and Operator approval inbox rows to `alert` (the open ones were
+cancelled), so no `operator_approval` item remains. Steps and `operator_*` timeline events keep rendering, and
+configuration history reads the `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
 carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`); a non-empty `operations` is
 `invalid_request`.
 
@@ -182,7 +182,7 @@ up). Its source is `message`, `answer`, `approval` or `queue` (a member queue it
 
 **Write guard** (`ToolCaller.caller(ctx, tool)`, `mcp/caller.ts`). The project manager calls the reading tools
 (`OPERATOR_READ_TOOLS`) at any time; the screening tools (`OPERATOR_SCREENING_TOOLS`: `combine_questions`,
-`screen_question`, `dismiss_signal`, `triage_loop`) and the card tools (`reassign_task`, `cancel_task`, `reopen_task`)
+`screen_question`, `dismiss_signal`, `triage_loop`) and the card tools (`reassign_task`, `cancel_task`, `reopen_task`, `involve_member`)
 need no request and log no step; every other write needs an open request (`operator_no_request` 403). The decisions of
 other members, hand-overs, merges and release proposals are not coordination tools at all. The guard hands the request
 it found on to the step log, so a request expiring between the two cannot leave a write without its step. Its
@@ -224,9 +224,9 @@ usual delivery rules (grouping, the 15-minute project wake interval). The case h
 `next_step` obligation kind follows every open card by the rule `cardDuty`, and the project manager gets a card nobody
 can take (class `unowned`) as the `wake` and `tell_pm` rungs of that ladder, not as a second signal.
 `ARCHITECTURE.md`, "Obligation tracking", holds the principle (an event only speeds things up, the once-a-minute sweep
-over the board is what is relied on). Older signal kinds (`idle`, `merge_waiting`, `ready_waiting`, `work_stalled`,
-`refinement_stalled`, `nobody`) stay in the union and in `RETIRED_KINDS` only so old rows and timeline events keep
-rendering; the sweep resolves an open row of such a kind.
+over the board is what is relied on). The signal kinds `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are gone: migration 157
+(PM-1384) deleted their rows and narrowed the kind check. Only `unreleased` stays in `RETIRED_KINDS` (the sweep
+resolves an open row of it).
 
 **`senior_wait` (PM-1251).** The `senior_wait` obligation's hand-over raises it (`senior_wait:<obligation id>`,
 `OperatorSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its
@@ -235,8 +235,8 @@ points; its facts name the card, the Seniors, since when and the points. The cas
 so the next sweep resolves the signal. A project without a pm gets the old owner question instead.
 
 The project manager may use `dismiss_signal { signal_id, note }` without an owner request at every watch level
-(`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or
-`milestone_closed` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
+(`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern`,
+`milestone_closed` or `review_follow_ups` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
 and publishes the decision to owners. Presented signals remain the owners' to decide.
 
 **Unreleased merges (PM-1333).** Merges waiting for a release no longer make a signal and start nobody: `releaseDue`
@@ -246,11 +246,22 @@ by hand does not reopen within 24 hours) and settles it with `settleAlert(..., {
 `unreleased` kind is in `RETIRED_KINDS`, so the sweep resolves old open rows; the project manager has no unreleased
 step and its prompt names none.
 
-**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
-`milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
+**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern`,
+`milestone_closed` or `review_follow_ups` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
 `packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
 `signal_not_for_owner` and makes no inbox item. `unreleased` stays in the list for old rows only; a signal meant for
 the coordinator alone is closed with `dismiss_signal`.
+
+**Review follow-ups at close (PM-1362).** `ReviewFollowUps.cardClosed` (`review-follow-ups.ts`, wired in `assembly.ts` on
+`task_stage_changed` and `task_cancelled`) runs when a card is done or cancelled. It takes the card's
+`review_follow_ups` timeline events (recorded by `update_task follow_ups`, PM-1361) that no earlier
+`review_follow_ups` signal of the card covers (that signal's `subject` lists the covered event ids) and, when any
+remain, raises one coordinator-only signal: `caseKey` `review_follow_ups:<taskKey>:<last event id>`, `subject` the
+event ids. A reopened and re-closed card passes on only the new remarks. The signal has no expiry and does not close
+by itself (`caseHolds` defaults to true): the pm adds each item to an open card, opens a follow-up card or drops it,
+then closes the signal with `dismiss_signal` and a note. `noticeText` carries `ReviewFollowUpsFacts`
+(`reviewFollowUpsFacts`). Migration 155 adds the kind to the `operator_signals` CHECK. Server only; no
+machine-dependent part.
 
 ## Question screening
 

@@ -112,9 +112,11 @@ import {
   RefinementSteps,
   SeniorDecisions,
   StageHandOver,
+  StartFailures,
   TaskStarts,
   WorkStarts,
   createDeferredStartRebuilder,
+  wireStartFailures,
 } from './runtime/admission';
 import type { QueueWait } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
@@ -132,6 +134,7 @@ import {
 import {
   LoopTriages,
   OperatorSignals,
+  ReviewFollowUps,
   StructuralReviews,
   createAlertPmSignals,
   wireOperatorSignals,
@@ -209,7 +212,7 @@ import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
 import { attributedActor } from './kernel';
-import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
+import { SYSTEM_SENDER, isSessionAtWork, isWorkPaused, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
 import {
@@ -532,7 +535,6 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = createTimelineService(ctx);
   const superAudit = createSuperAuditService(ctx);
-  const involvements = new InvolvementService(ctx);
   const projects = createProjectService({
     ctx,
     configStore: opts.configStore,
@@ -542,6 +544,7 @@ export function createDomain(opts: DomainOptions) {
     // `engines` is built below, so it is looked up when asked.
     engines: createNewProjectEngines({ engines: () => engines, registry: opts.engineRegistry }),
   });
+  const involvements = new InvolvementService({ ctx, timeline, projects });
   // A session on a remote engine reads a card's attachments from that engine's cache (PM-315).
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.engineAttachments
@@ -681,6 +684,7 @@ export function createDomain(opts: DomainOptions) {
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
+    changedFiles: (config, task, commit) => sessions.changedFiles(config, task, commit),
     notifyHandOn: async (config, task, request) => {
       const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
       const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
@@ -803,6 +807,8 @@ export function createDomain(opts: DomainOptions) {
     logger: opts.logger,
     now,
     background,
+    liveAccounts: () => sessions.liveAccounts(),
+    isPaused: (projectKey) => isWorkPaused(ctx.repos.pauses.open(), projectKey),
     ttlMs: opts.planUsageTtlMs,
     onFetched: (provider, engineId, value) => {
       sessions.observeProviderUsage(provider, engineId, value);
@@ -822,10 +828,19 @@ export function createDomain(opts: DomainOptions) {
     disk,
     keepMs: opts.closedWorktreeKeepMs,
   });
+  const startFailures = new StartFailures({
+    ctx,
+    engineOf: (projectKey, member) => engines.engineFor(projectKey, member),
+    providerOnHold: (provider, engineId) => sessions.providerOnHold(provider, engineId),
+    awaitsFirstTurn: (sessionId) => sessions.awaitsFirstTurn(sessionId),
+  });
+  // Counted before any listener below retries a start of the member whose session ended.
+  wireStartFailures({ events, startFailures });
   const admission = new Admission({
     onOutageRefusal: (key, handle, code, details) => {
       void outages.observeRefusal(key, handle, code, details).catch(() => {});
     },
+    startFailures,
     ctx,
     sessions,
     planUsage,
@@ -955,6 +970,8 @@ export function createDomain(opts: DomainOptions) {
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
   delivery.useMessageHolds((session) => messageRouter.holdsMessagesOf(session));
+  delivery.useNoticeStore((session, text) => messaging.storeNotice(session, text));
+  sessions.useNoticeStore((session, text) => messaging.storeNotice(session, text));
   const sessionCloser = new SessionCloser({
     ctx,
     engines,
@@ -997,6 +1014,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     logger: opts.logger,
   });
+  events.on('task_owner_escalated', (change) => handOver.escalateOwners(change));
   events.on('session_ended', (session) => {
     background.run(
       () => handOver.resumeInterrupted(session, session.previousState),
@@ -1299,6 +1317,15 @@ export function createDomain(opts: DomainOptions) {
         opts.logger.warn({ err, taskKey }, 'could not check the pinned review commit');
       }),
   });
+  // A developer's session that stopped has made its last commits: the pinned review commit is looked at now (PM-1374).
+  const checkPinAfterSession = (session: Session): void => {
+    background.run(
+      () => reviewWatch.sessionStopped(session),
+      (err) => opts.logger.warn({ err }, 'could not check the pinned review commit'),
+    );
+  };
+  events.on('session_idle', checkPinAfterSession);
+  events.on('session_ended', checkPinAfterSession);
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   const approvalQuestions = new ApprovalQuestions({ ctx, inbox, openQuestionLabel });
   events.on('task_labels_changed', ({ task, previousLabels }) =>
@@ -1427,6 +1454,10 @@ export function createDomain(opts: DomainOptions) {
   messaging.registerSignals(operatorSignals);
   // The alerts the route rule sends to the project manager become signals (PM-1250).
   inbox.registerAlertPmSignals(createAlertPmSignals({ operatorSignals, background, logger: ctx.logger }));
+  // The non-blocking remarks a closed card still holds go to the project manager (PM-1362).
+  const reviewFollowUps = new ReviewFollowUps({ ctx, signals: operatorSignals });
+  events.on('task_stage_changed', ({ task }) => reviewFollowUps.cardClosed(task));
+  events.on('task_cancelled', (task) => reviewFollowUps.cardClosed(task));
   const structuralReviews = new StructuralReviews({
     ctx,
     projects,
@@ -1626,6 +1657,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        involvements,
         systemFeedback,
         structuralReviews,
         operatorPreferences,
@@ -1774,7 +1806,13 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     retry: retryDeferredStarts,
     engineName: opts.engineName,
+    startFailures,
   });
+  // A place that stopped at the failure limit is one alert; a released one gets its one more try at once (PM-1335).
+  startFailures.useReachedLimit((projectKey, member, hold) => {
+    void outages.startFailureStopped(projectKey, member, hold).catch(() => {});
+  });
+  startFailures.useReleased(() => retryDeferredStarts());
   events.on('config_changed', (change) => outages.configChanged(change));
   const unsubscribeOutageKeys = providerKeys?.onChange(() => {
     if (opts.standby) return;
@@ -1873,7 +1911,7 @@ export function createDomain(opts: DomainOptions) {
   });
   // New projects and provider changes get a probe without blocking the config response.
   events.on('config_changed', () => {
-    setImmediate(() => usage.refresh()).unref();
+    setImmediate(() => usage.refresh({ force: true })).unref();
   });
   // A message from an AI member that waits for a member with no role on the card starts nothing (PM-426).
   // The new assignee has a role: their waiting messages wake them now, unless the card holds them back.
@@ -2427,6 +2465,8 @@ export function createDomain(opts: DomainOptions) {
       // Restore quota holds before schedulers or background probes can admit inference.
       const restoredStarts = admission.restoreDeferred(rebuildDeferredStart);
       usage.start();
+      // The delegated questions' deadlines (PM-1374): a timer at the earliest one, not a sweep every second.
+      inbox.startDelegationTimer();
       schedules.start();
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
@@ -2513,18 +2553,12 @@ export function createDomain(opts: DomainOptions) {
             run: () => outages.check(),
             onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
           },
-          {
-            name: 'delegations',
-            everyMs: 1000,
-            run: () => inbox.sweepDelegations(),
-            onError: () => opts.logger.warn('delegation deadline sweep failed'),
-          },
           // The branch of a task in review must stay at the commit handed over (PM-183).
           {
             name: 'review-watch',
             everyMs: opts.reviewWatchMs ?? 30_000,
             run: async () => {
-              await reviewWatch.check();
+              await reviewWatch.checkDue();
               // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
               await fullTests.syncAll();
             },
@@ -2626,6 +2660,7 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeEngines();
       unsubscribeSignalActivity();
       usage.stop();
+      inbox.stopDelegationTimer();
       await emailQueue?.stop();
       const drained = schedules.stop();
       githubSync.stop();

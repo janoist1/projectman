@@ -168,6 +168,7 @@ const screenshotSpec: z.ZodType<ScreenshotRunSpec> = z.strictObject({
   cwd: text,
   sessionDir: text,
   browsersDir: text.optional(),
+  command: text,
   args: texts,
   sandbox: z.strictObject({ allowWrite: texts, denyWrite: texts, denyRead: texts, allowRead: texts }),
   label: text,

@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { StartSessionSpec } from '../contracts';
+import type { RunnerEvent, StartSessionSpec } from '../contracts';
 import { createRunnerModule } from './index';
 import { SessionManager } from './runner';
 import { createCodexAdapter } from './providers/codex';
-import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
+import { capturingLogger } from '../../test/helpers/fakes';
+import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs, waitFor } from './test-helpers';
 
 const dirs = tempDirs();
 afterEach(() => dirs.cleanup());
@@ -44,6 +45,21 @@ async function fixture(version = '0.159.1') {
 }
 
 describe('fail-closed Codex start', () => {
+  it('does not report the first input as sent when the CLI exits before submitting it', async () => {
+    const { options, spec } = await fixture();
+    const runner = createRunnerModule(options).runner;
+    const events: RunnerEvent[] = [];
+    runner.onEvent((event) => events.push(event));
+    try {
+      // The fake CLI refuses a resume id with no saved conversation before submitting the prompt.
+      await runner.start({ ...spec, resume: true, initialMessage: 'Retry the waiting messages' });
+      await waitFor(() => events.some((event) => event.type === 'exit'));
+      expect(events.filter((event) => event.type === 'first_input_sent')).toEqual([]);
+    } finally {
+      await runner.shutdown();
+    }
+  });
+
   it('backs off consecutive failed login probes to once a minute', async () => {
     const { options } = await fixture();
     const runner = new SessionManager(options);
@@ -90,6 +106,29 @@ describe('fail-closed Codex start', () => {
       expect(probe).toHaveBeenCalledTimes(5);
     } finally {
       clock.mockRestore();
+      await runner.shutdown();
+    }
+  });
+
+  it('logs an unusable CLI when its state changes, not on every failed check', async () => {
+    const { options } = await fixture();
+    const { logger, warnings } = capturingLogger();
+    const runner = new SessionManager({ ...options, logger });
+    const failed = { provider: 'gemini' as const, loggedIn: false, method: null, checkedAt: 'x' };
+    const probe = vi.spyOn(runner.adapters.gemini, 'checkLogin').mockResolvedValue(failed);
+    const logged = () => warnings.filter((entry) => (entry as unknown[])[1] === 'agent CLI is not usable');
+    try {
+      for (let check = 0; check < 3; check++) await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(1);
+      probe.mockResolvedValue({ ...failed, problem: 'cli_missing' });
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(2);
+      probe.mockResolvedValue({ ...failed, loggedIn: true });
+      await runner.providerStatus('gemini', { refresh: true });
+      probe.mockResolvedValue(failed);
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(3);
+    } finally {
       await runner.shutdown();
     }
   });

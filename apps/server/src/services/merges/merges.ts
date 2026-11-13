@@ -4,8 +4,8 @@ import {
   mergeRepoOf,
   mergeGateUnmet,
   mergeTargetOf,
+  allStageOwners,
   reviewMergeSkip,
-  stageOwners,
   isCodeReviewStage,
   isOpenTask,
   isConnectedOwnerActor,
@@ -82,6 +82,7 @@ export class Merges {
               } catch (err) {
                 // No train was reserved: the individual program owns reconnect waiting and recovery.
                 if (isEngineLinkLost(err)) reserved = false;
+                else if (await this.steps.requeueUnreachable(run, err)) return;
                 else {
                   await this.steps.block(
                     run,
@@ -134,7 +135,7 @@ export class Merges {
     );
     const review = stages.reverse().find((s) => isCodeReviewStage(config, s));
     if (!review) return null;
-    const owners = stageOwners(config, review);
+    const owners = allStageOwners(config, review);
     const events = this.deps.ctx.repos.timeline.listOfTypes(
       task.projectKey,
       task.key,
@@ -349,7 +350,15 @@ export class Merges {
         // restart has none yet. Without either, the row is stuck.
         const holder = this.queue.slot(projectKey, row.repo);
         if (holder && runs(holder, row)) return task;
-        if (row.trainId && this.deps.ctx.repos.mergeTrains.get(row.trainId)?.state === 'running') return task;
+        const train = row.trainId ? this.deps.ctx.repos.mergeTrains.get(row.trainId) : null;
+        if (train?.state === 'running') {
+          // No run holds the slot for this train: recover it as at startup (its leader queues, or it retires).
+          if (!holder) {
+            await this.trains.scheduleRecovery(train);
+            this.pump();
+          }
+          return tasks.get(projectKey, taskKey);
+        }
         await this.steps.abandon(
           { row, pushing: row.landed === 'remote' },
           new Error('the merge lost its run; retry with merge_task to resume safely'),
@@ -637,7 +646,11 @@ export class Merges {
     }
     for (const row of ctx.repos.taskMerges.list('running'))
       if (!row.trainId || ctx.repos.mergeTrains.get(row.trainId)?.state !== 'running')
-        this.steps.save(row, { state: 'queued', step: 'queued' });
+        // A merge that was pushing keeps that step: its push may have landed, so the pump starts it first.
+        this.steps.save(row, {
+          state: 'queued',
+          step: row.step === 'pushing' && row.mergeCommit ? 'pushing' : 'queued',
+        });
     // Known abandoned check worktrees are released before any new check is made.
     for (const state of ['queued', 'blocked'] as const) {
       for (const row of ctx.repos.taskMerges.list(state)) {

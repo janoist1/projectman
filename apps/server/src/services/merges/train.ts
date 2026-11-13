@@ -38,6 +38,7 @@ import {
   checkRetryNote,
   checkInfraMessage,
   checkFallbackNote,
+  holdsRepoQueue,
 } from './check-retry';
 import type { MergeCheckRetry } from './check-retry';
 import type { MergeSteps } from './steps';
@@ -112,10 +113,15 @@ export class MergeTrains {
         return;
       }
     }
-    const leader = this.rows(train)[0]!;
-    if (this.deps.ctx.repos.mergeTrains.get(train.id)?.state === 'merged' || leader.state === 'merged')
-      return;
-    this.steps.save(leader, { state: 'queued' });
+    if (this.deps.ctx.repos.mergeTrains.get(train.id)?.state === 'merged') return;
+    // A member that left the train (blamed alone, merged, cancelled) cannot lead it: the first one still in it does.
+    const open: MergeRecord['state'][] =
+      train.state === 'blocked' ? ['running', 'queued', 'blocked'] : ['running', 'queued'];
+    const leader = this.rows(train).find((row) => row.trainId === train.id && open.includes(row.state));
+    if (leader) this.steps.save(leader, { state: 'queued' });
+    // No member is left in a running manifest: it retires, or it would hold the repository's single train slot.
+    else if (train.state === 'running')
+      this.save(train, { state: 'cancelled', finishedAt: isoNow(this.deps.ctx) });
   }
 
   resume(run: MergeRun): boolean {
@@ -232,6 +238,8 @@ export class MergeTrains {
       }
       if (eligible && !solo) {
         const base = await merger!.prepare(this.steps.ref(row), { base: row.base, commit: row.commit! });
+        // The remote answered: the row no longer holds the repository's queue.
+        if (holdsRepoQueue(row)) this.steps.save(row, { retry: undefined });
         // Reconcile existing work individually before attributing any new train work.
         solo = base.contains.local || base.contains.remote === true;
       }
@@ -387,13 +395,20 @@ export class MergeTrains {
    */
   private async requeue(
     train: MergeTrainRecord,
-    options: { maxCards?: number | null; note?: (taskKey: string) => string; retry?: MergeCheckRetry } = {},
+    options: {
+      maxCards?: number | null;
+      note?: (taskKey: string) => string;
+      retry?: MergeCheckRetry;
+      /** Runs in the same unit of work, before the survivors are requeued (the rows it settles are not). */
+      settle?: () => void;
+    } = {},
   ): Promise<void> {
     const { ctx } = this.deps;
     const maxCards = options.maxCards === undefined ? Math.ceil(train.members.length / 2) : options.maxCards;
     await this.lock(this.rows(train), async () => {
       ctx.unitOfWork(() => {
         if (ctx.repos.mergeTrains.get(train.id)?.state !== 'running') return;
+        options.settle?.();
         this.save(train, { state: 'failed', finishedAt: isoNow(ctx) });
         for (const row of this.rows(train)) {
           const member = train.members.find((m) => m.mergeId === row.id)!;
@@ -568,23 +583,30 @@ export class MergeTrains {
     }
     if (blamed.length === 0) return false;
     const names = blamed.map(({ member }) => member.taskKey).join(', ');
-    for (const { member, failure, url } of blamed) {
-      const row = ctx.repos.taskMerges.get(member.mergeId);
-      if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
-      // The failure is the card's own now: leave the train so the merger gets the individual instruction.
-      this.steps.save(row, {
-        trainId: undefined,
-        check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
-      });
-      await this.steps.fail(row, config, failure);
-    }
+    // The blamed rows and the requeue of the others are one unit of work: a crash between them would leave the
+    // manifest `running` without a run. The notifications follow it.
+    const failed: MergeRecord[] = [];
     await this.requeue(train, {
       maxCards: null,
+      settle: () => {
+        for (const { member, failure, url } of blamed) {
+          const row = ctx.repos.taskMerges.get(member.mergeId);
+          if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
+          // The failure is the card's own now: leave the train so the merger gets the individual instruction.
+          this.steps.save(row, {
+            trainId: undefined,
+            check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
+          });
+          this.steps.markFailed(row, failure);
+          failed.push(row);
+        }
+      },
       note: (taskKey) =>
         `Merge train ${train.id} failed on ${group.failedFiles.join(', ')}; ${names} failed them alone, this card ${
           passedAlone.includes(taskKey) ? 'passed them alone' : 'could not be told apart alone'
         } and keeps its place in the queue.`,
     });
+    for (const row of failed) await this.steps.notify(row, config);
     return true;
   }
 
@@ -861,6 +883,7 @@ export class MergeTrains {
         const previous = this.rows(train)
           .map((row) => row.retry)
           .filter((retry) => retry !== undefined)
+          .filter((retry) => retry.cause !== 'remote_unreachable')
           .sort((a, b) => b.attempt - a.attempt)[0];
         const latestGithub = ctx.repos.mergeCheckRuns.latestGithub(train.projectKey, train.repo);
         const available = await chooseMergeCheckRunner(engine, {

@@ -1,9 +1,7 @@
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Me } from '@projectman/shared';
 import { CreatedIntegratorAccessKey, routes } from '@projectman/shared';
-import { migrate } from '../src/db';
-import { migrations } from '../src/db/migrations';
+
 import { cookieOf, createAppHarness, createProject, inject, OWNER_LOGIN } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -14,29 +12,6 @@ const invitation = {
   access: 'developer',
   roles: ['developer'],
 };
-
-describe('account system language migration (PM-1177)', () => {
-  it('makes every existing account Hungarian and a later insert English', () => {
-    const db = new Database(':memory:');
-    try {
-      for (const migration of migrations.filter((item) => item.version <= 136)) db.exec(migration.sql);
-      db.pragma('user_version = 136');
-      db.exec(
-        `INSERT INTO users (id, name, email, password_hash, created_at) VALUES ('usr_old', 'Old', 'old@example.test', 'x', '2026-01-01');`,
-      );
-      migrate(db);
-      db.exec(
-        `INSERT INTO users (id, name, email, password_hash, created_at) VALUES ('usr_new', 'New', 'new@example.test', 'x', '2026-01-02');`,
-      );
-      const languageOf = (id: string) =>
-        (db.prepare('SELECT language FROM users WHERE id = ?').get(id) as { language: string }).language;
-      expect(languageOf('usr_old')).toBe('hu');
-      expect(languageOf('usr_new')).toBe('en');
-    } finally {
-      db.close();
-    }
-  });
-});
 
 describe('account system language (PM-1177)', () => {
   let h: AppHarness;

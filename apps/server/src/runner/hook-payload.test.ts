@@ -62,6 +62,10 @@ describe('sessionAllowScope', () => {
       scope({ command: '*** Begin Patch\n  *** Update File: src/a.ts\n\t*** Move to: lib/a.ts' })
         ?.directories,
     ).toEqual(['/w/repo/lib', '/w/repo/src']);
+    // The set of blanks Codex trims also holds U+0085, which the regex \s does not.
+    expect(scope({ command: '*** Begin Patch\n\u0085*** Update File: src/a.ts' })?.directories).toEqual([
+      '/w/repo/src',
+    ]);
   });
 
   it('remembers nothing without a tool or for a Bash call without a command', () => {

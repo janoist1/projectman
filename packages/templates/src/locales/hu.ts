@@ -527,6 +527,5 @@ export const hu: TemplateLocale = {
     version: 'projectman-változat',
     occurrences: 'Előfordulások',
   },
-  stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

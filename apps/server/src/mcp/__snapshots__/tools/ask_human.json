@@ -1,0 +1,146 @@
+{
+  "name": "ask_human",
+  "title": "Ask a human",
+  "description": "Ask a human for a decision or information you cannot find or decide yourself. The answer arrives later as a team message: do not wait or poll; continue with independent work or end your turn. The team's coordinating member screens it first (within 10 minutes) and tells you what became of it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "One clear question. The answerer is usually no specialist and often on a phone: name the decision in one plain sentence in everyday words, then only the context needed to choose. Never ask for an approval label: an answer sets none, the app asks the label holders itself."
+      },
+      "options": {
+        "description": "Suggested answers shown as buttons: a short label and its consequence (a plain label string is accepted too). Required for a decision, a yes/no question too; omit only with response_purpose information. The answerer can always write another answer.",
+        "minItems": 1,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "Short button text."
+                },
+                "consequence": {
+                  "description": "What happens if the human picks this option, in everyday words.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                }
+              },
+              "required": [
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "recommended": {
+        "description": "The label of the option you recommend, written exactly the same way. Always give it, with recommendation_reason.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "recommendation_reason": {
+        "description": "Why you recommend it, in one plain sentence. Needs recommended.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 400
+      },
+      "details": {
+        "description": "Code, file names and technical reasoning as markdown, shown folded: the question must make sense without it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 10000
+      },
+      "task_key": {
+        "description": "Task the question is about. Defaults to the task of your current session.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "to": {
+        "description": "Handles of the humans to ask. Omit to ask the humans responsible for the task or project.",
+        "minItems": 1,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        }
+      },
+      "attachments": {
+        "description": "Ids (att_…) of the files, on the question's card or its parent (list_attachments), the human needs to look at to answer, instead of describing where to find them. At most 6.",
+        "minItems": 1,
+        "maxItems": 6,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^att_[a-z0-9]{10,32}$"
+        }
+      },
+      "reask_of": {
+        "description": "Only when the team's coordinating member answered, forwarded or closed your earlier question and you still need a person's answer: its id. The new one goes to the people unscreened; needs reask_reason.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "reask_reason": {
+        "description": "Why a person must see it after all. Needs reask_of.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "signal_id": {
+        "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern, milestone_closed and review_follow_ups signal: the owners are not asked about those.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "recipient": {
+        "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, `integrator` stays the recipient as a todo; any other question waits for the project manager.",
+        "type": "string",
+        "enum": [
+          "owner",
+          "integrator"
+        ]
+      },
+      "response_purpose": {
+        "description": "information: a plain factual question, no decision; the integrator may relay the answer; needs no options. owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.",
+        "type": "string",
+        "enum": [
+          "information",
+          "owner_decision"
+        ]
+      },
+      "owner_topic": {
+        "description": "Only the project manager's own decision question, a re-ask, or a question nobody screens: the id of the project's owner topic it falls under (role guide); refused without one (owner_topic_required).",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      }
+    },
+    "required": [
+      "question"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Ask a human",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

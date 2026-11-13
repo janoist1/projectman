@@ -14,6 +14,7 @@ import {
   isOnLeave,
   isDeveloper,
   isTheme,
+  isCollectingTask,
   loopDecisionOf,
 } from '@projectman/shared';
 import type { BoardCard, TimelineEvent } from '@projectman/shared';
@@ -485,7 +486,7 @@ export function TaskDrawer() {
     // Start shows as before and the server decides.
     const startBlock = entry?.state.startBlock;
     const startLoading = can.readConfig && configQuery.isPending;
-    const startOffered = isQueued && can.createTasks && !startBlock;
+    const startOffered = isQueued && can.createTasks && !startBlock && !isCollectingTask(task, cards);
     const refineFirst = canRefine && startBlock?.kind === 'unmet' && startBlock.refines;
     const hasActions =
       startOffered ||

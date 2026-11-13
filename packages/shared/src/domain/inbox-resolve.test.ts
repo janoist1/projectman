@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { ResolveInboxRequest } from '../api/dto';
-import { RETIRED_OPERATOR_HANDLE } from '../config/operator-member';
 import { ProjectConfig } from '../config/schema';
 import { connectedActorOf } from './actor-origin';
 import { TODO_CANNOT_OPTION, TODO_DONE_OPTION } from './inbox';
@@ -251,33 +250,8 @@ describe('inboxResolveRefusal (S-03)', () => {
       decision,
       { optionId: 'approve' },
       superResolver,
-      { ...superFacts, groupMembers: [{ ...decision, id: 'inb_2', source: RETIRED_OPERATOR_HANDLE }] },
+      { ...superFacts, groupMembers: [{ ...decision, id: 'inb_2', source: 'owner' }] },
       'owner_approval_required',
-    ],
-    [
-      'refuses a retired Operator approval',
-      {
-        ...item,
-        kind: 'approval',
-        payload: {
-          operator: {
-            requestId: 'opr_1',
-            stepId: 'ops_1',
-            quote: 'Pause the team',
-            action: 'project_pause',
-            operation: { op: 'project_pause' },
-            changes: [],
-            consequence: 'project_pause',
-            baseVersion: null,
-            session: null,
-            stale: null,
-          },
-        },
-      },
-      { optionId: 'approve' },
-      own,
-      facts,
-      'inbox_item_closed',
     ],
     [
       'refuses a stale knowledge proposal except its dismissal',
@@ -361,14 +335,6 @@ describe('inboxResolveRefusal (S-03)', () => {
       own,
       facts,
       'todo_reason_required',
-    ],
-    [
-      'refuses a retired release approval',
-      { ...item, kind: 'release' },
-      { optionId: 'approve' },
-      own,
-      facts,
-      'inbox_item_closed',
     ],
     [
       'refuses attachments on a person’s question',

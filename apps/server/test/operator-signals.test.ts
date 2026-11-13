@@ -116,7 +116,13 @@ async function deliver() {
 describe('Operator system signals', () => {
   it('filters every coordinator-only state from the channel and live owner events, retaining outage', async () => {
     await setup();
-    for (const kind of ['structural_pattern', 'milestone_closed', 'stalled', 'outage'] as const) {
+    for (const kind of [
+      'structural_pattern',
+      'milestone_closed',
+      'review_follow_ups',
+      'stalled',
+      'outage',
+    ] as const) {
       for (const state of ['pending', 'open', 'dismissed', 'resolved'] as const) {
         const signal = h.domain.operatorSignals.raise({
           projectKey: 'AR',
@@ -352,6 +358,7 @@ describe('Operator system signals', () => {
     expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
 
+    h.liftStartBackoff();
     await h.domain.memberQueueDriver.ensure('AR', 'pm', { net: true });
     await flush();
 
@@ -601,7 +608,7 @@ describe('Operator system signals', () => {
     config.pipeline.labels.push({ id: 'unowned', name: 'Unowned', setBy: { members: ['ghost'] } });
     config.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'unowned' }] };
     await h.domain.operatorSignals.sweep('AR');
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'nobody')).toEqual([]);
+    expect(h.repos.operatorSignals.list('AR')).toEqual([]);
   });
 
   it('connects outage and stalled events and resolves released input', async () => {

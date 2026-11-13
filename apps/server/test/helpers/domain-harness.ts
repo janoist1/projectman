@@ -400,6 +400,11 @@ export async function createDomainHarness(
     setAppVersion(version: string) {
       runningVersion.value = version;
     },
+    /** The backoff after failed starts has passed (PM-1335): the next automatic start of every place is tried. */
+    liftStartBackoff() {
+      for (const row of repos.startFailures.list())
+        if (row.stoppedAt === null) repos.startFailures.save({ ...row, retryAt: new Date(0).toISOString() });
+    },
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */
     async attachmentRules(taskKey: string, projectKey = 'AR') {
       return attachmentToolRules(await attachmentStorage.taskDirectory(projectKey, taskKey));

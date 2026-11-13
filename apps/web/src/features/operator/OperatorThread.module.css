@@ -13,6 +13,13 @@
   flex-direction: column;
 }
 
+/* The label at the start of an unread message: it counts as read once this has been on the screen (PM-1386). */
+.unreadMark {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-accent-text);
+}
+
 .day {
   align-self: center;
   padding: 12px 0 6px;

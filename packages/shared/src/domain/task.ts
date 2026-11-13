@@ -14,6 +14,7 @@ import { MergeCheckRunner } from './merge-test';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { StageOwnerPick } from './stage-owner-pick';
 import { WorkOutage } from './outage';
 import { TaskReadyHold } from './ready-hold';
 
@@ -146,9 +147,15 @@ export const TaskStartWaiting = z.object({
     'handoff_open',
     // The session's engine is not connected (PM-311): the start continues once it is (`engine`).
     'engine_offline',
+    // PM-1335: the member's automatic start failed (`failures` times): it waits until `until`, or, past the
+    // limit, stops (`start_failing`) until a person or a changed provider state gives it one more try.
+    'start_backoff',
+    'start_failing',
   ]),
   /** `engine_offline`: the engine the start waits for; absent: there is no default engine. */
   engine: EngineId.optional(),
+  /** `start_backoff` / `start_failing`: how many starts of the place failed in a row. */
+  failures: z.number().int().positive().optional(),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
   /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */
@@ -302,6 +309,8 @@ export const Task = z.object({
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),
   merged: TaskMerged.optional(),
+  /** Who the step stage the card stands in gave it to, decided on entry (PM-1378); absent: no small-card rule there. */
+  stageOwnerPick: StageOwnerPick.nullable().optional(),
   /** The loop open on the card (PM-261); absent when there is none. */
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. */
@@ -386,6 +395,22 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
  */
 export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
+}
+
+/** Open sub-cards carry the work of an open collecting card (PM-1345). */
+export function isCollectingTask(
+  task: Pick<Task, 'key' | 'kind' | 'status'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return isOpenTask(task) && !isTheme(task) && openSubtaskCount(task, tasks) > 0;
+}
+
+/** Done and cancelled sub-cards do not keep a collecting card waiting. */
+export function openSubtaskCount(
+  task: Pick<Task, 'key'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): number {
+  return tasks.filter((child) => child.parentKey === task.key && isOpenTask(child)).length;
 }
 
 /** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */

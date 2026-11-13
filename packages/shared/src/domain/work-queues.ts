@@ -171,6 +171,8 @@ const START_REASONS: Record<TaskStartWaiting['reason'], WorkQueueReason> = {
   full_test_pending: 'machine',
   handoff_open: 'machine',
   engine_offline: 'machine',
+  start_backoff: 'machine',
+  start_failing: 'human',
 };
 
 const HOLD_REASONS: Record<MemberQueueHoldCode, WorkQueueReason> = {

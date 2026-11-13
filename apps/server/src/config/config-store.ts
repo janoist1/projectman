@@ -18,7 +18,6 @@ import { ConfigStoreError } from './errors';
 import type { GitResult } from './git';
 import { mergeProjectFiles, parseYamlFile, PROJECT_FILES, splitProjectConfig } from './layout';
 import type { ProjectFileName } from './layout';
-import { migrateProjectConfig } from './migrations';
 
 interface ConfigStoreOptions {
   /** Directory of the customization repository, e.g. ~/.projectman/customization. */
@@ -71,6 +70,25 @@ function assertKey(key: string): void {
   if (!PROJECT_KEY_RE.test(key)) throw new ConfigStoreError('invalid_key', `invalid project key: ${key}`);
 }
 
+/** Whether parsing lost any key, including inside an array element. Added defaults are harmless. */
+function droppedKeys(raw: unknown, parsed: unknown): boolean {
+  if (Array.isArray(raw))
+    return !Array.isArray(parsed) || raw.some((value, index) => droppedKeys(value, parsed[index]));
+  if (raw === null || typeof raw !== 'object') return false;
+  if (parsed === null || typeof parsed !== 'object') return Object.keys(raw).length > 0;
+  return Object.entries(raw).some(
+    ([key, value]) =>
+      !Object.hasOwn(parsed, key) || droppedKeys(value, (parsed as Record<string, unknown>)[key]),
+  );
+}
+
+function outdatedVersion(): ConfigStoreError {
+  return new ConfigStoreError(
+    'config_version_outdated',
+    'configuration version uses an unsupported format and cannot be restored',
+  );
+}
+
 /**
  * Parses and validates a merged configuration object (schema + invariants). A configuration that
  * is read back from storage reports the errors it may still carry (`isToleratedOnLoad`, rules
@@ -82,12 +100,30 @@ function validate(
   expectedKey: string,
   tolerated?: (issue: ConfigIssue) => void,
   previous?: ProjectConfig,
+  versionFiles?: Record<ProjectFileName, unknown>,
 ): ProjectConfig {
   const parsed = ProjectConfig.safeParse(raw);
   if (!parsed.success) {
+    if (versionFiles) throw outdatedVersion();
     throw new ConfigStoreError('invalid_config', 'configuration does not match the schema', {
       schemaIssues: parsed.error.issues,
     });
+  }
+  if (versionFiles) {
+    // Compare the original files, before mergeProjectFiles can discard retired layout keys.
+    const { limits, ...team } = parsed.data.team;
+    if (
+      droppedKeys(versionFiles, {
+        'project.yaml': {
+          schemaVersion: parsed.data.schemaVersion,
+          project: parsed.data.project,
+          team: { limits },
+        },
+        'team.yaml': team,
+        'pipeline.yaml': parsed.data.pipeline,
+      })
+    )
+      throw outdatedVersion();
   }
   if (parsed.data.project.key !== expectedKey) {
     throw new ConfigStoreError('invalid_config', 'project key does not match its directory', {
@@ -143,7 +179,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   }
 
   /**
-   * Merges, migrates (older shapes) and validates the parsed files of a project. The working tree
+   * Merges and validates the parsed files of a project. The working tree
    * is stored configuration: it loads with the errors it may still carry, which are logged (every
    * change refuses them). An earlier version is read to be restored, which is a change.
    */
@@ -152,14 +188,8 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     files: Record<ProjectFileName, unknown>,
     source: 'stored' | 'change' | 'history',
   ): ProjectConfig {
-    // An earlier version shown in the history loads like stored configuration, without the warnings: they
-    // belong to the current one, and a page reads dozens of old ones.
-    const migrated = migrateProjectConfig(mergeProjectFiles(files), {
-      projectKey: key,
-      logger: source === 'history' ? { warn: () => {} } : logger,
-    });
     return validate(
-      migrated,
+      mergeProjectFiles(files),
       key,
       source === 'stored'
         ? (issue) =>
@@ -170,6 +200,8 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         : source === 'history'
           ? () => {}
           : undefined,
+      undefined,
+      source === 'change' ? files : undefined,
     );
   }
 

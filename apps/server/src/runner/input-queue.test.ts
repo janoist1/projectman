@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { InputQueue, type InputQueueHost } from './input-queue';
+import { InputQueue, NotSubmittedError, type InputQueueHost } from './input-queue';
 import { silentLogger } from './test-helpers';
 import { ENTER_KEY, PASTE_END, PASTE_START } from './typing';
 
@@ -216,11 +216,12 @@ describe('InputQueue', () => {
 
   it('types nothing before a prompt given on the command line is reported, or times out', async () => {
     const { queue, typed } = setup();
-    queue.awaitCommandLinePrompt(30_000);
+    const failed = expect(queue.awaitCommandLinePrompt(30_000)).rejects.toThrow('did not take');
     void queue.enqueue('later');
     await vi.advanceTimersByTimeAsync(29_000);
     expect(typed()).toEqual({ pastes: [], enters: 0 });
     await vi.advanceTimersByTimeAsync(1_000 + TYPE_MS);
+    await failed;
     expect(typed()).toEqual({ pastes: ['later'], enters: 1 });
   });
 
@@ -289,6 +290,21 @@ describe('InputQueue', () => {
       queue.pump();
       await vi.advanceTimersByTimeAsync(TYPE_MS);
       expect(typed().pastes).toEqual(['Carry on.', 'waiting']);
+    });
+
+    it('reports a first message the host never confirmed as not taken, and one it confirmed as taken (R-04)', async () => {
+      const missed = setup();
+      missed.queue.hold();
+      const notTaken = missed.queue.unhold('Carry on.')!.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(TYPE_MS + timing.submitTimeoutMs + timing.lateSubmitMs);
+      expect(await notTaken).toBeInstanceOf(NotSubmittedError);
+
+      const confirmed = setup();
+      confirmed.queue.hold();
+      const taken = confirmed.queue.unhold('Carry on.')!;
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      confirmed.queue.submitted();
+      await expect(taken).resolves.toBeUndefined();
     });
 
     it('ignores a blank first message, and reports the end of a submission nobody confirmed', async () => {

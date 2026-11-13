@@ -1,0 +1,62 @@
+{
+  "name": "execute_operation",
+  "title": "Execute one command as the Operator or PM",
+  "description": "Start ONE command on the shared operation path, as you, on your own authority (merge and other owner commands need an owner request); follow it with get_operation until final. A K3 effect waits for the owner, then runs by itself: do not repeat it. Kinds, fields: get_guide with topic \"operations\".",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "request_key": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "description": "Names this call within the open request: the same key is the same operation and never runs twice; repeat it only to retry the same call (with another command: super_request_conflict)."
+      },
+      "task_key": {
+        "description": "The card the command is about, when there is one.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "command": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "operate",
+              "member_update",
+              "invite_create",
+              "merge",
+              "merge_order",
+              "task_create",
+              "task_update",
+              "task_labels",
+              "task_start",
+              "task_cancel",
+              "inbox_resolve",
+              "credential_revoke",
+              "workspace_release"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": {},
+        "description": "The command: kind plus its fields; the fields of each kind are in get_guide with topic \"operations\"."
+      }
+    },
+    "required": [
+      "request_key",
+      "command"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Execute one command as the Operator or PM",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

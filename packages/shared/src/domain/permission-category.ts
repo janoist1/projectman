@@ -98,8 +98,8 @@ export function patchPaths(toolInput: unknown): string[] {
           )
         : [];
   return texts.flatMap((text) =>
-    [...text.matchAll(/^[^\S\r\n]*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map((match) =>
-      match[1]!.trim(),
+    [...text.matchAll(/^(?:[^\S\r\n]|\u0085)*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map(
+      (match) => match[1]!.trim(),
     ),
   );
 }

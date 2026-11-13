@@ -29,7 +29,7 @@ import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { openItemIds, openItemsFor, withHistory } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { closureTexts, sessionClosure } from '../../lib/sessions';
-import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
+import { deriveTaskState, groupOpenInboxByTask, groupSubtasksByParent } from '../../lib/taskState';
 import { nextStepLine } from '../board/NextStep';
 import { engineNameMap } from '../engines/engineView';
 import { openPauses, pausedSessionMap } from '../pause/pauseView';
@@ -149,6 +149,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           pipeline,
           members,
           openInboxByTask: groupOpenInboxByTask(items),
+          subtasksByParent: groupSubtasksByParent(boardTasks ?? []),
           // Prerequisites are other tasks: look them up on the board.
           tasksByKey: new Map([
             ...(boardTasks ?? []).map((entry) => [entry.key, entry] as const),

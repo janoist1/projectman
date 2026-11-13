@@ -184,3 +184,25 @@ machine, not an EC2 CPU-credit measurement, and nothing here is a claim about a 
 comparable real report (PM-772, PM-773, PM-775) must say separately what it sampled (container CPU, the
 process observed, the state-sampling interval), the container and healthcheck settings and which
 interval fell outside the periodic paths; no real data, snapshot or secret belongs in this repository.
+
+## Work on demand (PM-1374)
+
+Three sweeps ran at a fixed interval whatever happened, and each one cost more than a database read: a process,
+an engine round trip, or a read per second. They now run when there is something to do, and
+`test/periodic-work-performance.test.ts` ("works on demand") counts it.
+
+| Sweep (id)                       | Before                                                       | Now                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan usage probe (P-05)          | Every 60 s: a Claude CLI process per account                 | An account a live session uses is probed every 60 s; an account nobody uses every quarter of an hour (`IDLE_PROBE_MS`); never while the project is paused or its AI is off; a probe with no answer waits twice, four times, … as long. The start and a config change probe every account at once. |
+| Review watch (P-06)              | Every 30 s: a `sourceHead` read over the engine link per pin | Every 30 s only the pins whose assignee has a live session on the card; every pin every 10 minutes (the safety net, a commit made by hand); the assignee's session going idle or ending checks the card once (`ReviewWatch.sessionStopped`); a quiet round reads nothing.                         |
+| Delegation deadline sweep (P-07) | Every second: the open permission items were read            | A timer waits for the earliest `leadDeadline` of an open delegated question (`DelegationDeadlineTimer`); it is armed when the question is created or delivered and when a sweep leaves a deadline. With none open nothing runs. A config change still sweeps once.                                |
+
+What is counted, idle: after the start round, nine quiet minutes make no probe (`provider.get`), no `sourceHead` call
+and no read of the open permission items. What is counted, on demand: with a live assignee session on a pinned card
+the probe and the branch read happen every minute, the session's end reads the branch once, and the deadline timer
+(`src/core/inbox/delegation-deadline.test.ts`) sweeps at the noted time, which is at least as precise as the
+one-second sweep was.
+
+The engine link is unchanged: no new event and no batched read crosses it (a `branch_moved` push from the engine
+would need an engine protocol change; it is left for a later card). The machine-dependent parts are the same
+`sourceHead` and the plan usage probe, only called less often.

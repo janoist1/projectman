@@ -3,6 +3,7 @@ import {
   BuiltInRoleId,
   CHECKLIST_ITEM_STATES,
   ChecklistCondition,
+  coordinatorOnlySignalKindsText,
   CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
@@ -15,7 +16,7 @@ import {
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
-import { formatMemberStart, formatProjectState } from '../format';
+import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 /** The guide topic that lists the fields of every operation and command kind (generated from the schemas). */
@@ -583,9 +584,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        'Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your ' +
-        'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
-        "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        `Close an obligation_overdue or relation_check signal, or one of ${coordinatorOnlySignalKindsText()}, ` +
+        'of your wake-up with the reason in note: a plain closing, not a human decision. When: role guide. ' +
+        "A signal you already presented is the owners' to decide.",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });
@@ -742,6 +743,29 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.reopenTask(ctx, { taskKey: args.task_key, reason: args.reason }));
+      },
+    }),
+
+    defineTool({
+      name: 'involve_member',
+      audience: { roles: ['project_manager'] },
+      title: 'Involve a member on a card',
+      readOnly: false,
+      description:
+        'Give an AI member a role on a card: messages to them about it start their session, and one that ' +
+        'waited for lack of a role starts at once. Needs the project setting (else member_involvement_refused). ' +
+        'No label or approval right. Reason goes on the timeline.',
+      input: { task_key: TaskKey, member: MemberHandle, reason: z.string().trim().min(1).max(500) },
+      async run({ ctx, args, handler }) {
+        return formatInvolvement(
+          await handler.involveMember(ctx, {
+            taskKey: args.task_key,
+            member: args.member,
+            reason: args.reason,
+          }),
+          args.member,
+          args.task_key,
+        );
       },
     }),
 

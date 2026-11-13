@@ -5,11 +5,12 @@ import { prerequisiteCards } from '../../core/tasks';
 import type { Task } from '@projectman/shared';
 import type { BranchMerger, TaskSchedulingReader } from '../../contracts';
 import type { DomainContext } from '../../core/base';
+import type { MergeRecord } from '../../db';
 import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';
 import type { MergeSteps } from './steps';
-import { waitingForRetry } from './check-retry';
+import { holdsRepoQueue, waitingForRetry } from './check-retry';
 
 export type MergeQueueDeps = {
   ctx: Pick<DomainContext, 'repos' | 'logger' | 'now'>;
@@ -92,7 +93,11 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
 
     const pump: Effect.Effect<void> = Effect.gen(function* () {
       if (deps.stopped()) return;
-      const queued = deps.ctx.repos.taskMerges.list('queued');
+      // A merge whose push may have landed (it was pushing, with a merge commit) goes first, whatever its rank.
+      const mayHaveLanded = (row: MergeRecord) => (row.step === 'pushing' && row.mergeCommit ? 0 : 1);
+      const queued = deps.ctx.repos.taskMerges
+        .list('queued')
+        .sort((a, b) => mayHaveLanded(a) - mayHaveLanded(b));
       const now = deps.ctx.now();
       // A startup leader must finish the old publication before a new candidate can use this repo.
       const recovering = new Map<string, string>();
@@ -101,9 +106,16 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           const key = `${row.projectKey}:${row.repo}`;
           if (!recovering.has(key)) recovering.set(key, row.id);
         }
+      // A row waiting for the remote holds its repository's queue: every other card needs the same remote.
+      const holding = new Map<string, string>();
+      for (const row of queued) {
+        const key = `${row.projectKey}:${row.repo}`;
+        if (holdsRepoQueue(row) && !holding.has(key)) holding.set(key, row.id);
+      }
       for (const row of queued) {
         if (waitingForRetry(row, now)) continue;
         const key = `${row.projectKey}:${row.repo}`;
+        if (holding.has(key) && holding.get(key) !== row.id) continue;
         if (recovering.has(key) && recovering.get(key) !== row.id) continue;
         const task = deps.tasks.find(row.projectKey, row.taskKey);
         if (

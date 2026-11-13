@@ -18,10 +18,12 @@ import {
   directories,
   inputs,
   installed,
+  mergeDependencyStore,
   npmCiCommand,
   packageTargets,
   readySchema,
   regularFile,
+  withMergeDependencyStore,
 } from './npm-ci';
 import { npmDependencyKey } from './npm-dependency-key';
 import { runSandboxed, srtCli } from './run-sandboxed';
@@ -339,38 +341,57 @@ export function createWorkspaceDependencyInstaller(
           );
           if (tracked.includes('PROJECTMAN_TRACKED_NODE_MODULES\0'))
             throw new WorkspaceDependencyError('invalid_inputs', key);
-          const relativeStore = `_merge-deps/${hash([request.project, request.repo])}/current`;
-          let source: { path: string; nodeModules: string[] } | undefined;
-          try {
-            const root = await directories(options.worktreesRoot, relativeStore);
-            const ready = readySchema.parse(
-              JSON.parse((await regularFile(root, 'ready.json')).toString('utf8')),
-            );
-            if (ready.key === key) {
-              await installed(root, ready.nodeModules, before.nodeModules);
-              source = { path: root, nodeModules: ready.nodeModules };
-            }
-          } catch {
-            /* Only a complete merge generation with the identical key can be reused. */
-          }
-          if (source) {
-            for (const entry of before.nodeModules) {
-              await packageTargets(request.repoPath, before.nodeModules);
-              await rm(path.join(request.repoPath, entry), { recursive: true, force: true });
-            }
-            const copied = await copyDependencyTrees({
-              source: source.path,
-              target: request.repoPath,
-              platform: process.platform,
-              timeoutMs: remaining(),
+          const reused = await withMergeDependencyStore(
+            {
+              worktreesRoot: options.worktreesRoot,
+              projectKey: request.project,
+              repo: request.repo,
               signal,
-            });
-            await installed(request.repoPath, copied, before.nodeModules);
-            // The copy keeps the store's older mtime; the checkout must look installed (PM-1083).
-            if (checkout) await markDependenciesInstalled(request.repoPath);
-          } else {
-            await execute(npmCiCommand(paths));
-          }
+              maxWaitMs: remaining(),
+            },
+            async () => {
+              remaining();
+              const relativeStore = `${mergeDependencyStore(request.project, request.repo)}/current`;
+              let source: { path: string; nodeModules: string[] } | undefined;
+              try {
+                const root = await directories(options.worktreesRoot, relativeStore);
+                const ready = readySchema.parse(
+                  JSON.parse((await regularFile(root, 'ready.json')).toString('utf8')),
+                );
+                if (ready.key === key) {
+                  await installed(root, ready.nodeModules, before.nodeModules);
+                  source = { path: root, nodeModules: ready.nodeModules };
+                }
+              } catch {
+                /* Only a complete merge generation with the identical key can be reused. */
+              }
+              if (!source) return false;
+              for (const entry of before.nodeModules) {
+                await packageTargets(request.repoPath, before.nodeModules);
+                await rm(path.join(request.repoPath, entry), { recursive: true, force: true });
+              }
+              const copied = await copyDependencyTrees({
+                source: source.path,
+                target: request.repoPath,
+                platform: process.platform,
+                timeoutMs: remaining(),
+                signal,
+              });
+              await installed(request.repoPath, copied, before.nodeModules);
+              // The copy keeps the store's older mtime; the checkout must look installed (PM-1083).
+              if (checkout) await markDependenciesInstalled(request.repoPath);
+              return true;
+            },
+          ).catch((err: unknown) => {
+            if (signal.aborted) throw signal.reason;
+            if (
+              (err instanceof HeavyLockError && err.code === 'heavy_lock_timeout') ||
+              (err instanceof DependencyPreparationError && err.reason === 'heavy_lock_unavailable')
+            )
+              return false;
+            throw err;
+          });
+          if (!reused) await execute(npmCiCommand(paths));
           remaining();
           const after = await readInputs();
           if (keyOf(after) !== key) continue;

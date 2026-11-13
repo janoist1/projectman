@@ -1,0 +1,167 @@
+{
+  "name": "send_message",
+  "title": "Send a team message",
+  "description": "Send a message to teammates (humans or AI members): hand over work, report findings, reply. An AI member gets it in its task session, at once when idle, else when its turn ends; the result says what happens per recipient. Humans see it in the app.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "despite_workers": {
+        "description": "A message that would put a member to work on a card where one of the same role already works is not sent (the result names them); true sends it anyway, only for intended parallel work.",
+        "type": "boolean"
+      },
+      "to": {
+        "minItems": 1,
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "description": "Recipient handles, e.g. [\"qa\"] or [\"fe-1\", \"owner\"]. Handles only, without \"@\"."
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "action",
+          "info"
+        ],
+        "description": "action: an AI member has something to do (refused when a human is a recipient: use ask_human); info: status or result; starts nothing."
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000,
+        "description": "The message: the facts the recipient needs to act on it (task, links, findings) and what you expect next and from whom."
+      },
+      "task_key": {
+        "description": "Task the message is about. Defaults to the task of your current session; in a general (no card) session, to the card of the latest card message delivered to you there (within 2 hours).",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "signal_id": {
+        "description": "PM only: the system signal to present to owners.",
+        "type": "string"
+      },
+      "signal_actionable": {
+        "description": "PM only: whether accepting the signal authorizes an action.",
+        "type": "boolean"
+      },
+      "signal_ids": {
+        "description": "PM only: signals awaiting owner decisions, presented in one message.",
+        "minItems": 1,
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "actionable_signal_ids": {
+        "description": "PM only: the signal_ids whose acceptance authorizes an action.",
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "attachments": {
+        "description": "Files to attach, as for attach_file (paths relative to your working directory or inside your session folder). A human sees an image in the conversation. Say in text what the file is. If any file cannot be read, nothing is sent.",
+        "minItems": 1,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "places": {
+        "description": "PM only: up to 3 places in the app offered to the person as 'go there' buttons under your message, when they ask to be taken somewhere or to find something. Only places every recipient can see. The app writes the button text; a plain-text reply carries no buttons.",
+        "minItems": 1,
+        "maxItems": 3,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "page": {
+              "type": "string",
+              "enum": [
+                "card",
+                "board",
+                "inbox",
+                "map",
+                "team",
+                "member",
+                "messages",
+                "feedback",
+                "notifications",
+                "how_we_work",
+                "sessions",
+                "settings"
+              ]
+            },
+            "task_key": {
+              "description": "Required for page \"card\".",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+            },
+            "view": {
+              "description": "Only for page \"card\".",
+              "type": "string",
+              "enum": [
+                "card",
+                "thread",
+                "attachments",
+                "timeline"
+              ]
+            },
+            "handle": {
+              "description": "Required for page \"member\".",
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+            },
+            "section": {
+              "description": "Only for page \"settings\".",
+              "type": "string",
+              "enum": [
+                "pipeline",
+                "labels",
+                "duties",
+                "team",
+                "limits",
+                "project",
+                "repos",
+                "feedback",
+                "email",
+                "history",
+                "engines",
+                "providers",
+                "owners",
+                "integrator",
+                "account"
+              ]
+            }
+          },
+          "required": [
+            "page"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "to",
+      "kind",
+      "text"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Send a team message",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -1,6 +1,8 @@
 type ConfigStoreErrorCode =
   /** Schema or invariant violation; details: { schemaIssues } or { issues: ConfigIssue[] }. */
   | 'invalid_config'
+  /** An earlier version cannot be parsed without losing configuration keys. */
+  | 'config_version_outdated'
   /** A YAML file could not be parsed; details: { file }. */
   | 'invalid_yaml'
   | 'not_found'

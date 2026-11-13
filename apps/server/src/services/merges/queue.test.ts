@@ -148,6 +148,13 @@ describe('merge queue', () => {
     expect(t.queue.slot('PM', 'api')?.pushing).toBe(false);
   });
 
+  it('starts a queued merge with a pushing step and merge commit before an earlier one', () => {
+    const t = setup();
+    t.rows.push(t.row('first', 'web'), t.row('pushing', 'web', { step: 'pushing', mergeCommit: 'abc' }));
+    t.pump();
+    expect(t.started).toEqual(['pushing']);
+  });
+
   it('gives the running merge its abort signal', () => {
     const t = setup();
     t.rows.push(t.row('1', 'web'));

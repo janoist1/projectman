@@ -1,0 +1,17 @@
+{
+  "name": "list_documents",
+  "title": "List the project documents",
+  "description": "List the project’s living documents (plans, procedures, notes; not read_project_doc’s): slug, title, version, last change. No text.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List the project documents",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

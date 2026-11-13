@@ -104,6 +104,7 @@ import type {
   MoveOptions,
   MoveResult,
   PreparedMove,
+  ChangedFilesReader,
   SourceHeadReader,
   WorkEntryCheck,
 } from './moves';
@@ -224,6 +225,7 @@ export class TaskService implements TaskSchedulingReader {
     startOffer?: (task: Task) => TaskStartOffer | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    changedFiles: ChangedFilesReader;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
@@ -245,6 +247,7 @@ export class TaskService implements TaskSchedulingReader {
       labels: this.labels,
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
+      changedFiles: deps.changedFiles,
       order: this.order,
       notifyHandOn: deps.notifyHandOn,
     });

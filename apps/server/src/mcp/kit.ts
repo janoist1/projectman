@@ -48,6 +48,7 @@ export const TEAM_TOOL_NAMES = [
   'triage_loop',
   'start_task',
   'start_member',
+  'involve_member',
   'reassign_task',
   'cancel_task',
   'reopen_task',
@@ -132,8 +133,11 @@ export interface ToolAudience {
   /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
   channels?: readonly 'email'[];
   /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
-  capabilities?: readonly ('machine_access' | 'host_requests')[];
+  capabilities?: readonly ('machine_access' | 'host_requests' | 'screenshots')[];
 }
+
+/** The audience of a tool or a parameter only the project manager uses (PM-1353). */
+export const PM_ONLY: ToolAudience = { roles: ['project_manager'] };
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
   if (!audience) return true;
@@ -145,7 +149,8 @@ export function toolVisible(audience: ToolAudience | undefined, member: MemberAu
     (audience.capabilities?.some(
       (capability) =>
         (capability === 'machine_access' && member.machineAccess) ||
-        (capability === 'host_requests' && member.hostRequests),
+        (capability === 'host_requests' && member.hostRequests) ||
+        (capability === 'screenshots' && member.screenshots),
     ) ??
       false)
   );
@@ -157,6 +162,13 @@ export interface TeamTool {
   readonly title: string;
   readonly description: string;
   readonly inputSchema: z.ZodObject;
+  /**
+   * The tool as one member sees it (PM-1353): the same tool without the parameters whose `fieldAudience` does not
+   * include the member. The tool itself when none is hidden; the view is built once per set of hidden parameters.
+   */
+  forAudience(member: MemberAudience): TeamTool;
+  /** Identifies the schema of a view (the name and its hidden parameters): the listing cache's key. */
+  readonly schemaKey: string;
   readonly annotations: ToolAnnotations;
   /**
    * How the same tool is served to the integrator's bearer endpoint (PM-760). A tool without this binding is
@@ -339,6 +351,12 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   refused?: Record<string, string>;
   input: Shape;
   /**
+   * Parameters only some members need (PM-1353): a parameter listed here is in the schema of the members the
+   * audience admits, and left out for the others. Like the tool's `audience` it only shapes the listing; the
+   * handler stays the authority. An unlisted parameter is for everybody.
+   */
+  fieldAudience?: { [Key in keyof Shape]?: ToolAudience };
+  /**
    * Rules that span several parameters (e.g. a recommendation must name one of the options).
    * `issue` reports a problem with one parameter; the call is refused before `run`, with the
    * message, like any other invalid input.
@@ -353,17 +371,28 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   externalTool?: ExternalTool;
   run(call: ToolRun<ToolInput<Shape>>): Promise<string | ToolOutput>;
 }): TeamTool {
-  // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
-  const schema = z.strictObject(def.input, {
-    error: (issue) =>
-      issue.code === 'unrecognized_keys'
-        ? issue.keys.map((key) => def.refused?.[key]).find((reason) => reason !== undefined)
-        : undefined,
-  });
   const { check, external, externalTool } = def;
+  // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
+  const buildSchema = (shape: z.core.$ZodLooseShape): z.ZodObject => {
+    const schema = z.strictObject(shape, {
+      error: (issue) =>
+        issue.code === 'unrecognized_keys'
+          ? issue.keys.map((key) => def.refused?.[key]).find((reason) => reason !== undefined)
+          : undefined,
+    });
+    return check
+      ? schema.superRefine((args, ctx) =>
+          check(args as ToolInput<Shape>, (parameter, message) =>
+            ctx.addIssue({ code: 'custom', path: [parameter], message }),
+          ),
+        )
+      : schema;
+  };
   if (externalTool && externalTool.name !== def.name)
     throw new Error(`the external tool of ${def.name} is named ${externalTool.name}`);
-  return {
+  const fieldAudience = Object.entries(def.fieldAudience ?? {}) as [string, ToolAudience][];
+  const views = new Map<string, TeamTool>();
+  const tool: TeamTool = {
     ...(external
       ? {
           external: {
@@ -391,11 +420,28 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
     ...(def.audience ? { audience: def.audience } : {}),
     title: def.title,
     description: def.description,
-    inputSchema: check
-      ? schema.superRefine((args, ctx) =>
-          check(args, (parameter, message) => ctx.addIssue({ code: 'custom', path: [parameter], message })),
-        )
-      : schema,
+    inputSchema: buildSchema(def.input),
+    schemaKey: def.name,
+    forAudience(member) {
+      const hidden = fieldAudience
+        .filter(([, audience]) => !toolVisible(audience, member))
+        .map(([key]) => key);
+      if (hidden.length === 0) return tool;
+      const key = hidden.join(',');
+      let view = views.get(key);
+      if (!view) {
+        view = {
+          ...tool,
+          inputSchema: buildSchema(
+            Object.fromEntries(Object.entries(def.input).filter(([field]) => !hidden.includes(field))),
+          ),
+          schemaKey: `${def.name}\u0001${key}`,
+          forAudience: () => view!,
+        };
+        views.set(key, view);
+      }
+      return view;
+    },
     annotations: {
       title: def.title,
       readOnlyHint: def.readOnly,
@@ -405,6 +451,7 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
     // The SDK has already validated the arguments against inputSchema.
     run: async (call) => def.run(call as ToolRun<ToolInput<Shape>>),
   };
+  return tool;
 }
 /** One module's team tools (PM-592): served by the collector in tools.ts. */
 export interface TeamToolGroup {

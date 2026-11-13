@@ -172,6 +172,13 @@
   color: var(--c-ink-4);
 }
 
+/* The start of an opened unread row's content: the row is read once this has been on the screen (PM-1386). */
+.unreadMark {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-accent-text);
+}
+
 .dot {
   position: absolute;
   left: -10px;

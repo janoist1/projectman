@@ -156,7 +156,7 @@ export function TimelineRow({
     event.projectKey,
     project?.can.readConfig === true && !ctx.config && typeof event.data.ownerTopic === 'string',
   );
-  const { text, emphasis, detail, resolution, note, link } = describeEvent(event, {
+  const { text, emphasis, detail, resolution, note, link, aside } = describeEvent(event, {
     ...ctx,
     config: ctx.config ?? config.data?.config,
   });
@@ -327,6 +327,7 @@ export function TimelineRow({
           ) : null}
           {badge}
         </span>
+        {aside ? <span className={styles.aside}>{aside}</span> : null}
         {machineRequest ? <p className={styles.note}>{t('timeline.machineRequest')}</p> : null}
         {note ? <p className={styles.note}>{note}</p> : null}
         {fullMessage ? (

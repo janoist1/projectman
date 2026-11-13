@@ -1,10 +1,12 @@
 import {
+  isBusySession,
   isOnLeave,
+  LIVE_SESSION_STATES,
   isRefinementStage,
   memberOf,
   stageIndex,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   SYSTEM_SENDER,
 } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -73,6 +75,38 @@ export class StageHandOver {
     await this.admission.attempt(this.startFor(change));
   }
 
+  /** A stricter review pick stops the former owners before handing the same stage to its main owners. */
+  async escalateOwners(change: {
+    projectKey: string;
+    taskKey: string;
+    stageId: string;
+    from: string[];
+  }): Promise<void> {
+    const { projectKey, taskKey, stageId, from } = change;
+    const task = this.tasks.get(projectKey, taskKey);
+    if (task.stageId !== stageId || task.status !== 'active' || task.stageOwnerPick?.small) return;
+    const config = await this.projects.config(projectKey);
+    const stage = stageOf(config, stageId);
+    if (!stage) return;
+    const owners = cardStageOwners(config, stage, task);
+    for (const session of this.sessions.list(projectKey, { taskKey })) {
+      if (
+        session.workItem.type !== 'task' ||
+        !from.includes(session.member) ||
+        owners.includes(session.member)
+      )
+        continue;
+      if (LIVE_SESSION_STATES.includes(session.state) || this.sessions.isRunning(session.id))
+        await this.sessions.stop(projectKey, session.id, { kind: 'sent_back', taskKey, stageId });
+    }
+    await this.handOff({
+      task: this.tasks.get(projectKey, taskKey),
+      from: stageId,
+      to: stageId,
+      actor: SYSTEM_ACTOR,
+    });
+  }
+
   /**
    * An interrupted card keeps its member and conversation, under normal stage admission. A general conversation (a
    * desk) cut in a turn starts again with the interruption nudge, without admission, as a resumed pause does (PM-1347).
@@ -82,8 +116,7 @@ export class StageHandOver {
     if (session.workItem.type === 'general') return this.resumeGeneral(session, previousState);
     if (session.workItem.type !== 'task') return;
     // Input waits need an answer, not an unsolicited continuation after the process disappeared.
-    if (previousState !== 'starting' && previousState !== 'working' && previousState !== 'waiting_permission')
-      return;
+    if (!previousState || !isBusySession({ state: previousState })) return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active') return;
     await this.admission.attempt(
@@ -141,7 +174,7 @@ export class StageHandOver {
     const { projectKey, key: taskKey } = change.task;
     const config = this.projects.cachedConfig(projectKey);
     const stage = config && stageOf(config, change.to);
-    const owners = config && stage ? stageOwners(config, stage) : [];
+    const owners = config && stage ? cardStageOwners(config, stage, change.task) : [];
     let waitsFor =
       resumeMember ??
       (stage?.kind === 'work'
@@ -157,7 +190,7 @@ export class StageHandOver {
         : stage?.kind === 'step' &&
             !isRefinementStage(stage) &&
             task.assignee !== resumeMember &&
-            stageOwners(config, stage).includes(resumeMember);
+            cardStageOwners(config, stage, task).includes(resumeMember);
     };
     return {
       key: resumeMember
@@ -241,7 +274,7 @@ export class StageHandOver {
           throw conflict('full_test_pending', `task ${taskKey} waits for the full test of its commit`, {
             taskKey,
           });
-        const owners = stageOwners(config, stage)
+        const owners = cardStageOwners(config, stage, task)
           .filter((handle) => !resumeMember || handle === resumeMember)
           .map((handle) => memberOf(config, handle))
           .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);

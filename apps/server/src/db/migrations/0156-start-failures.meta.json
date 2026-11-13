@@ -1,0 +1,12 @@
+{
+  "tables": {
+    "start_failures": {
+      "journal": { "none": "the hub’s retry counters of failed session starts (PM-1335), not project state" },
+      "handles": {
+        "unrewritten": {
+          "member": "the failed-start counts of the old handle are dropped at the rename (StartFailures.memberRenamed)"
+        }
+      }
+    }
+  }
+}

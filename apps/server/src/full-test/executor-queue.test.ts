@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mergeTestPlaces } from '@projectman/shared';
 import type { FullTestSpec } from '../contracts';
 import { createFullTestExecutor } from './index';
-import { acquireHeavyLock, readHeavyQueue } from './heavy-lock';
+import { acquireHeavyLock, machineHost, readHeavyQueue } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
 
 /**
@@ -48,6 +49,23 @@ const hold = async (label: string): Promise<HeavyLock> => {
 };
 
 describe('the full test executor in the heavy-run queue', () => {
+  it('reserves only the merge places limited by the configured workers', async () => {
+    const other = await hold('a member run');
+    const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+    const controller = new AbortController();
+    const running = executor.run({ ...spec, requireHeavyLock: true }, controller.signal);
+    try {
+      await vi.waitFor(async () => {
+        const queue = await readHeavyQueue(dir);
+        const places = mergeTestPlaces(machineHost(), spec.maxWorkers);
+        expect(queue.waiting[0]?.places).toEqual({ min: places, max: places });
+      });
+    } finally {
+      controller.abort();
+      await running;
+      await other.release();
+    }
+  });
   it('waits for its turn without the wait counting into the run, and gives the lock back', async () => {
     const other = await hold('a member run');
     setTimeout(() => void other.release(), 700);

@@ -36,7 +36,7 @@ const teamToolTree = [
     "import { TeamToolInput } from '@projectman/shared';\nexport const tools = [TeamToolInput];",
   ),
   file(SNAPSHOT_TEST, "import { tools } from './tools';"),
-  file('apps/server/src/mcp/__snapshots__/tools.test.ts.snap'),
+  file('apps/server/src/mcp/__snapshots__/tools/get_task.json'),
   file(
     'apps/server/src/mcp/unrelated.ts',
     "import { Other } from '@projectman/shared';\nexport const unrelated = Other;",
@@ -45,6 +45,19 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('selects the tool definition test for a per-tool JSON snapshot change', () => {
+    const selection = select(teamToolTree, ['apps/server/src/mcp/__snapshots__/tools/get_task.json']);
+    expect(selection.tests).toEqual([{ workspace: 'apps/server', files: [SNAPSHOT_TEST] }]);
+    expect(selection.unmapped).toEqual([]);
+  });
+
+  it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.kind).toBe('cloud');
+    expect(selection.typecheck).toEqual(['apps/server']);
+    expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');
@@ -378,21 +391,24 @@ describe('selection rules', () => {
     expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
   });
 
-  it('selects every migration test and schema registry test when db/migrations.ts changes (PM-1324, PM-1325)', () => {
+  it('selects loader, baseline, retained migration and registry tests for migration data files (PM-1382)', () => {
     const tree = [
-      file('apps/server/src/db/migrations.ts', 'export const migrations = [];'),
-      file('apps/server/src/db/index.ts', "export { migrations } from './migrations';"),
-      file('apps/server/test/merge-trains-migration.test.ts', "import { migrations } from '../src/db';"),
+      file('apps/server/src/db/migrations/0153-example.sql', 'SELECT 1;'),
+      file('apps/server/test/db-migration-files.test.ts', ''),
+      file('apps/server/test/db-baseline.test.ts'),
       file('apps/server/test/a-new-migration.test.ts'),
       file('apps/server/test/db.test.ts'),
       file('apps/server/test/project-change-journal.test.ts'),
       file('apps/server/test/member-handles-columns.test.ts'),
       file('apps/server/test/other.test.ts'),
     ];
-    const files = select(tree, ['apps/server/src/db/migrations.ts']).tests.flatMap((entry) => entry.files);
+    const files = select(tree, ['apps/server/src/db/migrations/0153-example.sql']).tests.flatMap(
+      (entry) => entry.files,
+    );
     expect(files).toEqual(
       expect.arrayContaining([
-        'apps/server/test/merge-trains-migration.test.ts',
+        'apps/server/test/db-migration-files.test.ts',
+        'apps/server/test/db-baseline.test.ts',
         'apps/server/test/a-new-migration.test.ts',
         'apps/server/test/db.test.ts',
         'apps/server/test/project-change-journal.test.ts',

@@ -107,12 +107,12 @@ describe('Operator member starts without a card (PM-546)', () => {
     },
   );
 
-  it('reports a failed start with its reason', async () => {
+  it('keeps a start that failed waiting for its backoff, with the reason', async () => {
     await setup();
     h.runner.failNextStart = new Error('Cannot start the fake runner');
     const result = await start();
-    expect(result.recipient.start).toMatchObject({ state: 'failed', code: expect.any(String) });
-    expect(formatMemberStart(result)).toContain('the start failed');
+    expect(result.recipient.start).toMatchObject({ state: 'waiting', reason: 'start_backoff' });
+    expect(formatMemberStart(result)).toContain('start_backoff');
   });
 
   it.each([

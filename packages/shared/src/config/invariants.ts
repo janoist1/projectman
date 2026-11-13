@@ -6,6 +6,7 @@ import { labelDefinition, labelExcludesAuthors, labelHolders } from './labels';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import { unresolvedMerger } from './merger';
+import { pathPatternIssue } from './path-pattern';
 import { projectManagerOf, projectManagersOf } from './project-manager';
 import { developmentStage, projectRefines } from './refinement';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
@@ -53,7 +54,10 @@ export interface ConfigIssue {
     | 'mover_not_member'
     | 'mover_cannot_move'
     | 'mover_on_leave'
-    | 'merger_unresolved';
+    | 'merger_unresolved'
+    | 'small_cards_not_step'
+    | 'small_cards_unknown_owner'
+    | 'small_cards_invalid_path';
   /** Absent in older clients means error. */
   severity?: 'error' | 'warning';
   path: string;
@@ -213,6 +217,26 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     (stage.owners ?? []).forEach((h) => {
       if (!members.has(h)) issues.push({ code: 'unknown_member', path: `${path}.owners`, detail: h });
     });
+    if (stage.smallCards) {
+      if (stage.kind !== 'step')
+        issues.push({ code: 'small_cards_not_step', path: `${path}.smallCards`, detail: stage.id });
+      stage.smallCards.owners.forEach((h, j) => {
+        if (!members.has(h))
+          issues.push({
+            code: 'small_cards_unknown_owner',
+            path: `${path}.smallCards.owners[${j}]`,
+            detail: h,
+          });
+      });
+      stage.smallCards.centralPaths.forEach((pattern, j) => {
+        if (pathPatternIssue(pattern) !== null)
+          issues.push({
+            code: 'small_cards_invalid_path',
+            path: `${path}.smallCards.centralPaths[${j}]`,
+            detail: pattern,
+          });
+      });
+    }
     if (stage.duty && dutyMembers(config, stage.duty).length === 0)
       issues.push({ code: 'missing_duty_holder', path: `${path}.duty`, detail: stage.duty });
     if (

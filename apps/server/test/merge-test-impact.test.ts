@@ -62,7 +62,7 @@ describe('server test impact', () => {
     expect(result.tests.length).toBeGreaterThan(0);
     // The real Unix control socket boundary is in every module selection (PM-754).
     expect(result.tests).toContain('apps/server/test/control-socket.integration.test.ts');
-    for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations.ts']) {
+    for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations/0153-example.sql']) {
       const entryImpact = serverTestImpact({
         changed: [changed],
         before: files,
@@ -205,6 +205,12 @@ describe('server test impact', () => {
     expect(impact(['apps/server/test/__snapshots__/missing.test.ts.snap']).fallback).toBe(
       'unmapped snapshot: apps/server/test/__snapshots__/missing.test.ts.snap',
     );
+  });
+  it('maps per-tool JSON snapshots to the tool definition test', () => {
+    const files = [...tree, file('src/mcp/tools.test.ts')];
+    const result = impact(['apps/server/src/mcp/__snapshots__/tools/get_task.json'], files, files);
+    expect(result.fallback).toBeUndefined();
+    expect(result.tests).toContain('apps/server/src/mcp/tools.test.ts');
   });
   it.each(['test/helpers/a.ts', 'src/a/test-helpers.ts', 'src/a/tests/helper.ts'])(
     'follows changed helper %s through both trees without selecting its module',

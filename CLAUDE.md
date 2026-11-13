@@ -54,9 +54,10 @@ should confirm still goes to them as a question.
 - Route handlers parse the request, check access and call a domain service; business logic
   lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
   `apps/server/src/assembly.ts` composes them. Only `apps/server/src/start.ts` (started by `index.ts`) reads the environment.
-- Older configuration shapes, database rows and timeline events exist in real installations.
-  Configuration migrations live in `apps/server/src/config/migrations.ts`, database
-  migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
+- Stored configuration must use the current schema; retired configuration converters were
+  removed in PM-1383. Database migrations live in
+  `apps/server/src/db/migrations/NNNN-name.sql`, with table journal and handle
+  classifications in sibling `NNNN-name.meta.json`; timeline events are append-only, so old
   event types keep rendering.
 
 ## Machine-dependent assumptions
@@ -143,7 +144,7 @@ npm test             # all workspaces; waits its turn in the machine's heavy-run
 npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); takes 3 places
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>, --places all|<n>|<min>-<max>)
-npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); takes all places, none again when the server runs it
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); main + workers, capped at capacity - 2 (minimum 2); none again under the server's ticket
 npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them); takes 2-4 machine places once
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (takes 2-4 machine places)
@@ -156,8 +157,9 @@ npm run typecheck -w <workspace>  # type check only the workspaces you touched (
 ```
 
 The machine has one pool of places (PM-332, PM-1278, `docs/modules/scripts.md` "Machine places"):
-every heavy command takes its places from it. The root `npm test`, the server's full test and
-`merge-test` take all of them; the root `typecheck` and the `npm ci` of the members' dependencies take
+every heavy command takes its places from it. The root `npm test` and the server's ordinary full test
+take all of them. Merge checks take main + usable workers, capped at `max(2, capacity - 2)` places
+(four places and three workers on a six-place machine; PM-1338); the root `typecheck` and the `npm ci` of the members' dependencies take
 two, `shots` three, a workspace `typecheck` or `build` one, a workspace `vitest` run and `handover-check`
 two to four, so a few of them run side by side and a full run waits for them (first come, first served,
 nobody overtakes). A run inside a holder (the root `typecheck`, `handover-check`, the server's merge
@@ -172,10 +174,11 @@ in the context pack. Gemini's native `command_status` follows a running command;
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
 before hand-over and in fix rounds. A change in a **central file** (`packages/shared/src/**`,
-`apps/server/src/contracts/**`, `apps/server/src/kernel/**`, `apps/server/src/db/migrations.ts`,
+`apps/server/src/contracts/**`, `apps/server/src/kernel/**`,
 `apps/server/src/assembly.ts`, `apps/server/test/helpers/**`, the web `i18n/{hu,en}.ts` and `mocks/**`)
 makes `related` select a large share of the suite; run the test files of the behaviour you changed and
-`npm run handover-check` instead. When removing a capability, also search tests for its
+`npm run handover-check` instead. A new SQL or metadata migration has no import edge: `vitest related` cannot see it; `npm run handover-check` selects its schema tests.
+When removing a capability, also search tests for its
 retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
 HTTP calls and string fixtures are not covered by import-based related selection.
 When changing the shared `ErrorCode` union, update

@@ -1,8 +1,7 @@
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
-import { sourceImports } from '../../apps/server/test/architecture/check';
-import { importGraph, isCode, isServerTest } from './impact';
+import { importGraph, isCode, isServerTest, snapshotTest } from './impact';
 import type { MergeTestFile } from './impact';
-import { refineScope } from './refine';
+import { checkedBy, importersOf, refineScope } from './refine';
 import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope, TEST_READ_DOCS } from './scope';
 import type { MergeTestScope, MergeTestWorkspace } from './scope';
 import { sharedImpact } from './shared-impact';
@@ -65,10 +64,30 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason: 'the heavy CLI test reads the merge-test places option from the root package script (PM-1338)',
+    sources: ['package.json'],
+    tests: ['apps/server/test/heavy-cli.test.ts'],
+  },
+  {
+    reason: 'registry tests read both barrel folders and the error-code registry by path',
+    sources: [
+      'packages/shared/src/',
+      'apps/server/src/contracts/',
+      'apps/server/src/mcp/tools.ts',
+      'scripts/barrels/',
+    ],
+    tests: ['apps/server/test/architecture/registries.test.ts'],
+  },
+  {
     reason: 'the architecture tests read the server source folder, the module map and the structure map',
     sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
     broad: true,
     tests: ['apps/server/test/architecture/'],
+  },
+  {
+    reason: 'the session-state list test reads the web, widget and shared sources by path (PM-1357)',
+    sources: ['apps/web/src/', 'apps/feedback-widget/src/', 'packages/'],
+    tests: ['apps/server/test/architecture/session-state-lists.test.ts'],
   },
   {
     reason: 'the structure map test reads every tracked file of the repository',
@@ -147,10 +166,12 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
-      'the migration tests build an old schema from the migration list; some import it through the db facade, not db/migrations; the schema registry tests read the migrated schema (PM-1324, PM-1325)',
-    sources: ['apps/server/src/db/migrations.ts'],
+      'the baseline and schema registry tests inspect the resulting schema; retained migration tests guard current repository behavior (PM-1324, PM-1325, PM-1381)',
+    sources: ['apps/server/src/db/migrations/'],
     tests: [
+      'apps/server/test/db-migration-files.test.ts',
       'apps/server/test/*-migration.test.ts',
+      'apps/server/test/db-baseline.test.ts',
       'apps/server/test/db.test.ts',
       'apps/server/test/history-index.test.ts',
       'apps/server/test/hot-read-indexes.test.ts',
@@ -284,12 +305,12 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
 ];
 
 export interface HandoverSelection {
-  /** `none`: only the dead-code check; `cloud`: the cloud filters; `targeted`: the chosen test files. */
+  /** `none`: only the dead-code check; `cloud`: the vitest filters of a path-owned scope (cloud, owned); `targeted`: the chosen test files. */
   kind: 'none' | 'cloud' | 'targeted';
   typecheck: MergeTestWorkspace[];
   /** The test files to run after the cap, by workspace in run order. */
   tests: { workspace: MergeTestWorkspace; files: string[] }[];
-  /** The vitest filters of the cloud scope. */
+  /** The vitest filters of the path-owned scope. */
   testFilters: string[];
   /** How many tests the change reaches (M), the cap, the nearest ones that run beyond it, and how many were left to the merge check. */
   reached: number;
@@ -519,10 +540,6 @@ function moduleNameTests(
   );
 }
 
-/** The workspace whose checks cover a path: the scripts belong to the server's. */
-const checkedBy = (path: string): MergeTestWorkspace | undefined =>
-  path.startsWith('scripts/') ? 'apps/server' : workspaceOf(path);
-const SNAPSHOT = /^(.*)\/__snapshots__\/([^/]+)\.snap$/;
 const isTestSupport = (path: string): boolean => /\/(?:fixtures|test-fixtures)\//.test(path);
 const isConfig = (path: string): boolean =>
   /^(?:package(?:-lock)?\.json|tsconfig.*\.json|vitest\.config\..*)$/.test(path.split('/').at(-1)!);
@@ -543,21 +560,6 @@ function mergeRuns(scope: MergeTestScope, file: string): boolean {
   return false;
 }
 
-/** The files that import `pkg` (or a subpath of it), and those that do it other than by type. */
-function importersOf(files: readonly MergeTestFile[], pkg: string): { all: string[]; value: string[] } {
-  const all: string[] = [];
-  const value: string[] = [];
-  for (const file of files) {
-    if (!isCode(file.path) || !checkedBy(file.path)) continue;
-    const imports = sourceImports(file.source);
-    const own = (s: string) => s === pkg || s.startsWith(`${pkg}/`);
-    if (!imports.specifiers.some(own)) continue;
-    all.push(file.path);
-    if (imports.specifiers.some((s) => own(s) && !imports.typeOnly.includes(s))) value.push(file.path);
-  }
-  return { all, value };
-}
-
 /**
  * The tests a change affects, nearest first. The merge check's scope is the upper bound: the shared
  * export analysis and the server module analysis give the same answers, then the file-level value
@@ -572,6 +574,8 @@ export function handoverSelection(
   if (coarse.kind === 'none') return empty('none');
   if (coarse.kind === 'cloud')
     return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: CLOUD_TEST_FILTERS };
+  if (coarse.kind === 'owned')
+    return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: coarse.tests };
 
   const merge = refineScope(coarse, changed, input.before, input.after);
   const afterPaths = new Set(input.after.map((file) => file.path));
@@ -587,9 +591,8 @@ export function handoverSelection(
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
   for (const file of changed) {
-    const snapshot = SNAPSHOT.exec(file);
-    if (snapshot) {
-      const owner = `${snapshot[1]}/${snapshot[2]}`;
+    const owner = snapshotTest(file);
+    if (owner) {
       if (isServerTest(owner) && afterPaths.has(owner)) snapshotOwners.add(owner);
       else unmapped.push(file);
       continue;
@@ -644,8 +647,8 @@ export function handoverSelection(
   }
   const isTest = (path: string): boolean =>
     isServerTest(path) && afterPaths.has(path) && !isTestSupport(path) && workspaceOf(path) !== undefined;
-  const hasSnapshot = (path: string): boolean =>
-    afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
+  const testsWithSnapshots = new Set([...afterPaths].map(snapshotTest));
+  const hasSnapshot = (path: string): boolean => testsWithSnapshots.has(path);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };
   const ruleTests = [

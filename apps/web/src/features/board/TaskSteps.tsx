@@ -15,6 +15,7 @@ import { buildCardStory } from '../../lib/cardStory';
 import type { StoryRound } from '../../lib/cardStory';
 import { inboxItemDomId } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
+import { pickReasonText } from '../../lib/ownerPick';
 import { startWaitingText } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import type { TimelineContext } from '../../lib/timeline';
@@ -68,6 +69,28 @@ function waitText(
   if (step.source === 'obligation')
     return tDynamic(`task.steps.pause.${step.waitCode}`, t('task.steps.wait'));
   return null;
+}
+
+/**
+ * Under the owner of the stage: why the stage gave the card to them (PM-1378). Only the pick of the stage the
+ * card stands in counts; a card without a small-card rule, or an older one, has no line.
+ */
+function PickReason({ task }: { task: BoardCard }) {
+  const pick = task.stageOwnerPick;
+  const parts = pick?.stageId === task.stageId ? pickReasonText(pick.reason) : null;
+  if (!parts) return null;
+  return (
+    <p className={styles.pickReason}>
+      {parts.before}
+      {parts.file ? (
+        <>
+          {' '}
+          <code title={parts.files?.join('\n')}>{parts.file}</code>
+          {parts.after ? ` ${parts.after}` : null}
+        </>
+      ) : null}
+    </p>
+  );
 }
 
 function Time({ value, children }: { value: string; children?: string }) {
@@ -193,6 +216,7 @@ function Now({
         <p className={styles.nowText}>
           {done ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
         </p>
+        {done ? null : <PickReason task={task} />}
         <p className={styles.nowSince}>
           {round && !done
             ? t('task.steps.nowMeta', { stage: round.stageName, number: round.number, time })

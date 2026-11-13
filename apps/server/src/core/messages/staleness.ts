@@ -9,6 +9,7 @@ import {
   permissionDelegationOf,
   permissionDelegationState,
   stageOf,
+  cardStageOwners,
   stageOwners,
 } from '@projectman/shared';
 import type {
@@ -67,7 +68,17 @@ export function staleReasonFor(
     fromHuman: memberOf(config, message.from)?.kind === 'human',
     card: task ? { open: isOpenTask(task), stageId: task.stageId } : null,
     recipientOwnsStage:
-      task?.assignee === recipient || !!(stage && stageOwners(config, stage).includes(recipient)),
+      task?.assignee === recipient ||
+      !!(task && stage && cardStageOwners(config, stage, task).includes(recipient)),
+    recipientOwnerEscalated: !!(
+      task &&
+      stage &&
+      task.stageOwnerPick?.stageId === stage.id &&
+      !task.stageOwnerPick.small &&
+      stage.smallCards?.owners.includes(recipient) &&
+      !stageOwners(config, stage).includes(recipient) &&
+      task.assignee !== recipient
+    ),
     superseded: ctx.repos.messages.hasNewerAction(message, recipient),
     senderResultLabel: senderResultLabelFor(ctx, config, message, recipient, roundEvents),
     resultCommits: results
@@ -127,7 +138,8 @@ export function senderResultLabelFor(
 /**
  * Whether the recipient has a role on the card (PM-426): the shared rule, with the server fact that they
  * have or had a session on the card, or on its parent when it is a subtask (the sessions table keeps one
- * row per member and work item and is never emptied).
+ * row per member and work item and is never emptied), or that they were involved on the card or its
+ * parent (`member_involved`, PM-1267).
  */
 export function recipientHasCardRole(
   ctx: DomainContext,
@@ -138,11 +150,13 @@ export function recipientHasCardRole(
   const worked = (taskKey: string) =>
     ctx.repos.sessions.findByWorkItem(task.projectKey, recipient, { type: 'task', taskKey }) !== null;
   if (ctx.repos.taskMerges.open(task.projectKey, task.key)?.merger === recipient) return true;
-  return hasCardRole(
-    config,
-    task,
-    recipient,
-    worked(task.key) || (!!task.parentKey && worked(task.parentKey)),
+  return (
+    hasCardRole(config, task, recipient, worked(task.key) || (!!task.parentKey && worked(task.parentKey))) ||
+    ctx.repos.timeline.involvedOn(
+      task.projectKey,
+      task.parentKey ? [task.key, task.parentKey] : [task.key],
+      recipient,
+    )
   );
 }
 

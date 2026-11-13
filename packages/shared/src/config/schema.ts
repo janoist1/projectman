@@ -56,6 +56,10 @@ type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
 export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
 
+/** Who may involve an AI member on a card it has no role on (PM-1267); people always may, with their message. */
+export const MemberInvolvement = z.enum(['people', 'people_and_project_manager']);
+export type MemberInvolvement = z.infer<typeof MemberInvolvement>;
+
 /**
  * What the project manager may do on its own authority (PM-1284): `outside_owner_only` everything outside the
  * owner-only circle, `owner_request` only what an open owner request asks for.
@@ -402,8 +406,23 @@ export const HeavyChecks = z.object({
 });
 export type HeavyChecks = z.infer<typeof HeavyChecks>;
 
+/**
+ * How a repository takes screenshots for the members whose own sandbox cannot start a browser (PM-1353).
+ * Absent: the repository has none, and the screenshot tools are not offered.
+ */
+export const ScreenshotsConfig = z.object({
+  /**
+   * Shell command prefix the server runs at the root of the member's checkout; it appends the arguments
+   * (`<scenario> --widths …`, `--full-page`, `--scale`, `--timeout`, `--seed`), each shell-quoted.
+   */
+  command: z.string().trim().min(1).max(500),
+});
+export type ScreenshotsConfig = z.infer<typeof ScreenshotsConfig>;
+
 export const RepoConfig = z.object({
   heavyChecks: HeavyChecks.optional(),
+  /** The screenshot command of the repository (PM-1353); absent: the repository takes none. */
+  screenshots: ScreenshotsConfig.optional(),
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** Path relative to the workspace root ("." for the root itself). */
@@ -473,6 +492,8 @@ export const ProjectConfig = z.object({
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
     /** PM-1099; absent: its `TEAM_SETTING_POLICY` default. */
     prerequisiteOverride: PrerequisiteOverride.optional(),
+    /** PM-1267; absent: its `TEAM_SETTING_POLICY` default. */
+    memberInvolvement: MemberInvolvement.optional(),
     /** PM-1284; absent: its `TEAM_SETTING_POLICY` default. Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectManagerAuthority.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: its `TEAM_SETTING_POLICY` default. */

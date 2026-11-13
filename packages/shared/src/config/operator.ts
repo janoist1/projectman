@@ -19,7 +19,6 @@ import { effectiveTeamSettings } from './team-settings';
 
 export {
   RETIRED_OPERATOR_HANDLE,
-  RETIRED_OPERATOR_ROLE,
   coordinatorSuperActorOf,
   isConnectedOwnerActor,
   isCoordinatorSuperActor,

@@ -15,7 +15,7 @@ describe('board API', () => {
     const starts = vi.spyOn(PlanUsageMonitor.prototype, 'start');
     h = await createAppHarness({ app: { claudeTmpRoots: [] } });
     const monitor = starts.mock.contexts[0] as PlanUsageMonitor;
-    refreshUsage = () => monitor.refresh();
+    refreshUsage = () => monitor.refresh({ force: true });
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   });

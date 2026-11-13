@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
-import { LATEST_SCHEMA_VERSION, migrations, SESSION_PROVIDER_REPAIR } from './migrations';
+import { latestSchemaVersion, migrationFiles } from './migration-files';
+import type { MigrationFile } from './migration-files';
+import { journalTriggersSql } from './change-triggers';
+import { BASELINE_RELEASE, BASELINE_SQL, BASELINE_VERSION } from './schema/baseline-0152';
 
 export type Db = Database.Database;
 
@@ -38,11 +41,16 @@ function countStatements(db: Db): void {
 export function openDatabase(path: string): Db {
   const db = new Database(path);
   countStatements(db);
-  if (path !== ':memory:') db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  migrate(db);
-  return db;
+  try {
+    db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000');
+    migrate(db);
+    if (path !== ':memory:') db.pragma('journal_mode = WAL');
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 /**
@@ -59,29 +67,55 @@ export function openAuxiliaryDatabase(path: string): Db {
 }
 
 /**
- * Applies every migration newer than `PRAGMA user_version`; returns the resulting version.
- * A database written by a newer build is refused: this build would misread it.
+ * Initializes an empty database from the baseline, then applies newer migrations.
+ * Refuses pre-baseline, foreign unversioned and newer-build databases before writing.
  */
-export function migrate(db: Db): number {
+export function migrate(db: Db, files: readonly MigrationFile[] = migrationFiles()): number {
   let current = schemaVersion(db);
-  if (current > LATEST_SCHEMA_VERSION)
-    throw new Error(
-      `The database is at schema version ${current}, but this build of projectman knows only up to ` +
-        `${LATEST_SCHEMA_VERSION}. Run a newer build, or restore a backup made by this one.`,
-    );
-  const pending = [...migrations].filter((m) => m.version > current).sort((a, b) => a.version - b.version);
+  const refusal = schemaRefusal(current, hasSchemaObjects(db), files.at(-1)?.version ?? BASELINE_VERSION);
+  if (refusal) throw new Error(refusal);
+  if (current === 0) {
+    db.transaction(() => {
+      db.exec(BASELINE_SQL);
+      db.pragma(`user_version = ${BASELINE_VERSION}`);
+    })();
+    current = BASELINE_VERSION;
+  }
+  const pending = [...files].filter((m) => m.version > current).sort((a, b) => a.version - b.version);
   for (const migration of pending) {
     db.transaction(() => {
       db.exec(migration.sql);
+      if (migration.meta) db.exec(journalTriggersSql(migration.meta));
       db.pragma(`user_version = ${migration.version}`);
     })();
     current = migration.version;
   }
-  // Rows written by an older build that shares this database (see SESSION_PROVIDER_REPAIR).
-  if (current >= 9) db.exec(SESSION_PROVIDER_REPAIR);
   return current;
 }
 
 export function schemaVersion(db: Db): number {
   return Number(db.pragma('user_version', { simple: true }));
+}
+
+/** Whether version zero belongs to an empty file or to an unversioned foreign database. */
+export function hasSchemaObjects(db: Db): boolean {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1").get() !== undefined;
+}
+
+/** Shared, read-only refusal for runtime startup and migration tools. */
+export function schemaRefusal(
+  version: number,
+  hasObjects: boolean,
+  latest = latestSchemaVersion(),
+): string | null {
+  if (version > latest)
+    return (
+      `The database is at schema version ${version}, but this build of projectman knows only up to ` +
+      `${latest}. Run a newer build, or restore a backup made by this one.`
+    );
+  if (version > 0 && version < BASELINE_VERSION)
+    return `The database is at schema version ${version}, but this build of projectman starts only from version ${BASELINE_VERSION}: older migrations were replaced by a baseline. Start projectman ${BASELINE_RELEASE} on this database once (it upgrades it to version ${BASELINE_VERSION} or later), then this build. See docs/DEPLOY.md, "A database from before the baseline".`;
+  if (version === 0 && hasObjects)
+    return 'The database has tables but no schema version, so projectman did not create it. Open an empty file or a projectman database.';
+  return null;
 }

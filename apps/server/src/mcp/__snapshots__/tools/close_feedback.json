@@ -1,0 +1,32 @@
+{
+  "name": "close_feedback",
+  "title": "Close a feedback mark",
+  "description": "Decide a feedback mark by closing it without a card (answered, a duplicate, not a matter for the project). The reply (optional) goes into the mark's thread for the marker. Only for members who process feedback; a mark that waits for the owner is refused.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "mark_id": {
+        "type": "string",
+        "pattern": "^fbm_[a-z0-9]{10,32}$",
+        "description": "The mark, e.g. \"fbm_…\"."
+      },
+      "reply": {
+        "description": "Your answer to the marker.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    },
+    "required": [
+      "mark_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Close a feedback mark",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

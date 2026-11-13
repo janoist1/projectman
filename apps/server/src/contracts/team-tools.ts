@@ -199,6 +199,8 @@ export interface MemberAudience {
   machineAccess: boolean;
   /** The member may open a request to the instance's host (`hostRequestRefusal` is null; PM-1064). */
   hostRequests: boolean;
+  /** A repository of the project has a screenshot command (`screenshots`, PM-1353). */
+  screenshots: boolean;
   duties: ReadonlySet<DutyId>;
 }
 
@@ -921,6 +923,8 @@ export interface MessageToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender may involve a member on a card with involve_member (PM-1267). */
+    mayInvolve: boolean;
   }>;
 }
 
@@ -1158,6 +1162,15 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task_key: string; status: string }>;
+  /**
+   * involve_member (PM-1267): the selected PM gives an AI member a role on a card when the project settings
+   * allow it, so a message to the member wakes its session. `outcome` `already_involved`: nothing was written.
+   * `waiting`: the messages queued for the member on the card.
+   */
+  involveMember(
+    ctx: ToolContext,
+    args: { taskKey: string; member: string; reason: string },
+  ): Promise<{ outcome: 'involved' | 'already_involved'; waiting: number }>;
   /** reopen_task (PM-1098): the selected PM reopens a cancelled card when the project settings allow it. */
   reopenTask(
     ctx: ToolContext,

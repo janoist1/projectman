@@ -1,4 +1,10 @@
-import { isOnLeave, isWorkPaused, openPrerequisites, repoRequired } from '@projectman/shared';
+import {
+  isOnLeave,
+  isWorkPaused,
+  openPrerequisites,
+  OUTAGE_REFUSALS,
+  repoRequired,
+} from '@projectman/shared';
 import type {
   AgentProvider,
   EngineId,
@@ -6,6 +12,7 @@ import type {
   MemberConfig,
   OpenPause,
   ProjectConfig,
+  SessionStop,
   Task,
   TaskStartWaiting,
 } from '@projectman/shared';
@@ -126,7 +133,44 @@ const DEFERRABLE = new Set<ErrorCode>([
   'task_handoff_open',
   // The session's engine is not connected (PM-311): the start continues once it is.
   'engine_offline',
+  // The member's starts at the place failed (PM-1335): the start backs off, and stops at the limit until released.
+  'start_backoff',
+  'start_failing',
 ] satisfies (DeferrableReason | 'task_handoff_open')[]);
+
+/** The stop codes of a session that ended before its first turn that no start failure is made of: they have their own handling. */
+const NOT_START_FAILURE_CODES: readonly string[] = [
+  ...OUTAGE_REFUSALS,
+  'workspace_codex_config',
+  'provider_unsupported',
+  'provider_rate_limited',
+];
+
+/**
+ * A failed start that counts (PM-1335): the session could not run (a refusal of admission is no such
+ * failure). A `session_start_failed` carries the session it ended; an error that is no domain error
+ * (the engine call's `link_down`, a timeout, the start's time limit) belongs to no session.
+ */
+export function startFailureOf(err: unknown): { code: string; sessionId: string | null } | null {
+  if (err instanceof DomainError) {
+    if (err.code !== 'session_start_failed') return null;
+    const sessionId = (err.details as { sessionId?: unknown } | undefined)?.sessionId;
+    return { code: err.code, sessionId: typeof sessionId === 'string' ? sessionId : null };
+  }
+  if (!(err instanceof Error)) return null;
+  const code = (err as { code?: unknown }).code;
+  return { code: typeof code === 'string' && code ? code.slice(0, 64) : 'start_error', sessionId: null };
+}
+
+/**
+ * Whether a session that ended before its first turn ended with a failure that counts: the process
+ * failed (a non-zero exit, or a start that failed with a code). A clean exit may be a stop nobody recorded,
+ * so it does not count; nor do an intentional stop, a lost login, a rate limit and the setup refusals.
+ */
+export function countsAsStartFailure(stop: SessionStop | undefined): boolean {
+  if (stop?.kind !== 'failed') return false;
+  return !NOT_START_FAILURE_CODES.includes(stop.code ?? '');
+}
 
 /** Whether `code` (an error code, or the wait code of a deferred start) is one an automatic start waits for. */
 export function isDeferrableCode(code: string): boolean {
@@ -163,6 +207,8 @@ export function waitingOf(
         engine?: EngineId;
         /** `workspace_dirty` / `workspace_fetch_failed`: the checked-out branch, or the base branch. */
         branch?: string | null;
+        /** `start_backoff` / `start_failing`: how many starts of the place failed in a row. */
+        failures?: number;
       }
     | undefined;
   if (err.code === 'task_handoff_open')
@@ -190,6 +236,16 @@ export function waitingOf(
       ? { provider: details?.provider }
       : {}),
     ...(err.code === 'engine_offline' && details?.engine ? { engine: details.engine } : {}),
+    ...(err.code === 'start_backoff' && details?.until
+      ? { provider: details.provider, until: details.until, failures: details.failures }
+      : {}),
+    ...(err.code === 'start_failing'
+      ? {
+          provider: details?.provider,
+          failures: details?.failures,
+          ...(details?.engine ? { engine: details.engine } : {}),
+        }
+      : {}),
     ...((err.code === 'workspace_dirty' || err.code === 'workspace_fetch_failed') && details?.branch
       ? { branch: details.branch }
       : {}),

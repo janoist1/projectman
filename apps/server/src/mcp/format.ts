@@ -107,6 +107,8 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   senior_busy: "No developer whose complexity limit reaches the card's points is currently available.",
   handoff_open: 'The assignee handoff has not finished.',
   engine_offline: 'The execution engine is offline.',
+  start_backoff: 'The last session starts failed; the next try waits for its backoff.',
+  start_failing: 'The session starts keep failing; no more automatic tries until someone acts.',
 };
 
 /** State codes stay English; the Operator explains them in the project's language. */
@@ -260,6 +262,8 @@ function signalLine(signal: OperatorSignal): string {
       'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:
       'A theme or collecting milestone closed; coordinator only, never put in signal_ids. Consider request_structural_review; otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
+    review_follow_ups:
+      'A card closed with non-blocking remarks its reviewers left for a later card (facts.items); coordinator only, never put in signal_ids, never a question to the owners. For each item: add it to an open card that already covers it, open a card with create_task related to the closed card, or drop it. Then close the signal with dismiss_signal and a note saying what became of each item.',
     loop_suspected:
       'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
@@ -267,24 +271,16 @@ function signalLine(signal: OperatorSignal): string {
     outage: 'A provider or engine outage needs attention.',
     relation_check:
       'A card changed that others relate to (subject: the relations as kind:KEY pairs; facts list them). Check each related card and its relation; fix a relation that no longer holds, then close the case with dismiss_signal and a note. It closes itself when the relations are gone.',
-    nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
     obligation_overdue:
       'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
     senior_wait:
       'A card waits for a developer whose limit reaches its points (subject: the obligation; facts name the card, the Seniors and why). Decide it with decide_senior_wait (wait or any, with a reason); when the choice needs more capacity (money), ask the owners first with ask_human and the cost topic.',
-    idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
-    merge_waiting:
-      'Retired kind (an old signal): the merge was requested, but the merger had not started it.',
     merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
     unreleased: 'Work merged on the default branch has waited a long time for a release.',
-    ready_waiting:
-      'Retired kind (an old signal): startable cards (subject) waited while a developer had free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
-    refinement_stalled:
-      "Retired kind (an old signal): a member's refinement turn ended without its label (subject: the label).",
     start_blocked:
       "A card's start waits for a repository choice or a stuck member workspace (subject: the reason; facts say who waits and what to do). It closes itself when the reason ends; a decision question about it carries this signal_id.",
   };
@@ -822,6 +818,8 @@ export function formatSentMessage(result: {
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
+  /** The sender may involve a member on a card (PM-1267): the way forward for a member without a role. */
+  mayInvolve?: boolean;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
   const missing = result.requested.filter((h) => !result.deliveredTo.includes(h));
@@ -831,7 +829,9 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
-  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const lines = result.recipients.map(
+    (r) => `\n- ${recipientLine(r, result.taskKey, false, result.mayInvolve)}`,
+  );
   const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
@@ -846,6 +846,21 @@ export function formatSentMessage(result: {
   return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
 }
 
+/** involve_member's answer (PM-1267): what changed, and how many messages wait for the member on the card. */
+export function formatInvolvement(
+  result: { outcome: 'involved' | 'already_involved'; waiting: number },
+  member: string,
+  taskKey: string,
+): string {
+  const head =
+    result.outcome === 'involved'
+      ? `${member} is now involved in ${taskKey}: a message to them about it starts their session.`
+      : `${member} was already involved in ${taskKey}; nothing changed.`;
+  return result.waiting > 0
+    ? `${head} ${result.waiting} message(s) about ${taskKey} wait for them and are being delivered now; do not resend them.`
+    : `${head} No message about ${taskKey} waits for them: send an action message and it starts them.`;
+}
+
 export function formatMemberStart(result: MemberStartResult): string {
   return `${recipientLine(result.recipient, null, true)} Message ${result.messageId}: the text is in the member's general conversation.`;
 }
@@ -853,6 +868,7 @@ export function formatMemberStart(result: MemberStartResult): string {
 const staleExplanations: Record<StaleReason, string> = {
   card_closed: 'is closed',
   stage_moved: 'has moved to another stage since',
+  owner_escalated: 'now requires the main stage owners',
   superseded: 'has a newer message from the same sender',
   sender_result: "already has the sender's result",
   result_recorded: 'already has a result for that commit',
@@ -862,22 +878,26 @@ const staleExplanations: Record<StaleReason, string> = {
 
 /**
  * What happens to a sent message for one recipient, as the sender is told (PM-144, PM-543). `taskKey` is the
- * card it is about; `coordinator`: the sender is the coordinator, who is never sent to a person for it.
+ * card it is about; `coordinator`: the sender is the coordinator, who is never sent to a person for it;
+ * `mayInvolve`: the sender may involve a member on a card with involve_member (PM-1267).
  */
 export function recipientLine(
   { handle, delivery, hold, waitingPermission, noWake, info, stale, start }: SentMessageRecipient,
   taskKey: string | null,
   coordinator = false,
+  mayInvolve = false,
 ): string {
   if (waitingPermission)
     return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
   const card = taskKey ?? 'the card';
   switch (delivery) {
     case 'next_input':
-      if (noWake === 'no_card_role')
-        return coordinator
-          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. Start them with start_member (it needs your own open owner request, your own authority or a permitted signal), or they get it the next time they work on ${card}.`
-          : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      if (noWake === 'no_card_role') {
+        const noRole = `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it)`;
+        if (coordinator || mayInvolve)
+          return `${noRole}, so this starts nothing. Involve them with involve_member (your reason is on the timeline; the project settings must allow it): this message then starts them, with no resend. Otherwise they get it the next time they work on ${card}.`;
+        return `${noRole}, and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      }
       if (stale)
         return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;
       if (info)
@@ -895,7 +915,7 @@ export function recipientLine(
     case 'held':
       switch (hold) {
         case 'refinement_turn':
-          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.`;
+          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.${mayInvolve ? ' To let them in now, involve them with involve_member.' : ''}`;
         case 'fix_limit':
           return `${handle}: held: ${card} reached its fix round limit; they get it once that is decided.`;
         case 'full_test':

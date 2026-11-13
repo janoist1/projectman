@@ -418,6 +418,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   two Access-token JSON files and a non-secret `handoff.json`. Staging is private and cleaned on failure.
   The host sends it and the own-login invitation through an end-to-end encrypted channel, then deletes
   the transfer archive after receipt. `edge` and any required deploy remain explicitly approved live changes.
+  PM-1431: `owner add` rewrites the config atomically keeping its own file mode; `edge` deletes an owner's
+  archive and `.handoff-*` staging leftovers when it writes new token files (asking for a new handoff) or
+  when the owner leaves `access.owners` (`scripts/cloud/cloudflare.ts`).
   **Remote engine:** preparation stays on the maintenance machine; the friend's engine reads the
   received headers file locally. No new engine RPC or secret transfer through projectman is added.
   PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version

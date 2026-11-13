@@ -13,6 +13,8 @@ import {
   OWNERS_DIR,
   ENGINE_TOKEN_FILE,
   INTEGRATOR_TOKEN_FILE,
+  HANDOFF_STAGING_PREFIX,
+  handoffArchiveName,
 } from './cloudflare';
 import { addOwner, defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext, DeployContext } from './context';
@@ -405,10 +407,10 @@ async function ownerHandoff(context: CloudContext, id: string): Promise<void> {
       );
     return { name, content };
   });
-  const target = path.join(dir, `projectman-handoff-${id}.zip`);
+  const target = path.join(dir, handoffArchiveName(id));
   const problem = secretFileProblem(target);
   if (problem) throw refused(problem);
-  const staging = fs.mkdtempSync(path.join(dir, '.handoff-'));
+  const staging = fs.mkdtempSync(path.join(dir, HANDOFF_STAGING_PREFIX));
   fs.chmodSync(staging, 0o700);
   try {
     const files = tokens.map(({ name, content }) => writeSecret(staging, name, content));

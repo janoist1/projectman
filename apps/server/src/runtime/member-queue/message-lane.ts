@@ -171,7 +171,8 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
         data: {
           messageId: message.id,
           recipient: item.member,
-          reason: reason === 'stale' ? (staleCauseOf(item, isoNow(ctx)) ?? reason) : reason,
+          // The driver closed it as stale just now: the cause is the one `expired` read.
+          reason: reason === 'stale' ? (staleCauseOf(item, isoNow(ctx)) ?? 'card_closed') : reason,
         },
       });
       if (reason === 'stale') return;

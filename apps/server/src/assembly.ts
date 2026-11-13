@@ -132,6 +132,7 @@ import {
 import {
   LoopTriages,
   OperatorSignals,
+  ReviewFollowUps,
   StructuralReviews,
   createAlertPmSignals,
   wireOperatorSignals,
@@ -1440,6 +1441,10 @@ export function createDomain(opts: DomainOptions) {
   messaging.registerSignals(operatorSignals);
   // The alerts the route rule sends to the project manager become signals (PM-1250).
   inbox.registerAlertPmSignals(createAlertPmSignals({ operatorSignals, background, logger: ctx.logger }));
+  // The non-blocking remarks a closed card still holds go to the project manager (PM-1362).
+  const reviewFollowUps = new ReviewFollowUps({ ctx, signals: operatorSignals });
+  events.on('task_stage_changed', ({ task }) => reviewFollowUps.cardClosed(task));
+  events.on('task_cancelled', (task) => reviewFollowUps.cardClosed(task));
   const structuralReviews = new StructuralReviews({
     ctx,
     projects,

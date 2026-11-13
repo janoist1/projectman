@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLIENT_CHANNEL_HEADER, CLIENT_CHANNEL_VALUE, CLIENT_EXIT } from '@projectman/shared';
 import { main, usageText } from '../../../scripts/projectman/cli';
 import { COMMANDS } from '../../../scripts/projectman/commands';
@@ -1063,6 +1063,53 @@ describe('projectman CLI (PM-765)', () => {
       expect(code).toBe(CLIENT_EXIT.usage);
       expect(fs.existsSync(configDir())).toBe(false);
       everyCanary(t.output());
+    });
+
+    it('refuses a terminal as standard input, so a typed key is never shown, and writes nothing', async () => {
+      const t = createTestIo(bare, accepted, { stdin: `${CANARY_KEY}\n` });
+      const code = await main(['connect', '--base-url', 'https://pm.example.com'], {
+        ...t.io,
+        stdinIsTerminal: true,
+      });
+      expect(code).toBe(CLIENT_EXIT.usage);
+      expect(t.stderr.join('')).toContain('terminal');
+      expect(fs.existsSync(configDir())).toBe(false);
+      everyCanary(t.output());
+    });
+
+    describe('with files of another user', () => {
+      // The checks compare with process.getuid(); the Nth call is the Nth ownership check of the run
+      // (the configuration directory, then the cloud directory if any, then each target in order).
+      const foreignFrom = (calls: number) => {
+        const own = process.getuid!();
+        const spy = vi.spyOn(process as { getuid(): number }, 'getuid');
+        for (let call = 0; call < calls; call += 1) spy.mockReturnValueOnce(own);
+        spy.mockReturnValue(own + 1);
+      };
+      afterEach(() => vi.restoreAllMocks());
+
+      it('stops with status 3 on an identical key file of another user, before any write or chmod', async () => {
+        expect((await connect()).code).toBe(CLIENT_EXIT.ok);
+        const keyFile = path.join(configDir(), 'integrator-key');
+        fs.chmodSync(keyFile, 0o644);
+        foreignFrom(1);
+        const result = await connect();
+        expect(result.code).toBe(CLIENT_EXIT.auth);
+        expect(result.stderr.join('')).toContain('credential_owner');
+        expect(mode(keyFile)).toBe(0o644);
+      });
+
+      it('stops with status 3 on a cloud directory of another user before anything is written', async () => {
+        fs.mkdirSync(path.join(configDir(), 'cloud'), { recursive: true, mode: 0o700 });
+        fs.chmodSync(configDir(), 0o755);
+        foreignFrom(1);
+        const result = await connectWithAccess();
+        expect(result.code).toBe(CLIENT_EXIT.auth);
+        expect(result.stderr.join('')).toContain('credential_owner');
+        expect(mode(configDir())).toBe(0o755);
+        expect(fs.readdirSync(configDir())).toEqual(['cloud']);
+        expect(fs.readdirSync(path.join(configDir(), 'cloud'))).toEqual([]);
+      });
     });
 
     it('needs --base-url', async () => {

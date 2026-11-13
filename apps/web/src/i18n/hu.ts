@@ -785,6 +785,9 @@ export const hu = {
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
+      start_backoff: 'A munkamenet indítása legutóbb elbukott, ezért a következő próba később jön.',
+      start_failing:
+        'A munkamenet indítása többször egymás után elbukott, ezért magától nem próbálkozik tovább.',
       workspace_codex_config:
         'A munkafa saját .codex mappájában olyan Codex-beállítás van, amely a homokozón kívül futtathatna parancsot (például hook, MCP-szerver vagy szabály), ezért a Codex-tag nem indul el.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
@@ -1715,6 +1718,9 @@ export const hu = {
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
+      start_backoff: 'A munkamenet indítása legutóbb elbukott, ezért a következő próba később jön.',
+      start_failing:
+        'A munkamenet indítása többször egymás után elbukott, ezért magától nem próbálkozik tovább.',
       workspace_codex_config: 'A munkafa .codex mappája nem engedélyezett Codex-beállítást tartalmaz.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
@@ -2405,6 +2411,8 @@ export const hu = {
       nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
       nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
       codex_setup_incomplete: 'Indulásra vár: hiányos a Codex-beállítás',
+      start_backoff: 'Az indítás elbukott, újrapróba {until}',
+      start_failing: 'Az indítás ismétlődően elbukik, nem próbálkozik tovább',
       workspace_codex_config: 'Indulásra vár: a munkafa .codex mappájában nem engedélyezett beállítás van',
     },
     stageOwners: 'a lépés összes felelőse',
@@ -2483,6 +2491,10 @@ export const hu = {
         'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Ide tartoznak a hookok (a hooks beállítás és a hooks.json fájl), a project_root_markers és a macOS-es MDM-profil (com.openai.codex): a tulajdonos törölje őket, vagy tegye át egy másik Codex-otthonba. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
       codex_setup_incomplete:
         'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). Az indulást a hookok (a hooks beállítás és a hooks.json fájl, a felhasználói és a rendszergazdai is), a project_root_markers beállítás és a macOS-es MDM-profil (com.openai.codex) is akadályozza: a tulajdonos törölje őket, vagy tegye át egy másik Codex-otthonba. MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
+      start_backoff:
+        'A munkamenet indítása elbukott. A szerver magától újra próbálja: 30 másodperc, 1, 2, majd 4 perc múlva; az ötödik bukás után megáll.',
+      start_failing:
+        'Az indítás ötször egymás után elbukott, ezért a szerver nem próbálkozik tovább. Ha a szolgáltató állapota megváltozik (belépés, frissítés, motor újracsatlakozása), egyszer újra próbál; a figyelmeztetésen az Ellenőrzés most gombbal is adhatsz egy próbát.',
     },
     /**
      * "Miért áll?" on the card row and in the drawer (PM-461): "{ki} · {mire vár}". `head` is the bold part
@@ -2534,6 +2546,8 @@ export const hu = {
         nanogpt_key_missing: 'nincs NanoGPT-kulcs',
         nanogpt_setup_incomplete: 'hiányos a NanoGPT-beállítás',
         codex_setup_incomplete: 'hiányos a Codex-beállítás',
+        start_backoff: 'az indítás elbukott, újrapróba később',
+        start_failing: 'az indítás ismétlődően elbukik',
         workspace_codex_config: 'nem engedélyezett beállítás van a munkafa .codex mappájában',
         prerequisite_open: 'előfeltétel',
       },
@@ -2673,6 +2687,7 @@ export const hu = {
     stuckTodo: {
       login: 'Lépj be a szerveren: {command}',
       loginOnEngine: 'Lépj be a(z) {engine} motor gépén: {command}',
+      startFailing: 'Nézd meg az érintett tag utolsó munkamenetét, és javítsd a hibát.',
       settings: 'Add meg a Beállítások → AI-szolgáltatók alatt.',
       engine: 'Kapcsold be a motor gépét, vagy indítsd újra rajta a projectman motort.',
     },
@@ -5120,6 +5135,7 @@ export const hu = {
           no_key: 'Nincs NanoGPT-kulcs',
           setup_incomplete: 'Hiányos a {provider}-beállítás',
           chatgpt_login: 'Hiányos a {provider}-beállítás',
+          start_failing: 'A {provider}-munkamenetek indítása ismétlődően elbukik',
           engine: 'A(z) {engine} motor nem csatlakozik',
           engineNone: 'Nincs csatlakozó motor',
         },
@@ -5139,6 +5155,8 @@ export const hu = {
           install: 'Telepítsd vagy frissítsd a(z) {provider} CLI-t, majd lépj be:',
           installOnEngine:
             'Telepítsd vagy frissítsd a(z) {provider} CLI-t a(z) {engine} motor gépén, majd lépj be:',
+          startFailing:
+            'Nézd meg az érintett tag utolsó munkamenetét (a naplóban a kilépés oka), és javítsd a hibát. Utána az Ellenőrzés most gombbal egyszer újra próbálhat.',
           settings: 'Add meg itt: Beállítások → AI-szolgáltatók.',
           openSettings: 'AI-szolgáltatók megnyitása →',
           engine:
@@ -5174,6 +5192,7 @@ export const hu = {
           no_key: 'nincs NanoGPT-kulcs',
           setup_incomplete: 'hiányos a {provider}-beállítás',
           chatgpt_login: 'hiányos a {provider}-beállítás',
+          start_failing: 'a {provider}-munkamenetek indítása ismétlődően elbukik',
           engine: 'a(z) {engine} motor nem csatlakozik',
           engineNone: 'nincs csatlakozó motor',
           onEngine: '{reason} ({engine})',

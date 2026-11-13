@@ -355,6 +355,9 @@ export const ERROR_CODES = [
   'setup_requires_localhost',
   'specialty_labels_not_developer',
   'stage_in_use',
+  // The member's automatic starts at a place failed (PM-1335): they back off, then stop until released.
+  'start_backoff',
+  'start_failing',
   'subtask_has_children',
   'subtask_parent_is_subtask',
   'subtask_parent_not_found',

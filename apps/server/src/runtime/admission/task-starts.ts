@@ -433,11 +433,18 @@ export class TaskStarts implements WorkEntryCheck {
     // The old assignee's note comes first (PM-342): the receiver is started when the handoff is over.
     const handedOver = this.tasks.get(projectKey, taskKey).handoff?.to === member.handle;
     if (member.kind === 'ai' && !handedOver) {
-      session = (
-        await this.sessions.ensureSession(projectKey, member.handle, workItem, {
-          cause: { kind: 'start_button', by: opts.actor },
-        })
-      ).session;
+      const automatic = opts.automatic === true;
+      // An automatic start waits while the member's starts at the place keep failing (PM-1335).
+      this.admission.assertStartable(projectKey, member, workItem, automatic);
+      try {
+        session = (
+          await this.sessions.ensureSession(projectKey, member.handle, workItem, {
+            cause: { kind: 'start_button', by: opts.actor },
+          })
+        ).session;
+      } catch (err) {
+        throw this.admission.failedStart(err, projectKey, member, workItem, automatic);
+      }
     }
     if (anotherRound) this.fixLimit?.releaseMessages(task);
     return { task: this.tasks.get(projectKey, taskKey), session, hired };

@@ -46,6 +46,8 @@ import { createOwnerInvitationRepository } from './owner-invitations';
 export type { OwnerInvitationRecord } from './owner-invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
+import { createStartFailureRepository } from './start-failures';
+export type { StartFailureRecord } from './start-failures';
 import { createDecisionOfferRepository } from './decision-offers';
 import { createDocWriteRepository } from './doc-writes';
 export type { DocWriteEdit, DocWritePatch, DocWriteRecord } from './doc-writes';
@@ -174,6 +176,7 @@ export function createRepositories(db: Db) {
     decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
+    startFailures: createStartFailureRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),
     sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),

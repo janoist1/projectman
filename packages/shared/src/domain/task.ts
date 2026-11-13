@@ -147,9 +147,15 @@ export const TaskStartWaiting = z.object({
     'handoff_open',
     // The session's engine is not connected (PM-311): the start continues once it is (`engine`).
     'engine_offline',
+    // PM-1335: the member's automatic start failed (`failures` times): it waits until `until`, or, past the
+    // limit, stops (`start_failing`) until a person or a changed provider state gives it one more try.
+    'start_backoff',
+    'start_failing',
   ]),
   /** `engine_offline`: the engine the start waits for; absent: there is no default engine. */
   engine: EngineId.optional(),
+  /** `start_backoff` / `start_failing`: how many starts of the place failed in a row. */
+  failures: z.number().int().positive().optional(),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
   /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */

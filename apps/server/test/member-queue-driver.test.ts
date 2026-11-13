@@ -1,5 +1,5 @@
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
-import { MEMBER_QUEUE_MAX_ATTEMPTS } from '@projectman/shared';
+import { MEMBER_QUEUE_MAX_ATTEMPTS, START_FAILURE_LIMIT, startRetryDelayMs } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemberQueueLane } from '../src/runtime/member-queue';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -129,6 +129,41 @@ describe('the member queue driver', () => {
       expect(h.runner.messages).toEqual([]);
       // A message is delivered, never worked: its item is never `processing`.
       expect(closedStates()).toEqual([{ state: 'done', reason: 'delivered' }]);
+    });
+  });
+
+  describe('a start that keeps failing (PM-1335)', () => {
+    it('keeps the message queued with a growing backoff, and stops trying at the limit', async () => {
+      let at = Date.parse('2026-11-12T10:00:00.000Z');
+      h = await createDomainHarness({ now: () => new Date(at) });
+      await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
+      const message = record('dev-1', 'AR-1');
+      const waitCode = () => items()[0]?.wait?.code;
+      const attempt = async () => {
+        h.runner.failNextStart = new Error('the process could not be spawned');
+        await driver().ensure('AR', 'dev-1');
+        const tried = h.runner.failNextStart === null;
+        h.runner.failNextStart = null;
+        return tried;
+      };
+
+      const gaps: number[] = [];
+      for (let failures = 1; failures < START_FAILURE_LIMIT; failures++) {
+        expect(await attempt()).toBe(true);
+        expect(waitCode()).toBe('start_backoff');
+        // Inside the backoff nothing is tried.
+        expect(await attempt()).toBe(false);
+        gaps.push(startRetryDelayMs(failures));
+        at += startRetryDelayMs(failures);
+      }
+      expect(gaps).toEqual([30_000, 60_000, 120_000, 240_000]);
+
+      expect(await attempt()).toBe(true);
+      expect(waitCode()).toBe('start_failing');
+      at += 24 * 3_600_000;
+      expect(await attempt()).toBe(false);
+      expect(items()).toHaveLength(1);
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeFalsy();
     });
   });
 

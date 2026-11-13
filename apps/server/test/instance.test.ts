@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
+import { connect } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,13 +39,33 @@ afterAll(async () => {
   if (shared) await (await shared.catch(() => undefined))?.stop();
 });
 
+/**
+ * A live server answers. On a loaded machine Vite may take seconds to serve the page (PM-1438), so the
+ * deadline is far above that: only a server that does not answer at all fails.
+ */
 async function answers(url: string): Promise<boolean> {
   try {
-    await fetch(url, { signal: AbortSignal.timeout(1_000) });
+    await fetch(url, { signal: AbortSignal.timeout(15_000) });
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Nothing listens on the URL's port any more: the connection is refused. A slow answer is no proof
+ * that a server is gone, so this asks the port, not the server, and has no deadline of its own.
+ */
+function closed(url: string): Promise<boolean> {
+  const { hostname, port } = new URL(url);
+  return new Promise((resolve) => {
+    const socket = connect({ host: hostname, port: Number(port) });
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', (error: NodeJS.ErrnoException) => resolve(error.code === 'ECONNREFUSED'));
+  });
 }
 
 describe('startInstance', () => {
@@ -73,7 +94,7 @@ describe('startInstance', () => {
       await Promise.all([a.stop(), b.stop()]);
       await a.stop();
       expect(existsSync(a.dir) || existsSync(b.dir)).toBe(false);
-      for (const url of urls) expect(await answers(url)).toBe(false);
+      for (const url of urls) expect(await closed(url)).toBe(true);
     },
     SLOW,
   );
@@ -191,8 +212,8 @@ describe('startInstance', () => {
         expect(await answers(webUrl)).toBe(true);
         parent.kill('SIGKILL');
         const options = { timeoutMs: 20_000, intervalMs: 100 };
-        expect(await waitUntil(async () => !(await answers(serverUrl)), options)).toBe(true);
-        expect(await waitUntil(async () => !(await answers(webUrl)), options)).toBe(true);
+        expect(await waitUntil(() => closed(serverUrl), options)).toBe(true);
+        expect(await waitUntil(() => closed(webUrl), options)).toBe(true);
       } finally {
         parent.kill('SIGKILL');
         // A killed parent cannot remove its temporary directory. Its children may still finish

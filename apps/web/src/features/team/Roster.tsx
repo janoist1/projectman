@@ -11,7 +11,7 @@ import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { usePausedRows } from '../pause/usePause';
 import { useContacts } from '../messages/useContacts';
-import { useIsRequiredPm } from '../operator/useRequiredMember';
+import { useIsRequiredPm } from '../project-manager/useRequiredMember';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 

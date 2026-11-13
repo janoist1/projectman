@@ -4,27 +4,27 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ProjectManagerSignal, TeamMessage } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { useDismissOperatorSignal, useSendTeamMessage } from '../../api/queries';
+import { useDismissProjectManagerSignal, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { closedText, SignalTitle } from './OperatorSignalCard';
-import styles from './OperatorSignalCard.module.css';
+import { closedText, SignalTitle } from './ProjectManagerSignalCard';
+import styles from './ProjectManagerSignalCard.module.css';
 
 /** One summary message, with independent decisions that stay in their original order. */
-export function OperatorSignalList({
+export function ProjectManagerSignalList({
   signals,
   message,
-  operatorHandle,
+  projectManagerHandle,
   readOnly,
   unreadMark,
 }: {
   signals: ProjectManagerSignal[];
   message: TeamMessage;
-  operatorHandle: string;
+  projectManagerHandle: string;
   readOnly: boolean;
   /** The unread label of the summary message, shown in the card's header. */
   unreadMark?: ReactNode;
@@ -73,7 +73,7 @@ export function OperatorSignalList({
           <SignalRow
             key={signal.id}
             signal={signal}
-            operatorHandle={operatorHandle}
+            projectManagerHandle={projectManagerHandle}
             readOnly={readOnly}
             onDecide={() => {
               pendingFocus.current = signal.id;
@@ -87,14 +87,14 @@ export function OperatorSignalList({
 
 export function SignalRow({
   signal,
-  operatorHandle,
+  projectManagerHandle,
   readOnly,
   onDecide,
   time,
   disabled = false,
 }: {
   signal: ProjectManagerSignal;
-  operatorHandle: string;
+  projectManagerHandle: string;
   readOnly: boolean;
   onDecide: () => void;
   time?: string;
@@ -104,7 +104,7 @@ export function SignalRow({
   const titleId = useId();
   const client = useQueryClient();
   const send = useSendTeamMessage(key);
-  const dismiss = useDismissOperatorSignal(key);
+  const dismiss = useDismissProjectManagerSignal(key);
   const busy = disabled || send.isPending || dismiss.isPending;
   const failure = send.error ?? dismiss.error;
   const closed = closedText(signal);
@@ -113,7 +113,7 @@ export function SignalRow({
     dismiss.reset();
     send.mutate(
       {
-        to: [operatorHandle],
+        to: [projectManagerHandle],
         text: t('operator.signal.acceptMessage'),
         operatorSignal: signal.id,
         ...(signal.taskKey ? { taskKey: signal.taskKey } : {}),

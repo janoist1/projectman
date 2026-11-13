@@ -6,7 +6,7 @@ import { ProjectContext } from '../app/contexts';
 import type { ProjectContextValue } from '../app/contexts';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { noBoardFilters } from '../features/board/boardFilters';
-import { OperatorUploadsProvider } from '../features/operator/operatorUploads';
+import { ProjectManagerUploadsProvider } from '../features/project-manager/projectManagerUploads';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
 import type { RenderRoute } from './render';
@@ -86,11 +86,11 @@ export function mockProject(backend = new MockBackend()) {
     setSearch: () => {},
     openPause: () => {},
     openPauseDetails: () => {},
-    operatorOpen: false,
-    openOperator: () => {},
-    closeOperator: () => {},
-    operatorDraft: { current: '' },
-    operatorScroll: { current: null },
+    projectManagerOpen: false,
+    openProjectManager: () => {},
+    closeProjectManager: () => {},
+    projectManagerDraft: { current: '' },
+    projectManagerScroll: { current: null },
     openNewTask: () => {},
     themeFilter: null,
     setThemeFilter: () => {},
@@ -129,7 +129,7 @@ function StatefulProject({ value, children }: { value: ProjectContextValue; chil
   const [boardFilters, setBoardFilters] = useState(value.boardFilters);
   return (
     <ProjectContext.Provider value={{ ...value, themeFilter, setThemeFilter, boardFilters, setBoardFilters }}>
-      <OperatorUploadsProvider projectKey={value.key}>{children}</OperatorUploadsProvider>
+      <ProjectManagerUploadsProvider projectKey={value.key}>{children}</ProjectManagerUploadsProvider>
     </ProjectContext.Provider>
   );
 }

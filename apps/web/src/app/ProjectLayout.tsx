@@ -10,8 +10,8 @@ import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { ProjectPauseBar } from '../features/pause/PauseBanner';
-import { OperatorPanel } from '../features/operator/OperatorPanel';
-import { OperatorUploadsProvider } from '../features/operator/operatorUploads';
+import { ProjectManagerPanel } from '../features/project-manager/ProjectManagerPanel';
+import { ProjectManagerUploadsProvider } from '../features/project-manager/projectManagerUploads';
 import { PauseConfirmDialog } from '../features/pause/PauseConfirmDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -51,16 +51,18 @@ export function ProjectLayout() {
   // Counts the requests to open the pause bar's details (the project manager's "Folytatás…").
   const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
   // The Operator's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
-  const [operatorOpen, setOperatorOpen] = useState(false);
-  const [operatorChecklistRequest, setOperatorChecklistRequest] = useState<{
+  const [projectManagerOpen, setProjectManagerOpen] = useState(false);
+  const [projectManagerChecklistRequest, setProjectManagerChecklistRequest] = useState<{
     id: number;
     focus: boolean;
     intro: boolean;
   } | null>(null);
-  const [operatorPrefill, setOperatorPrefill] = useState<{ text: string; id: number } | null>(null);
-  const operatorTrigger = useRef<HTMLElement | null>(null);
-  const operatorDraft = useRef('');
-  const operatorScroll = useRef<{ top: number; stick: boolean } | null>(null);
+  const [projectManagerPrefill, setProjectManagerPrefill] = useState<{ text: string; id: number } | null>(
+    null,
+  );
+  const projectManagerTrigger = useRef<HTMLElement | null>(null);
+  const projectManagerDraft = useRef('');
+  const projectManagerScroll = useRef<{ top: number; stick: boolean } | null>(null);
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
@@ -90,26 +92,30 @@ export function ProjectLayout() {
     setThemeFilter(null);
     setBoardFilters(noBoardFilters);
     setRequestedPauseId(null);
-    setOperatorOpen(false);
-    setOperatorPrefill(null);
-    setOperatorChecklistRequest(null);
-    operatorDraft.current = '';
-    operatorScroll.current = null;
+    setProjectManagerOpen(false);
+    setProjectManagerPrefill(null);
+    setProjectManagerChecklistRequest(null);
+    projectManagerDraft.current = '';
+    projectManagerScroll.current = null;
   }, [projectKey]);
 
   // The work queues' way back (PM-1297): the panel opens again where the person left it.
   useEffect(() => {
-    if (!location.state?.operatorOpen) return;
-    setOperatorOpen(true);
-    const { operatorOpen: _, ...rest } = location.state;
+    if (!location.state?.projectManagerOpen) return;
+    setProjectManagerOpen(true);
+    const { projectManagerOpen: _, ...rest } = location.state;
     void navigate(location.pathname + location.search + location.hash, { replace: true, state: rest });
   }, [location, navigate]);
 
   useEffect(() => {
-    if (!location.state?.operatorChecklist) return;
-    setOperatorOpen(true);
-    setOperatorChecklistRequest((previous) => ({ id: (previous?.id ?? 0) + 1, focus: false, intro: true }));
-    const { operatorChecklist: _, ...rest } = location.state;
+    if (!location.state?.projectManagerChecklist) return;
+    setProjectManagerOpen(true);
+    setProjectManagerChecklistRequest((previous) => ({
+      id: (previous?.id ?? 0) + 1,
+      focus: false,
+      intro: true,
+    }));
+    const { projectManagerChecklist: _, ...rest } = location.state;
     void navigate(location.pathname + location.search + location.hash, { replace: true, state: rest });
   }, [location, navigate]);
 
@@ -124,28 +130,28 @@ export function ProjectLayout() {
       setSearch,
       openPause: () => setPauseOpen(true),
       openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
-      operatorOpen,
-      operatorPrefill,
-      operatorChecklistRequest,
-      openOperator: (trigger, prefill, options) => {
-        operatorTrigger.current = trigger ?? null;
+      projectManagerOpen,
+      projectManagerPrefill,
+      projectManagerChecklistRequest,
+      openProjectManager: (trigger, prefill, options) => {
+        projectManagerTrigger.current = trigger ?? null;
         if (options?.checklist)
-          setOperatorChecklistRequest((previous) => ({
+          setProjectManagerChecklistRequest((previous) => ({
             id: (previous?.id ?? 0) + 1,
             focus: true,
             intro: false,
           }));
         if (prefill !== undefined)
-          setOperatorPrefill((previous) => ({ text: prefill, id: (previous?.id ?? 0) + 1 }));
-        setOperatorOpen(true);
+          setProjectManagerPrefill((previous) => ({ text: prefill, id: (previous?.id ?? 0) + 1 }));
+        setProjectManagerOpen(true);
       },
-      closeOperator: () => {
-        setOperatorOpen(false);
-        setOperatorPrefill(null);
-        setOperatorChecklistRequest(null);
+      closeProjectManager: () => {
+        setProjectManagerOpen(false);
+        setProjectManagerPrefill(null);
+        setProjectManagerChecklistRequest(null);
       },
-      operatorDraft,
-      operatorScroll,
+      projectManagerDraft,
+      projectManagerScroll,
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
@@ -159,9 +165,9 @@ export function ProjectLayout() {
       isOwner,
       can,
       search,
-      operatorOpen,
-      operatorPrefill,
-      operatorChecklistRequest,
+      projectManagerOpen,
+      projectManagerPrefill,
+      projectManagerChecklistRequest,
       themeFilter,
       boardFilters,
     ],
@@ -181,7 +187,7 @@ export function ProjectLayout() {
     <ProjectContext.Provider value={value}>
       {/* Above the board and the open card: a file dropped on a card goes on when the card is opened. */}
       <AttachmentUploadsProvider key={projectKey}>
-        <OperatorUploadsProvider key={projectKey} projectKey={projectKey}>
+        <ProjectManagerUploadsProvider key={projectKey} projectKey={projectKey}>
           <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
             <a href="#main" className={styles.skip}>
               {t('app.skipToContent')}
@@ -209,7 +215,9 @@ export function ProjectLayout() {
             </div>
             {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
           </div>
-          {myHandle && operatorOpen ? <OperatorPanel returnFocusTo={operatorTrigger} /> : null}
+          {myHandle && projectManagerOpen ? (
+            <ProjectManagerPanel returnFocusTo={projectManagerTrigger} />
+          ) : null}
           <NewTaskDialog
             open={newTask !== null}
             initialKind={newTask?.kind ?? 'task'}
@@ -220,7 +228,7 @@ export function ProjectLayout() {
             onClose={() => setPauseOpen(false)}
             onRequested={setRequestedPauseId}
           />
-        </OperatorUploadsProvider>
+        </ProjectManagerUploadsProvider>
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );

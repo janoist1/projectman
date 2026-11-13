@@ -11,7 +11,7 @@ import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { readStorage } from '../../lib/hooks';
 import { mockProject } from '../../test/mockProject';
-import { OperatorChecklist } from './OperatorChecklist';
+import { ProjectManagerChecklist } from './ProjectManagerChecklist';
 
 const item = (id: string, overrides: Partial<ChecklistItem> = {}): ChecklistItem => ({
   id,
@@ -55,7 +55,7 @@ describe('operator checklist', () => {
       item('second', { state: 'done' }),
       item('third', { state: 'not_needed', reason: 'No client' }),
     ]);
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     expect(await screen.findByText('2/3')).not.toBeNull();
     expect(screen.getByRole('img', { name: t('operator.checklist.state.open') })).not.toBeNull();
     expect(screen.getByRole('img', { name: t('operator.checklist.state.done') })).not.toBeNull();
@@ -75,20 +75,20 @@ describe('operator checklist', () => {
 
   it('remembers collapsing the list across remounts', async () => {
     const project = projectWith();
-    const view = project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    const view = project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     fireEvent.click(head());
     expect(screen.queryByRole('list')).toBeNull();
     expect(readStorage('operatorChecklistOpen:AC')).toBe('false');
     view.unmount();
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     expect(head().getAttribute('aria-expanded')).toBe('false');
   });
 
   it('submits a trimmed not-needed reason, updates progress and returns focus to the row', async () => {
     const project = projectWith();
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -107,7 +107,7 @@ describe('operator checklist', () => {
 
   it('reopens a settled item through the state endpoint', async () => {
     const project = projectWith([item('first', { state: 'not_needed', reason: 'No client' })]);
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await screen.findByText('1/1');
     fireEvent.click(head());
     openDetail();
@@ -127,7 +127,7 @@ describe('operator checklist', () => {
         ? { status: 500, body: { error: { code: 'internal_error', message: 'Failed' } } }
         : handle(method, path, body, query),
     );
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -145,7 +145,7 @@ describe('operator checklist', () => {
 
   it('cancels the reason form with Escape without closing the operator panel', async () => {
     const project = projectWith();
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -162,7 +162,7 @@ describe('operator checklist', () => {
     const owner = project.backend.config.team.members.find((member) => member.handle === 'owner')!;
     if (owner.kind === 'human') owner.access = 'admin';
     project.context.me.projects[0]!.access = 'admin';
-    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
+    project.render(<ProjectManagerChecklist appliedRequest={{ current: null }} />);
     await screen.findByText('0/1');
     openDetail();
     expect(screen.getByText(t('operator.checklist.reopened.owner'))).not.toBeNull();
@@ -183,7 +183,9 @@ function CreationProbe() {
   const location = useLocation();
   return (
     <>
-      <button onClick={() => void navigate('/p/AC', { state: { operatorChecklist: true } })}>created</button>
+      <button onClick={() => void navigate('/p/AC', { state: { projectManagerChecklist: true } })}>
+        created
+      </button>
       <output data-testid="router-state">{JSON.stringify(location.state)}</output>
     </>
   );

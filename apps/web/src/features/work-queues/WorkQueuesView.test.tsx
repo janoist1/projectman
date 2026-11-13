@@ -224,7 +224,7 @@ describe('the filters in the URL', () => {
 
   it('keeps the way back to the panel across a filter change', async () => {
     setup({
-      state: { fromOperator: { path: '/p/AC/inbox' } },
+      state: { fromProjectManager: { path: '/p/AC/inbox' } },
       items: [queueItem({ id: 'a' })],
     });
     const heading = await screen.findByRole('heading', { name: t('workQueues.title') });

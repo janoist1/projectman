@@ -13,11 +13,11 @@ import { Button } from '../../components/Button';
 import { Fold } from '../../components/Fold';
 import { ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
-import { OperatorChanges } from './OperatorChanges';
-import { KnowledgeSummary, KnowledgeSkeleton } from './OperatorKnowledgeView';
-import styles from './OperatorKnowledge.module.css';
+import { ProjectManagerChanges } from './ProjectManagerChanges';
+import { KnowledgeSummary, KnowledgeSkeleton } from './ProjectManagerKnowledgeView';
+import styles from './ProjectManagerKnowledge.module.css';
 
-export function OperatorKnowledgeBody({
+export function ProjectManagerKnowledgeBody({
   payload,
   stale,
 }: {
@@ -27,8 +27,8 @@ export function OperatorKnowledgeBody({
   const { key, me } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const knowledge = useQuery({
-    queryKey: queryKeys.operatorKnowledge(key),
-    queryFn: () => api.operatorKnowledge(key),
+    queryKey: queryKeys.projectManagerKnowledge(key),
+    queryFn: () => api.projectManagerKnowledge(key),
     enabled: !me.via && canReadProjectManagerKnowledge({ access }),
   });
   const change = payload.change;
@@ -70,7 +70,7 @@ export function OperatorKnowledgeBody({
           {payload.changes.length > 0 ? (
             <>
               <strong>{t('knowledge.proposal.changes')}</strong>
-              <OperatorChanges changes={payload.changes} />
+              <ProjectManagerChanges changes={payload.changes} />
             </>
           ) : null}
           <p>
@@ -116,7 +116,7 @@ export function OperatorKnowledgeBody({
   );
 }
 
-export function OperatorKnowledgeActions({
+export function ProjectManagerKnowledgeActions({
   item,
   payload,
   pending,
@@ -129,7 +129,7 @@ export function OperatorKnowledgeActions({
   stale: boolean;
   onDecide: (item: InboxItem, body: ResolveInboxRequest) => void;
 }) {
-  const { isOwner, me, openOperator } = useProject();
+  const { isOwner, me, openProjectManager } = useProject();
   const [pressed, setPressed] = useState<string | null>(null);
   const locked = useRef(false);
   const outOfDate = Boolean(payload.stale || stale);
@@ -141,7 +141,10 @@ export function OperatorKnowledgeActions({
         <Button
           variant="primary"
           onClick={(event) =>
-            openOperator(event.currentTarget, t('knowledge.proposal.retryPrompt', { title: item.title }))
+            openProjectManager(
+              event.currentTarget,
+              t('knowledge.proposal.retryPrompt', { title: item.title }),
+            )
           }
         >
           {t('knowledge.proposal.retry')}

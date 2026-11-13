@@ -15,13 +15,13 @@ import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
-import { operatorSummaryFixture } from '../../mocks/fixtures';
+import { projectManagerSummaryFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { HistorySection } from '../settings/sections/HistorySection';
 import { TeamPage } from '../team/TeamPage';
-import { OperatorSignalCard } from './OperatorSignalCard';
-import { OperatorSignalList } from './OperatorSignalList';
-import { OperatorSignalGroup } from './OperatorSignalGroup';
+import { ProjectManagerSignalCard } from './ProjectManagerSignalCard';
+import { ProjectManagerSignalList } from './ProjectManagerSignalList';
+import { ProjectManagerSignalGroup } from './ProjectManagerSignalGroup';
 
 /**
  * The Operator in the top right corner (PM-447), against the fake backend: who has the button and the badge of
@@ -73,7 +73,7 @@ function renderLayout(
 
 const button = () =>
   screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
-const operatorName = (project: Project) => project.backend.findMember('pm')!.displayName;
+const projectManagerName = (project: Project) => project.backend.findMember('pm')!.displayName;
 const posted = (project: Project, suffix: string) =>
   project.requests.filter((r) => r.method === 'POST' && r.path.endsWith(suffix));
 
@@ -145,7 +145,7 @@ describe('the Operator button', () => {
 
   it('counts the owner open signals on the button, and keeps the count out of a guest button', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [
+    project.backend.projectManagerSignals = [
       signal({ id: 'sig_1', kind: 'outage', taskKey: null }),
       signal({ id: 'sig_2', kind: 'merge_blocked' }),
       signal({ id: 'sig_3', kind: 'silent', state: 'dismissed' }),
@@ -160,7 +160,7 @@ describe('the Operator button', () => {
 
   it('is there for a client, with no signal count and no signal cards', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
+    project.backend.projectManagerSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
     renderLayout(project, '/p/AC', { viewer: 'kata' });
     const operator = await button();
     await waitFor(() =>
@@ -220,7 +220,7 @@ describe('the Operator panel', () => {
     renderLayout(project);
     const operator = await button();
     fireEvent.click(operator);
-    const panel = await screen.findByRole('dialog', { name: operatorName(project) });
+    const panel = await screen.findByRole('dialog', { name: projectManagerName(project) });
     expect(panel.getAttribute('aria-modal')).toBe('false');
     expect(operator.getAttribute('aria-expanded')).toBe('true');
     const composer = await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
@@ -237,7 +237,7 @@ describe('the Operator panel', () => {
     project.backend.sendTeamMessage('pm', ['owner'], null, 'Summary below the fold');
     renderLayout(project);
     fireEvent.click(await button());
-    const panel = await screen.findByRole('dialog', { name: operatorName(project) });
+    const panel = await screen.findByRole('dialog', { name: projectManagerName(project) });
     await within(panel).findByText('Summary below the fold');
     // The label sits at the start of the message, not in an empty strip before it.
     const markOf = () => within(panel).queryByText(t('messages.thread.unread'));
@@ -447,7 +447,9 @@ describe('the Operator panel', () => {
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.banner.paused'))).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: t('operator.banner.resume') }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: operatorName(project) })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: projectManagerName(project) })).toBeNull(),
+    );
     expect(posted(project, '/pause/resume')).toHaveLength(0);
   });
 
@@ -493,7 +495,7 @@ describe('the steps of a request', () => {
   it('lists what the Operator did in three groups under the request, with the server reason of a refusal', async () => {
     const project = mockProject();
     const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Állítsd át a szövegírót');
-    project.backend.operatorRequests = [
+    project.backend.projectManagerRequests = [
       request(
         [
           step({ id: 'stp_1', action: 'task_move', status: 'done', taskKey: 'AC-20' }),
@@ -522,7 +524,7 @@ describe('the steps of a request', () => {
   it('shows what a done step changed, with a link to the history when it made a configuration version', async () => {
     const project = mockProject();
     const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Kapcsold ki a szabadságot');
-    project.backend.operatorRequests = [
+    project.backend.projectManagerRequests = [
       request(
         [
           step({
@@ -557,7 +559,7 @@ describe('the steps of a request', () => {
         project.backend.members.push({ ...owner, handle: 'owner-2', displayName: 'Második' });
       }
       const asked = project.backend.sendTeamMessage('kata', ['pm'], null, 'Töröld a szövegírót');
-      project.backend.operatorRequests = [
+      project.backend.projectManagerRequests = [
         request(
           [
             step({
@@ -583,7 +585,7 @@ describe('the steps of a request', () => {
 describe('unanchored Operator signals', () => {
   function setup(count = 55) {
     const project = mockProject();
-    project.backend.operatorSignals = Array.from({ length: count }, (_, index) =>
+    project.backend.projectManagerSignals = Array.from({ length: count }, (_, index) =>
       signal({
         id: `sig_${index}`,
         kind: 'merge_blocked',
@@ -636,7 +638,7 @@ describe('unanchored Operator signals', () => {
 
   it('places a single signal after an equally timed reply, with its own day heading when needed', async () => {
     const project = setup(1);
-    project.backend.operatorSignals[0]!.raisedAt = '2026-10-10T09:01:00.000Z';
+    project.backend.projectManagerSignals[0]!.raisedAt = '2026-10-10T09:01:00.000Z';
     renderLayout(project);
     fireEvent.click(await button());
     await screen.findByRole('heading', { name: 'AC-20: elakadt a beolvasztás' });
@@ -654,7 +656,7 @@ describe('unanchored Operator signals', () => {
       '2026-10-10T08:01:00Z',
       '2026-10-10T09:02:00Z',
     ];
-    project.backend.operatorSignals.forEach((signal, index) => {
+    project.backend.projectManagerSignals.forEach((signal, index) => {
       signal.raisedAt = times[index]!;
     });
     renderLayout(project);
@@ -685,7 +687,7 @@ describe('unanchored Operator signals', () => {
     fireEvent.click(bulk());
     fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllCancel') }));
     expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(0);
-    project.backend.operatorSignals[0]!.state = 'resolved';
+    project.backend.projectManagerSignals[0]!.state = 'resolved';
     const refreshes = project.requests.filter((r) => r.path.endsWith('/project-manager')).length;
     fireEvent.click(bulk());
     fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllYes') }));
@@ -760,9 +762,9 @@ describe('unanchored Operator signals', () => {
   it('lets read-only viewers expand signals without decision buttons', async () => {
     const project = setup(2);
     project.render(
-      <OperatorSignalGroup
-        signals={project.backend.operatorSignals}
-        operatorHandle="operator"
+      <ProjectManagerSignalGroup
+        signals={project.backend.projectManagerSignals}
+        projectManagerHandle="operator"
         readOnly
         onDismiss={() => {}}
       />,
@@ -783,7 +785,7 @@ describe('a signal the Operator raised', () => {
     async (mixed) => {
       const project = mockProject();
       const message = presenting(project, 'Historical summary stays readable.');
-      project.backend.operatorSignals = [
+      project.backend.projectManagerSignals = [
         ...(['pending', 'open', 'dismissed', 'resolved'] as const).flatMap((state) =>
           (['structural_pattern', 'milestone_closed'] as const).map((kind) =>
             signal({ id: `${kind}:${state}`, kind, state, messageId: message.id }),
@@ -827,7 +829,7 @@ describe('a signal the Operator raised', () => {
 
   it('filters trailing coordinator-only cards and counts only three remaining decisions', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [
+    project.backend.projectManagerSignals = [
       ...Array.from({ length: 5 }, (_, index) =>
         signal({ id: `hidden_${index}`, kind: index % 2 ? 'milestone_closed' : 'structural_pattern' }),
       ),
@@ -854,8 +856,8 @@ describe('a signal the Operator raised', () => {
 
   it('groups decisions, orders actionable signals first and keeps rows in place after acceptance', async () => {
     const project = mockProject();
-    const message = presenting(project, operatorSummaryFixture('summary').body);
-    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    const message = presenting(project, projectManagerSummaryFixture('summary').body);
+    project.backend.projectManagerSignals = projectManagerSummaryFixture(message.id).signals;
     renderLayout(project);
     fireEvent.click(await button());
     const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
@@ -893,7 +895,7 @@ describe('a signal the Operator raised', () => {
     expect(
       within(rows()[2]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
     ).toBeTruthy();
-    project.backend.operatorSignals.find((s) => s.id === 'sig_out')!.state = 'resolved';
+    project.backend.projectManagerSignals.find((s) => s.id === 'sig_out')!.state = 'resolved';
     fireEvent.click(
       within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
     );
@@ -910,12 +912,12 @@ describe('a signal the Operator raised', () => {
   it('keeps a failed decision on its row while other rows remain actionable', async () => {
     const project = mockProject();
     const message = presenting(project);
-    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    project.backend.projectManagerSignals = projectManagerSummaryFixture(message.id).signals;
     renderLayout(project);
     fireEvent.click(await button());
     const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
     const rows = [...group.closest('article')!.querySelectorAll('li')];
-    project.backend.operatorSignals.find((s) => s.id === 'sig_first')!.state = 'resolved';
+    project.backend.projectManagerSignals.find((s) => s.id === 'sig_first')!.state = 'resolved';
     fireEvent.click(
       within(rows[0]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
     );
@@ -932,7 +934,9 @@ describe('a signal the Operator raised', () => {
   it('reads the message of a signal card once the label in its header has been on the screen (PM-1386)', async () => {
     const project = mockProject();
     const message = presenting(project);
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id })];
+    project.backend.projectManagerSignals = [
+      signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id }),
+    ];
     renderLayout(project);
     fireEvent.click(await button());
     const card = (await screen.findByRole('button', { name: t('operator.signal.accept') })).closest(
@@ -949,7 +953,9 @@ describe('a signal the Operator raised', () => {
   it('says yes with a visible message that names the signal', async () => {
     const project = mockProject();
     const message = presenting(project);
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id })];
+    project.backend.projectManagerSignals = [
+      signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id }),
+    ];
     renderLayout(project);
     fireEvent.click(await button());
     fireEvent.click(await screen.findByRole('button', { name: t('operator.signal.accept') }));
@@ -971,7 +977,7 @@ describe('a signal the Operator raised', () => {
     async (presentation) => {
       const project = mockProject();
       const message = presentation === 'no message' ? null : presenting(project);
-      project.backend.operatorSignals = [
+      project.backend.projectManagerSignals = [
         signal({ id: 'sig_1', kind: 'silent', actionable: false, messageId: message?.id ?? null }),
         ...(presentation === 'summary'
           ? [signal({ id: 'sig_2', kind: 'merge_blocked', messageId: message!.id })]
@@ -979,7 +985,7 @@ describe('a signal the Operator raised', () => {
       ];
       renderLayout(project);
       const operator = await button();
-      const initialCount = project.backend.operatorSignals.length;
+      const initialCount = project.backend.projectManagerSignals.length;
       await waitFor(() =>
         expect(within(operator).getByTestId('operator-signals-count').textContent).toBe(String(initialCount)),
       );
@@ -1031,7 +1037,7 @@ describe('a signal the Operator raised', () => {
 
   it('keeps historical and Operator dismissals without messages out of the thread', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [
+    project.backend.projectManagerSignals = [
       signal({ id: 'sig_old', kind: 'silent', actionable: false, state: 'dismissed', decidedBy: 'owner' }),
       signal({
         id: 'sig_operator',
@@ -1059,15 +1065,20 @@ describe('a signal the Operator raised', () => {
     ];
     project.render(
       presentation === 'summary' ? (
-        <OperatorSignalList signals={signals} message={message} operatorHandle="operator" readOnly />
+        <ProjectManagerSignalList
+          signals={signals}
+          message={message}
+          projectManagerHandle="operator"
+          readOnly
+        />
       ) : (
         <>
           {signals.map((entry) => (
-            <OperatorSignalCard
+            <ProjectManagerSignalCard
               key={entry.id}
               signal={entry}
               message={null}
-              operatorHandle="operator"
+              projectManagerHandle="operator"
               readOnly
             />
           ))}
@@ -1090,7 +1101,7 @@ describe('a signal the Operator raised', () => {
       'obligation_overdue',
     ] as const;
     const withoutCard = ['outage', 'unreleased'];
-    project.backend.operatorSignals = kinds.map((kind) =>
+    project.backend.projectManagerSignals = kinds.map((kind) =>
       signal({ id: `sig_${kind}`, kind, taskKey: withoutCard.includes(kind) ? null : 'AC-20' }),
     );
     renderLayout(project);
@@ -1109,11 +1120,11 @@ describe('a signal the Operator raised', () => {
 
   it('says on the card that the signal is no longer open, without a toast', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
+    project.backend.projectManagerSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
     renderLayout(project);
     fireEvent.click(await button());
     const dismiss = await screen.findByRole('button', { name: t('operator.signal.dismiss') });
-    project.backend.operatorSignals[0]!.state = 'resolved';
+    project.backend.projectManagerSignals[0]!.state = 'resolved';
     fireEvent.click(dismiss);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('operator.signal.closed'));
   });
@@ -1146,16 +1157,16 @@ describe('the Operator in the history of the settings', () => {
 describe('the Operator on a card and on its profile', () => {
   it('stands in the card head and opens the panel', async () => {
     const project = mockProject();
-    const openOperator = vi.fn();
+    const openProjectManager = vi.fn();
     project.render(
       <Routes>
         <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
       </Routes>,
       '/p/AC/tasks/AC-20',
-      { openOperator },
+      { openProjectManager },
     );
     fireEvent.click(await button());
-    expect(openOperator).toHaveBeenCalledTimes(1);
+    expect(openProjectManager).toHaveBeenCalledTimes(1);
   });
 });
 

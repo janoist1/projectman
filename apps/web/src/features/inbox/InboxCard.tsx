@@ -38,10 +38,10 @@ import {
   inboxHeading,
   inboxItemDomId,
   isTodo,
-  isOperatorInboxRequest,
+  isProjectManagerInboxRequest,
   loopDecisionText,
-  operatorFallbackOf,
-  operatorNoteOf,
+  projectManagerFallbackOf,
+  projectManagerNoteOf,
   rerouteReasonOf,
   seniorWaitDecisionText,
   optionLabel,
@@ -61,7 +61,10 @@ import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/OperatorKnowledgeApproval';
+import {
+  ProjectManagerKnowledgeBody,
+  ProjectManagerKnowledgeActions,
+} from '../project-manager/ProjectManagerKnowledgeApproval';
 import styles from './InboxCard.module.css';
 import { MentionInbox } from './MentionInbox';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
@@ -72,7 +75,7 @@ import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
 import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
-import { OperatorHandoff } from './OperatorHandoff';
+import { ProjectManagerHandoffView } from './ProjectManagerHandoffView';
 import { OwnerCommandBody } from './OwnerCommand';
 import { ownerCommandOf } from './commandPresentation';
 import { FixLimitDetails } from './FixLimitDetails';
@@ -225,7 +228,7 @@ export function InboxCard({
   onReplied,
   onReplySending,
 }: InboxCardProps) {
-  const operatorKnowledge = projectManagerKnowledgeApprovalOf(item);
+  const projectManagerKnowledge = projectManagerKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
   const project = useContext(ProjectContext);
   const topicConfig = useConfig(
@@ -241,7 +244,7 @@ export function InboxCard({
   const ownerCommand = ownerCommandOf(operation.data?.operation);
   const handoffResult = ProjectManagerHandoff.safeParse(item.payload.operatorHandoff);
   const handoff = handoffResult.success ? handoffResult.data : null;
-  const fromOperator = isOperatorInboxRequest(item);
+  const fromProjectManager = isProjectManagerInboxRequest(item);
   const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;
   const handoffPrimary = handoff?.reason === 'processing_failed' && !!cardHref;
   const group = question?.group;
@@ -393,9 +396,9 @@ export function InboxCard({
   // What came with a question from an AI member (PM-556): the Operator's word, why it did not look, why it is asked again.
   const displayKind = displayKindOf(item);
   const open = item.state === 'open';
-  const operatorNote = open ? operatorNoteOf(item) : null;
+  const operatorNote = open ? projectManagerNoteOf(item) : null;
   const steps = todo && !handoff ? todoRows(item) : [];
-  const fallback = open ? operatorFallbackOf(item) : null;
+  const fallback = open ? projectManagerFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
   const startNote = open && !assignedToOthers && !grouped ? askerStartNote(item, members, myHandle) : null;
   const delegation = delegationNote(item, members, myHandle);
@@ -469,7 +472,7 @@ export function InboxCard({
             ))}
             {groupAskers.length > 3 ? <span>+{groupAskers.length - 3}</span> : null}
           </span>
-        ) : fromOperator ? (
+        ) : fromProjectManager ? (
           <span className={styles.operatorIcon} aria-hidden="true">
             <Icon name="sparkle" size={13} strokeWidth={2} />
           </span>
@@ -483,7 +486,7 @@ export function InboxCard({
         <span className={styles.source}>
           {grouped
             ? joinNames(namesOf(groupAskers, members, myHandle))
-            : fromOperator
+            : fromProjectManager
               ? t('superMode.name')
               : fromSystem
                 ? t('common.system')
@@ -592,7 +595,7 @@ export function InboxCard({
     );
   }
 
-  if (operatorKnowledge)
+  if (projectManagerKnowledge)
     return (
       <article
         id={inboxItemDomId(item.id)}
@@ -603,18 +606,18 @@ export function InboxCard({
         <div className={styles.head}>
           <Chip tone="kind">
             {t(
-              operatorKnowledge.change.kind === 'agreement_replace'
+              projectManagerKnowledge.change.kind === 'agreement_replace'
                 ? 'knowledge.proposal.agreement'
                 : 'knowledge.proposal.principle',
             )}
           </Chip>
         </div>
         <Heading className={styles.title}>{item.title}</Heading>
-        <OperatorKnowledgeBody payload={operatorKnowledge} stale={stale} />
+        <ProjectManagerKnowledgeBody payload={projectManagerKnowledge} stale={stale} />
         {item.state === 'open' ? (
-          <OperatorKnowledgeActions
+          <ProjectManagerKnowledgeActions
             item={item}
-            payload={operatorKnowledge}
+            payload={projectManagerKnowledge}
             pending={pending}
             stale={stale}
             onDecide={onResolve}
@@ -673,7 +676,7 @@ export function InboxCard({
           </p>
         </>
       ) : null}
-      {handoff ? <OperatorHandoff handoff={handoff} cardHref={cardHref} /> : null}
+      {handoff ? <ProjectManagerHandoffView handoff={handoff} cardHref={cardHref} /> : null}
       {questionBody && !handoff && !ownerCommand ? (
         <QuestionBody text={questionBody} mobile={mobile} />
       ) : null}

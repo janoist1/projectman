@@ -5,10 +5,10 @@ import { useScreenedQuestions } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { t } from '../../i18n/t';
-import { decisionSubject, operatorTrailMark, operatorTrailNote } from '../../lib/inbox';
+import { decisionSubject, projectManagerTrailMark, projectManagerTrailNote } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import styles from './OperatorTrail.module.css';
+import styles from './ProjectManagerTrail.module.css';
 
 /** The start of the viewer's day as an ISO time: what "ma" counts from. */
 function startOfToday(): string {
@@ -28,8 +28,8 @@ function TrailRow({
   myHandle: string | null;
   taskHref: string | null;
 }) {
-  const mark = operatorTrailMark(item);
-  const note = operatorTrailNote(item, members, myHandle);
+  const mark = projectManagerTrailMark(item);
+  const note = projectManagerTrailNote(item, members, myHandle);
   return (
     <li className={styles.item}>
       <span className={styles.text}>
@@ -59,7 +59,7 @@ function TrailRow({
  * "Az Operátor intézte · ma N" (PM-556): a folded row of the questions the Operator settled with no person
  * involved, for owners and admins only. The list is read when the row opens; the count is read with the page.
  */
-export function OperatorTrail({
+export function ProjectManagerTrail({
   projectKey,
   members,
   myHandle,

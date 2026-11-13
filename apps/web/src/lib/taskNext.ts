@@ -7,7 +7,7 @@ import { nameOf } from './members';
 import type { MemberIndex } from './members';
 import { failureKind } from './merge';
 import { nextStage } from './pipeline';
-import { isOperatorInboxRequest } from './inbox';
+import { isProjectManagerInboxRequest } from './inbox';
 import type { PipelineIndex } from './pipeline';
 
 /**
@@ -250,7 +250,7 @@ export function deriveNext(task: BoardCard, wait: TaskWait, ctx: TaskNextContext
       const known = ['question', 'permission', 'decision', 'approval', 'alert'] as const;
       const key = (known as readonly string[]).includes(kind) ? (kind as (typeof known)[number]) : 'other';
       const asker = ctx.item
-        ? isOperatorInboxRequest(ctx.item)
+        ? isProjectManagerInboxRequest(ctx.item)
           ? t('superMode.name')
           : nameOf(ctx.item.source, members, myHandle)
         : '';

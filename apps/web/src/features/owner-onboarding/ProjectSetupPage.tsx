@@ -98,7 +98,7 @@ export function ProjectSetupPage() {
             <div className={`${styles.actions} ${styles.actionsEnd}`}>
               <ButtonLink
                 to={`/p/${projectKey}`}
-                state={{ operatorChecklist: true }}
+                state={{ projectManagerChecklist: true }}
                 variant="primary"
                 size="md"
               >

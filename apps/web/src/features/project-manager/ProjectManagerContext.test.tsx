@@ -9,7 +9,7 @@ import { openStory, openTab } from '../../test/cardStory';
 import { mockProject } from '../../test/mockProject';
 import { resetCommentDrafts } from '../board/useCardCommentDraft';
 import { TaskDrawer } from '../board/TaskDrawer';
-import { OperatorPanel } from './OperatorPanel';
+import { ProjectManagerPanel } from './ProjectManagerPanel';
 
 /**
  * The project manager's panel next to a card (PM-1305): the context chip, writing the unsent message on the card,
@@ -55,7 +55,7 @@ function setup(route = '/p/AC/tasks/AC-20') {
         element={
           <>
             <TaskDrawer />
-            <OperatorPanel returnFocusTo={{ current: null }} />
+            <ProjectManagerPanel returnFocusTo={{ current: null }} />
           </>
         }
       />
@@ -181,7 +181,7 @@ describe('the panel on a phone (PM-1305)', () => {
         <button type="button" onClick={() => setOpen(!open)}>
           toggle
         </button>
-        {open ? <OperatorPanel returnFocusTo={{ current: null }} /> : null}
+        {open ? <ProjectManagerPanel returnFocusTo={{ current: null }} /> : null}
       </>
     );
   }
@@ -207,7 +207,7 @@ describe('the panel on a phone (PM-1305)', () => {
     // jsdom has no layout: every element counts as drawn.
     vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(() => document.body);
     const project = mockProject();
-    project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/p/AC');
+    project.render(<ProjectManagerPanel returnFocusTo={{ current: null }} />, '/p/AC');
     const sheet = await screen.findByRole('dialog');
     expect(sheet.getAttribute('aria-modal')).toBe('true');
     const focusable = [...sheet.querySelectorAll<HTMLElement>('button:not([disabled]), textarea')];

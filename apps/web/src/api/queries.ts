@@ -953,7 +953,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
         queryKeys.inboxHistory(key),
         queryKeys.board(key),
         ...(item.payload.operatorKnowledge
-          ? [queryKeys.operatorKnowledge(key), queryKeys.projectManager(key)]
+          ? [queryKeys.projectManagerKnowledge(key), queryKeys.projectManager(key)]
           : []),
         // A merge request starts the merge: the open card shows it at once.
         ...(item.kind === 'merge_request' && item.taskKey ? [queryKeys.task(key, item.taskKey)] : []),
@@ -1532,7 +1532,7 @@ export function useWorkQueue(key: string, queue: WorkQueueRef, closedSince: stri
 }
 
 /** "Most ne": sets one signal aside; the channel is read again for its new state. */
-export function useDismissOperatorSignal(key: string) {
+export function useDismissProjectManagerSignal(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (signalId: string) => api.dismissOperatorSignal(key, signalId),

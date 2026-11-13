@@ -4,14 +4,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ProjectManagerSignal, TeamMessage } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { useDismissOperatorSignal, useSendTeamMessage } from '../../api/queries';
+import { useDismissProjectManagerSignal, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import styles from './OperatorSignalCard.module.css';
+import styles from './ProjectManagerSignalCard.module.css';
 
 /** The heading of a signal: its kind, with the card's key as a link where the kind names one. */
 export function SignalTitle({ signal, projectKey }: { signal: ProjectManagerSignal; projectKey: string }) {
@@ -55,10 +55,10 @@ export function closedText(signal: ProjectManagerSignal): string | null {
  * input or one that went silent. Open signals can be dismissed in an editable thread; actionable signals
  * also offer acceptance, which sends the Operator a message naming the signal.
  */
-export function OperatorSignalCard({
+export function ProjectManagerSignalCard({
   signal,
   message,
-  operatorHandle,
+  projectManagerHandle,
   readOnly,
   onDismiss,
   unreadMark,
@@ -66,7 +66,7 @@ export function OperatorSignalCard({
   signal: ProjectManagerSignal;
   /** The Operator's message that presented the signal, if the thread holds it. */
   message: TeamMessage | null;
-  operatorHandle: string;
+  projectManagerHandle: string;
   readOnly: boolean;
   /** Keep feedback visible for a dismissal made in the current thread. */
   onDismiss?: (id: string) => void;
@@ -76,7 +76,7 @@ export function OperatorSignalCard({
   const { key } = useProject();
   const client = useQueryClient();
   const send = useSendTeamMessage(key);
-  const dismiss = useDismissOperatorSignal(key);
+  const dismiss = useDismissProjectManagerSignal(key);
   const titleId = useId();
   const open = signal.state === 'open';
   const busy = send.isPending || dismiss.isPending;
@@ -87,7 +87,7 @@ export function OperatorSignalCard({
   const accept = () =>
     send.mutate(
       {
-        to: [operatorHandle],
+        to: [projectManagerHandle],
         text: t('operator.signal.acceptMessage'),
         operatorSignal: signal.id,
         ...(signal.taskKey ? { taskKey: signal.taskKey } : {}),

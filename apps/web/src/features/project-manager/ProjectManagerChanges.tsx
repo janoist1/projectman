@@ -5,7 +5,7 @@ import { useProject, useProjectIndexes } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import styles from './OperatorChanges.module.css';
+import styles from './ProjectManagerChanges.module.css';
 
 /** How many changed rows show before the "+N" button (the designer's plan: at most 3). */
 export const CHANGES_SHOWN = 3;
@@ -157,7 +157,7 @@ function RowHead({
  * "+N további változás" button. Used by the Rád vár card, by the inline approval in the Operator's steps and by
  * the done steps.
  */
-export function OperatorChanges({ changes }: { changes: readonly ConfigChangeRow[] }) {
+export function ProjectManagerChanges({ changes }: { changes: readonly ConfigChangeRow[] }) {
   const { key } = useProject();
   const { members, pipeline } = useProjectIndexes(key);
   const [all, setAll] = useState(false);

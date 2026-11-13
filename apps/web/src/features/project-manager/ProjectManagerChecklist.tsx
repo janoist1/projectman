@@ -9,10 +9,10 @@ import { Icon } from '../../components/Icon';
 import { ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { readStorage, writeStorage } from '../../lib/hooks';
-import styles from './OperatorChecklist.module.css';
+import styles from './ProjectManagerChecklist.module.css';
 
-export function OperatorChecklist({ appliedRequest }: { appliedRequest: RefObject<number | null> }) {
-  const { key, me, operatorChecklistRequest } = useProject();
+export function ProjectManagerChecklist({ appliedRequest }: { appliedRequest: RefObject<number | null> }) {
+  const { key, me, projectManagerChecklistRequest } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const enabled = access === 'owner' || access === 'admin';
   const query = useChecklist(key, enabled);
@@ -31,17 +31,17 @@ export function OperatorChecklist({ appliedRequest }: { appliedRequest: RefObjec
   }, [checklist]);
   useEffect(() => {
     if (
-      !operatorChecklistRequest ||
+      !projectManagerChecklistRequest ||
       !checklist?.items.length ||
-      appliedRequest.current === operatorChecklistRequest.id
+      appliedRequest.current === projectManagerChecklistRequest.id
     )
       return;
-    appliedRequest.current = operatorChecklistRequest.id;
+    appliedRequest.current = projectManagerChecklistRequest.id;
     setChoice(true);
     writeStorage(storageKey, 'true');
-    setIntro(operatorChecklistRequest.intro);
-    if (operatorChecklistRequest.focus) head.current?.focus();
-  }, [operatorChecklistRequest, checklist, storageKey, appliedRequest]);
+    setIntro(projectManagerChecklistRequest.intro);
+    if (projectManagerChecklistRequest.focus) head.current?.focus();
+  }, [projectManagerChecklistRequest, checklist, storageKey, appliedRequest]);
 
   if (!enabled) return null;
   if (query.isPending)

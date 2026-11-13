@@ -11,8 +11,8 @@ import { ErrorState } from '../../components/States';
 import { formatStamp } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
 import { inboxItemDomId } from '../../lib/inbox';
-import { useOperatorKnowledge } from './useOperatorKnowledge';
-import styles from './OperatorKnowledge.module.css';
+import { useProjectManagerKnowledge } from './useProjectManagerKnowledge';
+import styles from './ProjectManagerKnowledge.module.css';
 
 export function KnowledgeSummary({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -41,7 +41,7 @@ function preferenceValues(data: ProjectManagerPreferenceData) {
   return fields.map((field) => tDynamic(`knowledge.values.${field}.${data[field]}`, data[field]));
 }
 
-export function OperatorKnowledgeView({
+export function ProjectManagerKnowledgeView({
   onBack,
   onPrefill,
 }: {
@@ -50,7 +50,7 @@ export function OperatorKnowledgeView({
 }) {
   const { key, myHandle, isOwner } = useProject();
   const { members } = useProjectIndexes(key);
-  const { knowledge, preference, preferences, readable } = useOperatorKnowledge();
+  const { knowledge, preference, preferences, readable } = useProjectManagerKnowledge();
   const inbox = useInbox(key);
   const proposals =
     inbox.data?.items.filter(

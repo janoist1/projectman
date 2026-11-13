@@ -11,7 +11,7 @@ export type ProjectManagerDot = 'available' | 'working' | 'waiting';
 const QUOTA_REASONS: readonly string[] = ['plan_usage_paused', 'provider_rate_limited'];
 
 /** Why the conversation cannot run now; null while the project manager is there, on its way or on leave (a message waits for it). */
-export function operatorWaitOf(channel: ProjectManagerChannel | undefined): ProjectManagerWait | null {
+export function projectManagerWaitOf(channel: ProjectManagerChannel | undefined): ProjectManagerWait | null {
   if (!channel) return null;
   if (channel.state === 'starting') return 'queued';
   if (channel.state !== 'waiting') return null;
@@ -21,7 +21,7 @@ export function operatorWaitOf(channel: ProjectManagerChannel | undefined): Proj
   return 'queued';
 }
 
-export function operatorDotOf(channel: ProjectManagerChannel | undefined): ProjectManagerDot {
+export function projectManagerDotOf(channel: ProjectManagerChannel | undefined): ProjectManagerDot {
   switch (channel?.state) {
     case 'available':
       return 'available';
@@ -34,8 +34,8 @@ export function operatorDotOf(channel: ProjectManagerChannel | undefined): Proje
 }
 
 /** The short status line: "Elérhető", "Dolgozik…", "Keretre vár 21:40-ig". */
-export function operatorStatusText(channel: ProjectManagerChannel | undefined): string {
-  switch (operatorWaitOf(channel)) {
+export function projectManagerStatusText(channel: ProjectManagerChannel | undefined): string {
+  switch (projectManagerWaitOf(channel)) {
     case 'paused':
       return t('operator.status.paused');
     case 'quota': {
@@ -64,8 +64,8 @@ export function operatorStatusText(channel: ProjectManagerChannel | undefined): 
 }
 
 /** The status line with the length of the project manager's queue behind it: "Dolgozik… · sorban 3". */
-export function operatorStatusWithQueue(channel: ProjectManagerCorner | undefined): string {
-  const status = operatorStatusText(channel);
+export function projectManagerStatusWithQueue(channel: ProjectManagerCorner | undefined): string {
+  const status = projectManagerStatusText(channel);
   const open = channel?.queue.open ?? 0;
   return open > 0
     ? [status, t('operator.button.queue', { count: open })].filter(Boolean).join(' · ')
@@ -83,12 +83,12 @@ export type ProjectManagerStrip =
   | { kind: 'starting' }
   | { kind: 'waiting'; status: string; open: number };
 
-export function operatorStripOf(channel: ProjectManagerCorner | undefined): ProjectManagerStrip | null {
+export function projectManagerStripOf(channel: ProjectManagerCorner | undefined): ProjectManagerStrip | null {
   const queue = channel?.queue;
   if (!channel || !queue || queue.open <= 0) return null;
   if (queue.current) return { kind: 'now', title: queue.current.title, more: queue.open - 1 };
   if (channel.state === 'waiting') {
-    return { kind: 'waiting', status: operatorStatusText(channel), open: queue.open };
+    return { kind: 'waiting', status: projectManagerStatusText(channel), open: queue.open };
   }
   return channel.state === 'starting' ? { kind: 'starting' } : null;
 }

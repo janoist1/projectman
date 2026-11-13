@@ -6,7 +6,7 @@ import { useProject, useProjectIndexes } from '../../app/contexts';
  * owner's open signals and the length of its queue. Every person of the project has the corner (PM-475, PM-1042),
  * so only a viewer who is a member of the project (has a handle) reads it.
  */
-export function useOperator() {
+export function useProjectManager() {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
   const channel = useProjectManagerChannel(key, myHandle !== null);

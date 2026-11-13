@@ -6,7 +6,7 @@ import type { InboxItem } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { createMockFetch, mockProject } from '../../test/mockProject';
-import { OperatorPanel } from './OperatorPanel';
+import { ProjectManagerPanel } from './ProjectManagerPanel';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -43,7 +43,7 @@ function setup(items: InboxItem[] = [], overrides: (project: Project) => object 
   // Strict mode runs a newly drawn composer's effects again, as the development build does in the browser.
   project.render(
     <StrictMode>
-      <OperatorPanel returnFocusTo={{ current: null }} />
+      <ProjectManagerPanel returnFocusTo={{ current: null }} />
     </StrictMode>,
     '/',
     overrides(project),
@@ -186,7 +186,7 @@ describe('the weekly question measure (PM-1192)', () => {
           )
         : answer(path, init),
     );
-    project.render(<OperatorPanel returnFocusTo={{ current: null }} />);
+    project.render(<ProjectManagerPanel returnFocusTo={{ current: null }} />);
     fireEvent.click(await entry());
     expect(await screen.findByText(t('operator.weekly.failed'))).toBeTruthy();
 

@@ -144,7 +144,7 @@ export function CreateProjectPage() {
           navigate(`/welcome/${effectiveKey}`, { replace: true, state });
           return;
         }
-        navigate(`/p/${effectiveKey}`, { replace: true, state: { operatorChecklist: true } });
+        navigate(`/p/${effectiveKey}`, { replace: true, state: { projectManagerChecklist: true } });
       },
       onError: (error) => {
         const code = errorCode(error);

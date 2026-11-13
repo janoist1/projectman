@@ -81,7 +81,7 @@ it('submits the chosen provider, language, suggested key and repos without a tem
   });
   expect(JSON.parse((await screen.findByTestId('created-project')).textContent!)).toEqual({
     path: '/p/AW',
-    state: { operatorChecklist: true },
+    state: { projectManagerChecklist: true },
   });
 });
 

@@ -1,10 +1,10 @@
 import { useChecklist } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
-import styles from './OperatorChecklist.module.css';
+import styles from './ProjectManagerChecklist.module.css';
 
 export function ChecklistIndicator() {
-  const { key, me, openOperator } = useProject();
+  const { key, me, openProjectManager } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const enabled = access === 'owner' || access === 'admin';
   const query = useChecklist(key, enabled);
@@ -18,7 +18,7 @@ export function ChecklistIndicator() {
       aria-label={t('operator.checklist.indicator.label', { settled, total })}
       aria-controls="operator-panel"
       title={t('operator.checklist.indicator.title')}
-      onClick={(event) => openOperator(event.currentTarget, undefined, { checklist: true })}
+      onClick={(event) => openProjectManager(event.currentTarget, undefined, { checklist: true })}
     >
       <svg className={styles.ring} viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="9" />

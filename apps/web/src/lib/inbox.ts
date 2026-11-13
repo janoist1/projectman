@@ -39,7 +39,7 @@ import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
 /** Operator-origin requests use the same sender in the inbox and in task status lines. */
-export function isOperatorInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
+export function isProjectManagerInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
   const payload = questionPayloadOf(item);
   return !!payload?.operatorHandoff || !!payload?.superOperation;
 }
@@ -972,14 +972,14 @@ export function displayKindOf(item: InboxItem): DisplayKind {
 }
 
 /** What the Operator said about a question that went to the people (a decision or a todo), or null. */
-export function operatorNoteOf(item: InboxItem): string | null {
+export function projectManagerNoteOf(item: InboxItem): string | null {
   const screening = screeningOf(item);
   if (!screening || (screening.outcome !== 'decision' && screening.outcome !== 'todo')) return null;
   return screening.note?.trim() || null;
 }
 
 /** Why the Operator did not look at a question: it did not answer in time, or could not be started. */
-export function operatorFallbackOf(item: InboxItem): 'timeout' | 'unavailable' | null {
+export function projectManagerFallbackOf(item: InboxItem): 'timeout' | 'unavailable' | null {
   return screeningOf(item)?.fallback ?? null;
 }
 
@@ -1086,7 +1086,7 @@ export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): b
 /** The Operator's part in a question the viewer did not see (the trail "Az Operátor intézte"). */
 export type ProjectManagerTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
 
-export function operatorTrailMark(item: InboxItem): ProjectManagerTrailMark {
+export function projectManagerTrailMark(item: InboxItem): ProjectManagerTrailMark {
   if (item.state === 'screening') return 'at';
   const screening = screeningOf(item);
   // A machine step that went to the technical decider (PM-1139) is forwarded, though its outcome is `todo`.
@@ -1112,7 +1112,7 @@ export function waitingNote(item: InboxItem, now: Date = new Date()): string | n
  * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
  * still with the Operator when it goes to the people.
  */
-export function operatorTrailNote(
+export function projectManagerTrailNote(
   item: InboxItem,
   members: MemberIndex,
   myHandle: string | null,

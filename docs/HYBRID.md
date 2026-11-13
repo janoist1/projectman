@@ -295,7 +295,9 @@ local (a console on the same machine) needs no code.
 
 ## Connecting the engine
 
-On the Mac, with the engine ([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md), "Cloud composition"):
+On the Mac, with the engine ([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md), "Cloud composition"). A friend
+who joined as a further owner follows [INSTALL.md](../INSTALL.md) with their own AI assistant instead; it
+covers the engine app, these steps and the connected client end to end.
 
 1. In the web app, Settings → Engines (Beállítások → Motorok), add an engine. The machine key
    (`pme_…`) is shown **once**; the engine id is `eng_…`.

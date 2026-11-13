@@ -788,6 +788,7 @@ ignore:
   - .editorconfig
   - .prettierignore
   - README.md
+  - INSTALL.md
   - CLAUDE.md
   - projectman.structure.yaml
   - apps/server/package.json

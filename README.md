@@ -10,7 +10,14 @@ models through NanoGPT (see [docs/PROVIDERS.md](docs/PROVIDERS.md)).
 - Decisions: [docs/DECISIONS.md](docs/DECISIONS.md)
 - Working rules for contributors and agents: [CLAUDE.md](CLAUDE.md)
 
-Requires Node 22.12+ and git.
+## Installing with an AI assistant
+
+Invited to someone's projectman hub and want your own engine on your Mac? Ask your AI assistant
+(Claude Code or Codex) to follow [INSTALL.md](INSTALL.md). No checkout is needed: it installs the
+engine app, links it to the hub and connects your assistant to your projects. You only log in,
+set a password, allow the macOS prompts and copy two keys from the web app.
+
+Requires Node 22.12+ and git (to run projectman from a checkout, as below).
 
 ## Try it (demo, no AI usage)
 

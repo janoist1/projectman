@@ -54,17 +54,21 @@ the archive's location.
 1. **[FRIEND]** opens the invitation link, sets a password and logs in to the hub's web app. Keep
    that browser tab open: steps 4 and 5 need it.
 2. **[AI]** unpack the archive into a private staging folder, not into `cloud/` itself: step 5's
-   `connect` writes `cloud/integrator-access-token.json` by itself, from the file you give it, and
-   refuses to copy a file onto itself. The archive holds two Access token files (secrets) and a
+   `connect` writes `cloud/integrator-access-token.json` by itself, as a normalised copy of the file
+   you give it, and stops if that target already exists with different content (without
+   `--replace`). The archive holds two Access token files (secrets) and a
    non-secret `handoff.json`:
 
    ```sh
    mkdir -p ~/.config/projectman/cloud ~/.config/projectman/handoff
    chmod 700 ~/.config/projectman ~/.config/projectman/cloud ~/.config/projectman/handoff
    unzip -o <archive> -d ~/.config/projectman/handoff
-   chmod 600 ~/.config/projectman/handoff/*.json
+   chmod 600 ~/.config/projectman/handoff/{handoff,engine-access-token,integrator-access-token}.json
    mv ~/.config/projectman/handoff/engine-access-token.json ~/.config/projectman/cloud/
    ```
+
+   The `chmod` names only the three extracted files, so it does not touch other files that may
+   already be in these folders.
 
    Then read **only** `~/.config/projectman/handoff/handoff.json`. It gives `hubUrl` (the hub, for
    `--cloud`) and `integratorBaseUrl` (for `connect`). Do not open the two `*-access-token.json`
@@ -152,8 +156,11 @@ is still `null` and `service.installed` is `false`: the app installs the service
      `"$engine" service restart` once it is.
 
    If `service.installed` is still `false` about a minute after `init` and the app shows no
-   progress, run `"$engine" service install` yourself (it installs and starts the service; macOS
-   may still ask for the Login Items approval above) instead.
+   progress, run `"$engine" service install --path "$(zsh -lc 'echo $PATH')"` yourself (it
+   installs and starts the service; macOS may still ask for the Login Items approval above)
+   instead. Without `--path` the service gets the `PATH` of your own shell, which in a sandboxed AI
+   shell can be shorter than the friend's login shell `PATH`; the sessions would then not find the
+   `claude` / `codex` command line.
 
    (Further steps, such as adding a repository with `repo add`, are in
    [docs/HYBRID.md](docs/HYBRID.md#connecting-the-engine).)

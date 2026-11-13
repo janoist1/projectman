@@ -200,7 +200,7 @@ export function handoffArchiveName(id: string): string {
 }
 
 /** Delete an owner's handoff archive and staging leftovers, whose tokens are revoked or replaced; returns their names. */
-export function removeHandoffFiles(dir: string, id: string): string[] {
+function removeHandoffFiles(dir: string, id: string): string[] {
   if (!fs.existsSync(dir)) return [];
   const archive = handoffArchiveName(id);
   const names = fs

@@ -7,24 +7,24 @@ import {
   isTheme,
   isCoordinatorOnlySignal,
   coordinatorOnlySignalKindsText,
-  OPERATOR_ANSWER_STALL_MUTE_MINUTES,
-  OPERATOR_ANSWER_STALL_WAKE_MS,
-  OPERATOR_FAST_SIGNAL_KINDS,
+  PROJECT_MANAGER_ANSWER_STALL_MUTE_MINUTES,
+  PROJECT_MANAGER_ANSWER_STALL_WAKE_MS,
+  PROJECT_MANAGER_FAST_SIGNAL_KINDS,
   PENDING_INBOX_STATES,
   questionPayloadOf,
   WAITING_ANSWER_LABEL,
-  OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
+  PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS,
   memberQueueSourceId,
   coordinationMemberOf,
-  OPERATOR_SIGNAL_STEPS,
-  OPERATOR_UNRELEASED_HOURS,
-  operatorSignalBudget,
-  operatorSignalStepAllowed,
-  operatorSignalStepGapMs,
-  operatorWatchOf,
+  PROJECT_MANAGER_SIGNAL_STEPS,
+  PROJECT_MANAGER_UNRELEASED_HOURS,
+  projectManagerSignalBudget,
+  projectManagerSignalStepAllowed,
+  projectManagerSignalStepGapMs,
+  projectManagerWatchOf,
   ProjectManagerSignal,
   LoopTriageFacts,
-  OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
+  PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS,
   isOnLeave,
   isWorkingSession,
   isWorkPaused,
@@ -33,8 +33,8 @@ import {
   stageOf,
   complexityOf,
   seniorWaitMinutesOf,
-  OPERATOR_SILENT_WORK_MINUTES,
-  OPERATOR_START_FETCH_FAILED_MINUTES,
+  PROJECT_MANAGER_SILENT_WORK_MINUTES,
+  PROJECT_MANAGER_START_FETCH_FAILED_MINUTES,
   START_BLOCKED_REASONS,
   StartBlockedFacts,
 } from '@projectman/shared';
@@ -396,7 +396,7 @@ export class ProjectManagerSignals {
     const signal = this.deps.ctx.repos.projectManagerSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
-    if (!OPERATOR_DISMISSIBLE_SIGNAL_KINDS.includes(signal.kind))
+    if (!PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS.includes(signal.kind))
       throw invalid('operator_signal_not_dismissible', 'the PM may not dismiss this signal kind');
     if (
       !signal.deliveredAt ||
@@ -583,7 +583,7 @@ export class ProjectManagerSignals {
 
   /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
   private stepOf(level: ProjectManagerWatch, config: ProjectConfig, signal: ProjectManagerSignalRecord) {
-    if (!operatorSignalStepAllowed(level, signal.kind)) return null;
+    if (!projectManagerSignalStepAllowed(level, signal.kind)) return null;
     const allowed = this.stepTargetsOf(config, signal);
     if (allowed.startTask) return { tool: 'start_task' as const, task_key: allowed.startTask, members: [] };
     return allowed.members.length
@@ -594,7 +594,7 @@ export class ProjectManagerSignals {
   /** The coordinator took a step on the signal: it is shown again if the case still stands after the step gap (half an hour). */
   stepTaken(signalId: string): void {
     const { ctx } = this.deps;
-    const at = ctx.now().getTime() + operatorSignalStepGapMs();
+    const at = ctx.now().getTime() + projectManagerSignalStepGapMs();
     ctx.repos.projectManagerSignals.followUp(signalId, new Date(at).toISOString());
   }
 
@@ -723,7 +723,7 @@ export class ProjectManagerSignals {
       if (
         session.state !== 'working' ||
         this.deps.ctx.now().getTime() - Date.parse(session.lastActivityAt) <
-          OPERATOR_SILENT_WORK_MINUTES * 60_000
+          PROJECT_MANAGER_SILENT_WORK_MINUTES * 60_000
       )
         continue;
       const caseKey = `silent:${session.id}`;
@@ -788,7 +788,7 @@ export class ProjectManagerSignals {
     const now = ctx.now().getTime();
     const keep: string[] = [];
     for (const work of this.deps.unreleased(projectKey)) {
-      if (now - Date.parse(work.oldestAt) < OPERATOR_UNRELEASED_HOURS * 3_600_000) continue;
+      if (now - Date.parse(work.oldestAt) < PROJECT_MANAGER_UNRELEASED_HOURS * 3_600_000) continue;
       keep.push(`${work.repo}@${work.base}`);
       inbox.raiseAlert({
         projectKey,
@@ -919,7 +919,7 @@ export class ProjectManagerSignals {
       const signal = ctx.repos.projectManagerSignals.get(id);
       return signal ? [signal] : [];
     });
-    const level = operatorWatchOf(config);
+    const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
     return (
       `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
@@ -929,7 +929,7 @@ export class ProjectManagerSignals {
           const budget =
             s.kind === 'loop_suspected'
               ? { left: 0, nextAt: null }
-              : operatorSignalBudget(
+              : projectManagerSignalBudget(
                   level,
                   steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                   now,
@@ -1058,7 +1058,7 @@ export class ProjectManagerSignals {
         s.kind === 'start_blocked' &&
         s.subject === 'workspace_fetch_failed' &&
         !s.deliveredAt &&
-        now - Date.parse(s.raisedAt) < OPERATOR_START_FETCH_FAILED_MINUTES * 60_000
+        now - Date.parse(s.raisedAt) < PROJECT_MANAGER_START_FETCH_FAILED_MINUTES * 60_000
       );
     });
   }
@@ -1111,7 +1111,8 @@ export class ProjectManagerSignals {
         (s.kind === 'stalled'
           ? session.state === 'waiting_input'
           : session.state === 'working' &&
-            ctx.now().getTime() - Date.parse(session.lastActivityAt) >= OPERATOR_SILENT_WORK_MINUTES * 60_000)
+            ctx.now().getTime() - Date.parse(session.lastActivityAt) >=
+              PROJECT_MANAGER_SILENT_WORK_MINUTES * 60_000)
       );
     }
     return true;
@@ -1252,7 +1253,7 @@ export class ProjectManagerSignals {
    */
   private mutedAnswerStall(projectKey: string, taskKey: string, member: string, caseKey: string): boolean {
     const { ctx } = this.deps;
-    const since = ctx.now().getTime() - OPERATOR_ANSWER_STALL_MUTE_MINUTES * 60_000;
+    const since = ctx.now().getTime() - PROJECT_MANAGER_ANSWER_STALL_MUTE_MINUTES * 60_000;
     const earlier = ctx.repos.projectManagerSignals
       .list(projectKey)
       .filter(
@@ -1268,7 +1269,7 @@ export class ProjectManagerSignals {
       if (s.caseKey === caseKey) sameCaseSteps += steps.length;
       if (steps.some((step) => Date.parse(step.at) > since)) return true;
     }
-    return sameCaseSteps >= OPERATOR_SIGNAL_STEPS.drive;
+    return sameCaseSteps >= PROJECT_MANAGER_SIGNAL_STEPS.drive;
   }
 
   /** What the project manager needs to weigh an overdue step: the row's clock, not the reasons it stands. */
@@ -1325,8 +1326,8 @@ export class ProjectManagerSignals {
 
   /**
    * Whether a signal's line may wake the coordinator now (PM-694): the general line waits
-   * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
-   * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds; a
+   * `PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
+   * `PROJECT_MANAGER_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds; a
    * structural signal also waits while one was delivered in the last day. Read once, asked per signal.
    */
   private wakeLine(projectKey: string): (signal: ProjectManagerSignalRecord) => boolean {
@@ -1334,12 +1335,12 @@ export class ProjectManagerSignals {
     const now = this.deps.ctx.now().getTime();
     const due = (last: string | null, wait: number) => last === null || now - Date.parse(last) >= wait;
     const dueFast = due(
-      signals.lastDeliveredAt(projectKey, OPERATOR_FAST_SIGNAL_KINDS, 'only'),
-      OPERATOR_ANSWER_STALL_WAKE_MS,
+      signals.lastDeliveredAt(projectKey, PROJECT_MANAGER_FAST_SIGNAL_KINDS, 'only'),
+      PROJECT_MANAGER_ANSWER_STALL_WAKE_MS,
     );
     const dueGeneral = due(
-      signals.lastDeliveredAt(projectKey, OPERATOR_FAST_SIGNAL_KINDS, 'except'),
-      OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
+      signals.lastDeliveredAt(projectKey, PROJECT_MANAGER_FAST_SIGNAL_KINDS, 'except'),
+      PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS,
     );
     const structuralDelivered = signals.deliveredAfter(
       projectKey,
@@ -1352,7 +1353,7 @@ export class ProjectManagerSignals {
       (!structuralKind(s.kind) || !structuralDelivered) &&
       !!(
         (s.deliveredAt && s.deliveredTo !== recipient) ||
-        (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)
+        (PROJECT_MANAGER_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)
       );
   }
   private save(signal: ProjectManagerSignalRecord, publish = true): void {

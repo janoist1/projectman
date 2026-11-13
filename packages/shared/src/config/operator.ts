@@ -96,7 +96,7 @@ type InvitationBinding = NonNullable<
  *   for these to go straight through), the acting member's own fields (it changes itself only with
  *   the owner's approval) and the instructions of its own role (it may not rewrite itself).
  */
-export function operatorConfigVerdict(
+export function superConfigVerdict(
   previous: ProjectConfig,
   next: ProjectConfig,
   opts: { operator: MemberHandle; invitationBinding?: InvitationBinding },
@@ -149,7 +149,7 @@ export function operatorConfigVerdict(
  * - the change has an owner-reserved effect (deletion, security, cost: `ownerReservedEffect`).
  * `never` stays `never`, and a `now` stays `now`.
  */
-export function operatorAutonomousLevel(
+export function superAutonomousLevel(
   previous: ProjectConfig,
   next: ProjectConfig,
   verdict: ProjectManagerConfigVerdict,

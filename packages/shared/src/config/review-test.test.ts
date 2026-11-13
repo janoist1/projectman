@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
-import { operatorConfigVerdict } from './operator';
+import { superConfigVerdict } from './operator';
 import { ownerOnlyChanges } from './owner-only';
 import { ProjectConfig, ReviewTestConfig } from './schema';
 
@@ -269,7 +269,7 @@ describe('the Operator changing a full test', () => {
         repoReviewTest: [{ repo: 'api', reviewTest: { command: 'npm run merge-test', maxWorkers: 4 } }],
       }),
     );
-    const verdict = operatorConfigVerdict(before, next, { operator: 'operator' });
+    const verdict = superConfigVerdict(before, next, { operator: 'operator' });
     expect(verdict.level).toBe('approval');
     expect(verdict.changes).toEqual([
       expect.objectContaining({
@@ -292,7 +292,7 @@ describe('the Operator changing a full test', () => {
         repoFullTestAtMerge: [{ repo: 'api', fullTestAtMerge: null }],
       }),
     );
-    const verdict = operatorConfigVerdict(before, next, { operator: 'operator' });
+    const verdict = superConfigVerdict(before, next, { operator: 'operator' });
     expect(verdict.level).toBe('approval');
     expect(verdict.changes.map((c) => [c.area, c.target, c.field]).sort()).toEqual([
       ['repos', 'api', 'fullTestAtMerge'],

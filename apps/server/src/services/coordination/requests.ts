@@ -2,9 +2,9 @@ import {
   coordinationMemberOf,
   structuralReviewContinuation,
   memberOf,
-  operatorKnowledgeApprovalOf,
-  operatorKnowledgeContinuationOf,
-  OPERATOR_SIGNAL_ROUND_FROM,
+  projectManagerKnowledgeApprovalOf,
+  projectManagerKnowledgeContinuationOf,
+  PROJECT_MANAGER_SIGNAL_ROUND_FROM,
   projectManagerAuthorityOf,
 } from '@projectman/shared';
 import type {
@@ -185,7 +185,7 @@ export class ProjectManagerRequests {
     if (request.source !== 'approval' || !request.inboxItemId || !request.messageId) return null;
     const message = this.ctx.repos.messages.get(request.messageId);
     const item = this.ctx.repos.inbox.get(request.inboxItemId);
-    const payload = item && operatorKnowledgeApprovalOf(item);
+    const payload = item && projectManagerKnowledgeApprovalOf(item);
     if (
       !message ||
       message.origin?.kind !== 'operator_knowledge_approval' ||
@@ -198,7 +198,7 @@ export class ProjectManagerRequests {
     )
       return null;
     const owner = memberOf(config, request.fromHandle);
-    return operatorKnowledgeContinuationOf(item, {
+    return projectManagerKnowledgeContinuationOf(item, {
       projectKey: request.projectKey,
       from: request.fromHandle,
       operator,
@@ -250,7 +250,7 @@ export class ProjectManagerRequests {
       messageId: null,
       inboxItemId: null,
       queueItemId: null,
-      fromHandle: OPERATOR_SIGNAL_ROUND_FROM,
+      fromHandle: PROJECT_MANAGER_SIGNAL_ROUND_FROM,
       quote: '',
       openedAt: isoNow(this.ctx),
     };

@@ -8,7 +8,7 @@ import {
   fixLimitDecisionOf,
   handOnRequestOf,
   hasBoundOrigin,
-  operatorKnowledgeApprovalOf,
+  projectManagerKnowledgeApprovalOf,
   questionPayloadOf,
   isLinkedQuestion,
   isIntegratorInboxItem,
@@ -507,7 +507,7 @@ export function InboxPage() {
       }
       stale={
         // A stale Operator knowledge approval says so on its card, not in a toast.
-        operatorKnowledgeApprovalOf(item) !== null &&
+        projectManagerKnowledgeApprovalOf(item) !== null &&
         resolve.isError &&
         resolve.variables?.item.id === item.id &&
         isStaleError(resolve.error)
@@ -529,7 +529,7 @@ export function InboxPage() {
                 : undefined;
               const text = ownerCommandOf(operation)
                 ? t(body.optionId === 'yes' ? 'ownerCommand.approved' : 'ownerCommand.refused')
-                : operatorKnowledgeApprovalOf(target) !== null
+                : projectManagerKnowledgeApprovalOf(target) !== null
                   ? operatorDecisionToast(target, body.optionId)
                   : target.kind === 'hand_on'
                     ? handOnToast(target, pipeline)

@@ -20,7 +20,7 @@ import {
   applyConfigPatch,
   ProjectManagerConfigPatch,
   PatchConfigRequest,
-  prepareOperatorConfigPatch,
+  prepareSuperConfigPatch,
 } from './edit';
 import { ownerOnlyChanges } from './owner-only';
 import { validateProjectConfig } from './invariants';
@@ -88,7 +88,7 @@ describe('targeted Operator role patches', () => {
       roleOverrides: { developer: { duties: ['docs'], instructions: 'Replacement.' } },
     });
     const before = structuredClone({ c, patch });
-    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    const prepared = prepareSuperConfigPatch(c, 'v2', patch);
     expect(prepared).toEqual({
       baseVersion: 'v2',
       project: { name: 'New name' },
@@ -102,7 +102,7 @@ describe('targeted Operator role patches', () => {
 
   it.each([{}, { roleOverrides: {} }])('omits an absent or empty role patch: %j', (patch) => {
     const c = existing();
-    const prepared = prepareOperatorConfigPatch(c, 'v1', patch);
+    const prepared = prepareSuperConfigPatch(c, 'v1', patch);
     expect(prepared).toEqual({ baseVersion: 'v1' });
     expect(applyConfigPatch(c, prepared).team.roleOverrides).toEqual(c.team.roleOverrides);
   });
@@ -110,18 +110,18 @@ describe('targeted Operator role patches', () => {
   it('adds a role and explicitly removes one, including an already absent or last override', () => {
     const c = existing();
     const added = { duties: [], instructions: 'New role.' };
-    const prepared = prepareOperatorConfigPatch(c, 'v1', {
+    const prepared = prepareSuperConfigPatch(c, 'v1', {
       roleOverrides: { developer: null, qa: added, designer: null },
     });
     const { developer: _removed, ...others } = c.team.roleOverrides!;
     expect(prepared.roleOverrides).toEqual({ ...others, qa: added });
     c.team.roleOverrides = { developer: c.team.roleOverrides!.developer! };
-    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+    expect(prepareSuperConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
       baseVersion: 'v1',
       roleOverrides: {},
     });
     delete c.team.roleOverrides;
-    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+    expect(prepareSuperConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
       baseVersion: 'v1',
       roleOverrides: {},
     });
@@ -160,7 +160,7 @@ describe('targeted Operator label patches', () => {
     const c = config();
     const patch = ProjectManagerConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });
     const before = structuredClone({ c, patch });
-    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    const prepared = prepareSuperConfigPatch(c, 'v2', patch);
     expect(prepared.pipeline).toEqual({
       ...c.pipeline,
       labels: [{ ...c.pipeline.labels[0], color: 'red' }],
@@ -172,7 +172,7 @@ describe('targeted Operator label patches', () => {
 
   it('adds a plain tag as a defined label, named by its id until a name is given', () => {
     const c = config();
-    const added = prepareOperatorConfigPatch(c, 'v1', { labels: { bug: { color: 'red' } } });
+    const added = prepareSuperConfigPatch(c, 'v1', { labels: { bug: { color: 'red' } } });
     expect(added.pipeline?.labels).toEqual([
       ...c.pipeline.labels,
       { id: 'bug', name: 'bug', color: 'red', setBy: 'anyone' },
@@ -180,7 +180,7 @@ describe('targeted Operator label patches', () => {
     expect(
       validateProjectConfig(applyConfigPatch(c, added)).filter((issue) => issue.severity === 'error'),
     ).toEqual([]);
-    const named = prepareOperatorConfigPatch(c, 'v1', {
+    const named = prepareSuperConfigPatch(c, 'v1', {
       labels: { bug: { name: 'Hiba', meaning: 'A defect.' } },
     });
     expect(named.pipeline?.labels.at(-1)).toMatchObject({ id: 'bug', name: 'Hiba', meaning: 'A defect.' });
@@ -189,7 +189,7 @@ describe('targeted Operator label patches', () => {
   it('removes a color or meaning with null and refuses fields beyond name, color and meaning', () => {
     const c = config();
     c.pipeline.labels[0] = { ...c.pipeline.labels[0]!, color: 'red', meaning: 'Approved.' };
-    const reset = prepareOperatorConfigPatch(c, 'v1', {
+    const reset = prepareSuperConfigPatch(c, 'v1', {
       labels: { 'release-ok': { color: null, meaning: null } },
     });
     expect(reset.pipeline?.labels[0]).not.toHaveProperty('color');
@@ -201,7 +201,7 @@ describe('targeted Operator label patches', () => {
 
   it('omits an absent or empty label patch', () => {
     const c = config();
-    expect(prepareOperatorConfigPatch(c, 'v1', { labels: {} })).toEqual({ baseVersion: 'v1' });
+    expect(prepareSuperConfigPatch(c, 'v1', { labels: {} })).toEqual({ baseVersion: 'v1' });
   });
 });
 

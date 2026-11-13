@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { operatorKnowledgeApprovalOf, ProposeProjectManagerKnowledgeRequest } from '@projectman/shared';
+import { projectManagerKnowledgeApprovalOf, ProposeProjectManagerKnowledgeRequest } from '@projectman/shared';
 import type { ProjectManagerKnowledgeChange, ProjectManagerOperation, Session } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
@@ -88,7 +88,7 @@ function propose(change = agreement, operations: ProjectManagerOperation[] = [],
 const resolve = (id: string, optionId = 'approve', by = owner) =>
   h.domain.inbox.resolve('AR', id, { optionId }, by);
 const document = () => h.domain.projectManagerKnowledge.readKnowledge('AR');
-const payload = (id: string) => operatorKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
+const payload = (id: string) => projectManagerKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
 describe('owner-approved Operator knowledge', () => {
   it('does not load or lock projects without pending knowledge approvals during recovery', async () => {

@@ -17,7 +17,7 @@ import {
   isProjectManager,
   machineAccessOf,
   memberOf,
-  operatorWatchOf,
+  projectManagerWatchOf,
   ownerTopicLines,
   ProjectManagerPreferenceData,
   ProjectManagerKnowledgeDocument,
@@ -1196,7 +1196,7 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
   // A guest conversation has the guest tools alone: no operations or coordination procedures to read.
   if (isProjectManager(member) && !managerGuest) {
     guide.operations = operationsGuide();
-    details.push(projectManagerGuide(project, operatorWatchOf(project), machineAccessOf(member)));
+    details.push(projectManagerGuide(project, projectManagerWatchOf(project), machineAccessOf(member)));
   }
   if (details.length) guide.role = ['# Role guide', ...details].join('\n\n');
   return [
@@ -1214,7 +1214,7 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
           projectManagerRule(
             project,
             cardMoverOf(project).kind === 'project_manager',
-            operatorWatchOf(project),
+            projectManagerWatchOf(project),
             machineAccessOf(member),
             setsPriority,
             projectManagerLifecycleOf(project),

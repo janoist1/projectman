@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  OPERATOR_ANSWER_STALL_GRACE_MS,
-  OPERATOR_ANSWER_STALL_WAKE_MS,
-  OPERATOR_SIGNAL_ROUND_FROM,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_SIGNAL_STEPS,
-  OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
+  PROJECT_MANAGER_ANSWER_STALL_GRACE_MS,
+  PROJECT_MANAGER_ANSWER_STALL_WAKE_MS,
+  PROJECT_MANAGER_SIGNAL_ROUND_FROM,
+  PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES,
+  PROJECT_MANAGER_SIGNAL_STEPS,
+  PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS,
   WAITING_ANSWER_LABEL,
 } from '@projectman/shared';
 import type { ProjectManagerSignalKind, ProjectManagerWatch, Task } from '@projectman/shared';
@@ -42,7 +42,7 @@ const sweep = async () => {
 };
 const open = (kind: ProjectManagerSignalKind = 'answer_stalled') =>
   h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
-const GRACE = OPERATOR_ANSWER_STALL_GRACE_MS / 1000;
+const GRACE = PROJECT_MANAGER_ANSWER_STALL_GRACE_MS / 1000;
 
 async function setup(level: ProjectManagerWatch = 'drive') {
   now = new Date('2026-10-14T10:00:00Z');
@@ -423,7 +423,7 @@ describe('the Operator’s steps', () => {
       source: 'signal',
       messageId: null,
       inboxItemId: null,
-      fromHandle: OPERATOR_SIGNAL_ROUND_FROM,
+      fromHandle: PROJECT_MANAGER_SIGNAL_ROUND_FROM,
       quote: '',
       openedAt: iso(at),
     });
@@ -547,7 +547,7 @@ describe('the Operator’s steps', () => {
     const worker = await waitForSession(h.domain, { member: 'dev-1' });
     h.runner.setState(worker.id, 'idle');
     await flush();
-    minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    minutes(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     h = await restartDomainHarness(h, { now: () => now });
     await sweep();
     await expect(push(card, signal)).rejects.toThrow(/operator_signal_budget|operator_signal_closed/);
@@ -575,14 +575,14 @@ describe('the Operator’s steps', () => {
     seconds(GRACE);
     await sweep();
     expect(open()).toEqual([]);
-    minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    minutes(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     await sweep();
     expect(open()).toMatchObject([{ subject: again }]);
   });
 
   it.each([
     [1, 1],
-    [OPERATOR_SIGNAL_STEPS.drive, 0],
+    [PROJECT_MANAGER_SIGNAL_STEPS.drive, 0],
   ])(
     'keeps the same case quiet for half an hour when it comes back, and for good after %i old steps',
     async (steps, openAgain) => {
@@ -614,7 +614,7 @@ describe('the Operator’s steps', () => {
     seconds(GRACE);
     await sweep();
     expect(open()).toEqual([]);
-    minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    minutes(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     await sweep();
     expect(open()).toHaveLength(1);
   });
@@ -640,7 +640,7 @@ describe('the wake budget', () => {
     expect(open().map((s) => s.taskKey)).toEqual([first.key, second.key]);
     expect(wakeTexts()).toHaveLength(1);
 
-    seconds(OPERATOR_ANSWER_STALL_WAKE_MS / 1000 - 30);
+    seconds(PROJECT_MANAGER_ANSWER_STALL_WAKE_MS / 1000 - 30);
     await sweep();
     expect(wakeTexts()).toHaveLength(2);
     expect(wakeRows()).toMatchObject([{ kind: 'answer_stalled', taskKey: second.key }]);
@@ -675,7 +675,7 @@ describe('the wake budget', () => {
     await sweep();
     expect(open('obligation_overdue').map((s) => s.taskKey)).toEqual([first.key, second.key]);
     expect(kindsWoken()).toEqual(['obligation_overdue']);
-    minutes(OPERATOR_SIGNAL_WAKE_INTERVAL_MS / 60_000 - 5);
+    minutes(PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS / 60_000 - 5);
     await sweep();
     expect(kindsWoken()).toEqual(['obligation_overdue', 'obligation_overdue']);
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ComputeJobDefinition, isComputeJobWorkflow } from '../domain/compute-job';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
-import { operatorConfigVerdict } from './operator';
+import { superConfigVerdict } from './operator';
 import { ownerOnlyChanges } from './owner-only';
 import { ProjectConfig } from './schema';
 
@@ -123,7 +123,7 @@ describe('the Operator changing compute jobs (PM-1148)', () => {
   it('needs the approval and names the repository', () => {
     const before = config();
     const next = applyConfigPatch(before, parse({ repoComputeJobs: [{ repo: 'web', computeJobs: null }] }));
-    const verdict = operatorConfigVerdict(before, next, { operator: 'operator' });
+    const verdict = superConfigVerdict(before, next, { operator: 'operator' });
     expect(verdict.level).toBe('approval');
     expect(verdict.changes.map((c) => [c.area, c.target, c.field])).toEqual([
       ['repos', 'web', 'computeJobs'],

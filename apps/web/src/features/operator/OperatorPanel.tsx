@@ -4,8 +4,8 @@ import type { KeyboardEvent, RefObject } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
   OWNER_QUESTION_WEEKS_DEFAULT,
-  canSeeOperatorSessions,
-  canReadOperatorKnowledge,
+  canSeeProjectManagerSessions,
+  canReadProjectManagerKnowledge,
   workQueueScopeOf,
 } from '@projectman/shared';
 import type { UiLocation } from '@projectman/shared';
@@ -103,7 +103,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     closeOperator();
     void navigate(queuePath, { state: queueState });
   };
-  const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
+  const sessionVisible = access !== undefined && canSeeProjectManagerSessions({ access });
   const readOnly = state?.readOnly ?? false;
 
   // The open card is what the message is about, unless the writer takes it off; then only the page goes along.
@@ -344,8 +344,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             iconOnly
             icon="doc"
             aria-pressed={knowledgeOpen}
-            aria-label={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
-            title={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
+            aria-label={t(canReadProjectManagerKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
+            title={t(canReadProjectManagerKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
             onClick={() => {
               setKnowledgeOpen(!knowledgeOpen);
               setWeeklyOpen(false);

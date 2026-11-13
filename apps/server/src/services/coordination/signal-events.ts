@@ -1,4 +1,4 @@
-import { coordinationMemberOf, OPERATOR_SILENT_WORK_MINUTES } from '@projectman/shared';
+import { coordinationMemberOf, PROJECT_MANAGER_SILENT_WORK_MINUTES } from '@projectman/shared';
 import type { Session, Task } from '@projectman/shared';
 import type { EventBus } from '../../contracts';
 import type { DomainContext } from '../../core/base';
@@ -124,7 +124,8 @@ export function wireProjectManagerSignals(deps: {
         event.type === 'chat_appended' ||
         !session ||
         session.state !== 'working' ||
-        ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
+        ctx.now().getTime() - Date.parse(session.lastActivityAt) <
+          PROJECT_MANAGER_SILENT_WORK_MINUTES * 60_000
       )
         projectManagerSignals.resolve(event.projectKey, `silent:${id}`);
       if (session?.state !== 'waiting_input')

@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import type { ProjectManagerPreferenceData } from '@projectman/shared';
-import { operatorKnowledgeApprovalOf } from '@projectman/shared';
+import { projectManagerKnowledgeApprovalOf } from '@projectman/shared';
 import { Link } from 'react-router';
 import { useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -55,7 +55,9 @@ export function OperatorKnowledgeView({
   const proposals =
     inbox.data?.items.filter(
       (item) =>
-        item.state === 'open' && item.assignees.includes(myHandle ?? '') && operatorKnowledgeApprovalOf(item),
+        item.state === 'open' &&
+        item.assignees.includes(myHandle ?? '') &&
+        projectManagerKnowledgeApprovalOf(item),
     ) ?? [];
   const agreement = knowledge.data?.agreement;
   const others =

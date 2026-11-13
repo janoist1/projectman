@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
-import { applyConfigPatch, ProjectManagerConfigPatch, prepareOperatorConfigPatch } from './edit';
+import { applyConfigPatch, ProjectManagerConfigPatch, prepareSuperConfigPatch } from './edit';
 import {
   actorMoveRefusal,
   coordinationActorRefusal,
@@ -183,7 +183,7 @@ describe('projectManagerMoveRefusal', () => {
   });
 
   it('restores start-only behavior through the PM configuration patch', () => {
-    const patch = prepareOperatorConfigPatch(
+    const patch = prepareSuperConfigPatch(
       config,
       'v1',
       ProjectManagerConfigPatch.parse({ projectManagerMoves: 'start_only' }),

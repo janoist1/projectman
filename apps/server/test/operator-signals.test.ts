@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPERATOR_SIGNAL_WAKE_INTERVAL_MS, routes } from '@projectman/shared';
+import { PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS, routes } from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import {
@@ -393,7 +393,7 @@ describe('Operator system signals', () => {
     await deliver();
     expect(get(a.id).state).toBe('pending');
     expect(get(b.id).state).toBe('pending');
-    now = new Date(now.getTime() + OPERATOR_SIGNAL_WAKE_INTERVAL_MS);
+    now = new Date(now.getTime() + PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS);
     await deliver();
     expect(get(a.id).state).toBe('open');
     expect(get(b.id).state).toBe('open');
@@ -552,7 +552,7 @@ describe('Operator system signals', () => {
     await deliver();
     expect(h.runner.started).toHaveLength(0);
     expect(get(waiting.id).state).toBe('pending');
-    now = new Date(now.getTime() + OPERATOR_SIGNAL_WAKE_INTERVAL_MS);
+    now = new Date(now.getTime() + PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS);
     await deliver();
     expect(get(waiting.id).state).toBe('open');
     expect(h.runner.started).toHaveLength(1);

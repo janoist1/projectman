@@ -537,7 +537,7 @@ preferences.
   tool surface and refuse the guest start with `provider_unsupported`.
 - **Session visibility is separate from conversation access.** `Sessions.isRestrictedSession`
   protects REST detail, WebSocket session/chat events and the terminal; owner/admin access
-  is required (`canSeeOperatorSessions`). Only an owner may type raw terminal input.
+  is required (`canSeeProjectManagerSessions`). Only an owner may type raw terminal input.
   Historical sessions of the retired `operator` handle retain this visibility restriction.
 - One guest conversation runs at a time and closes after five idle minutes; the owners'
   conversation is outside that capacity.

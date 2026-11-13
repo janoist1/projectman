@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TeamMessage } from './message';
 import {
   canSeeAllTeamMessages,
-  canSeeOperatorSessions,
+  canSeeProjectManagerSessions,
   canSeeTeamMessage,
   isUnreadBy,
   isCardMessage,
@@ -51,10 +51,10 @@ describe('team message visibility', () => {
   });
 
   it('lets only an owner and an admin see the Operator’s sessions (PM-475)', () => {
-    expect(canSeeOperatorSessions({ access: 'owner' })).toBe(true);
-    expect(canSeeOperatorSessions({ access: 'admin' })).toBe(true);
+    expect(canSeeProjectManagerSessions({ access: 'owner' })).toBe(true);
+    expect(canSeeProjectManagerSessions({ access: 'admin' })).toBe(true);
     for (const access of ['developer', 'viewer', 'client', 'ai'] as const)
-      expect(canSeeOperatorSessions({ access })).toBe(false);
+      expect(canSeeProjectManagerSessions({ access })).toBe(false);
   });
 
   it('tells the Operator’s conversations apart by the person they are with (PM-475)', () => {

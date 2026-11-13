@@ -66,7 +66,7 @@ export async function requireAccess(
 /**
  * What only the owner's own login may do (PM-418): refuses a request made with the integrator key,
  * which acts as the Operator rather than a person. The configuration commit has its own check
- * (`operatorConfigVerdict` through `authorizeSuperMutation`); this one is for the actions outside it.
+ * (`superConfigVerdict` through `authorizeSuperMutation`); this one is for the actions outside it.
  */
 export function requireOwnLogin(
   by: { via?: 'integrator' | null; superActor?: unknown },

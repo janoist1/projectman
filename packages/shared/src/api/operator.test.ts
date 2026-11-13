@@ -3,7 +3,7 @@ import {
   ProjectManagerMemberChanges,
   ProjectManagerOperation,
   ProjectManagerPlan,
-  operatorCriticalOp,
+  projectManagerCriticalOp,
   ProjectManagerSignal,
   ProjectManagerCorner,
   RoleConfigurationRead,
@@ -78,10 +78,10 @@ describe('Operator operation contracts', () => {
       { credential: 'placeholder' },
     ])
       expect(ProjectManagerPlan.safeParse({ ...plan, ...change }).success).toBe(false);
-    expect(operatorCriticalOp('message_send')).toBe(true);
-    expect(operatorCriticalOp('session_stop')).toBe(true);
-    expect(operatorCriticalOp('member_update')).toBe(false);
-    expect(operatorCriticalOp('project_pause')).toBe(false);
+    expect(projectManagerCriticalOp('message_send')).toBe(true);
+    expect(projectManagerCriticalOp('session_stop')).toBe(true);
+    expect(projectManagerCriticalOp('member_update')).toBe(false);
+    expect(projectManagerCriticalOp('project_pause')).toBe(false);
   });
   it('validates system signal kinds, states and owner decision message references', () => {
     const signal = {

@@ -10,7 +10,7 @@ import {
   HumanMemberConfig,
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
-  canSeeOperatorSessions,
+  canSeeProjectManagerSessions,
   holdersAllow,
   isRequiredProjectManager,
   isDeveloper,
@@ -947,7 +947,9 @@ export class MemberProfiles {
       // (PM-475, PM-1080).
       sessions: this.sessions
         .list(projectKey, { member: handle })
-        .filter((session) => canSeeOperatorSessions(viewer) || !this.sessions.isRestrictedSession(session.id))
+        .filter(
+          (session) => canSeeProjectManagerSessions(viewer) || !this.sessions.isRestrictedSession(session.id),
+        )
         .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
         .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
       capacity: original.kind === 'ai' ? original.capacity : null,

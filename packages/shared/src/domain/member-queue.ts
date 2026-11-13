@@ -104,13 +104,13 @@ export function memberQueueSourceOf(type: MemberQueueSource['type'], id: string)
 }
 
 /** Why the Operator handed an item off: owner_reserved goes to the owner, every other reason to the super side. */
-const OPERATOR_HANDOFF_REASONS = [
+const PROJECT_MANAGER_HANDOFF_REASONS = [
   'owner_reserved',
   'no_typed_operation',
   'no_grant',
   'processing_failed',
 ] as const;
-export const ProjectManagerHandoffReason = z.enum(OPERATOR_HANDOFF_REASONS);
+export const ProjectManagerHandoffReason = z.enum(PROJECT_MANAGER_HANDOFF_REASONS);
 export type ProjectManagerHandoffReason = z.infer<typeof ProjectManagerHandoffReason>;
 
 const MemberQueueWait = z.object({ code: z.string().max(64), at: z.string() });

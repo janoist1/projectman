@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   MemberConfig,
-  OPERATOR_SIGNAL_ROUND_FROM,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  PROJECT_MANAGER_SIGNAL_ROUND_FROM,
+  PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES,
 } from '@projectman/shared';
 import type { ObligationKind, ProjectManagerWatch, ProjectConfig, Task } from '@projectman/shared';
 
@@ -153,9 +153,9 @@ describe('level unblock', () => {
       { action: 'task_start', taskKey: card.key, status: 'done', signalId: signal.id },
     ]);
     const round = h.repos.projectManagerRequests.latest('AR', 10).find((r) => r.source === 'signal')!;
-    expect(round).toMatchObject({ fromHandle: OPERATOR_SIGNAL_ROUND_FROM, quote: '' });
+    expect(round).toMatchObject({ fromHandle: PROJECT_MANAGER_SIGNAL_ROUND_FROM, quote: '' });
     expect(h.repos.projectManagerSignals.get(signal.id)!.followUpAt).toBe(
-      new Date(now.getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
+      new Date(now.getTime() + PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
     );
   });
 
@@ -229,7 +229,7 @@ describe('level unblock', () => {
     await setup('unblock');
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
-    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     await expect(startAssignee(card, signal)).rejects.toMatchObject({
       code: 'forbidden',
       message: expect.stringContaining('operator_signal_budget'),
@@ -378,7 +378,7 @@ describe('level drive', () => {
     await setup('drive');
     const { card, signal } = await overdueCard();
     const again = async () => {
-      later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+      later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
       return startAssignee(card, signal);
     };
     await startAssignee(card, signal);
@@ -395,7 +395,7 @@ describe('level drive', () => {
     await setup('drive');
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
-    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES - 1);
+    later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES - 1);
     await expect(startAssignee(card, signal)).rejects.toThrow('operator_signal_budget');
     later(1);
     await expect(startAssignee(card, signal)).resolves.toBeDefined();
@@ -429,7 +429,7 @@ describe('follow-up', () => {
     await setup('unblock');
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
-    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     const projectManagerSession = (await operator()).sessionId;
     h.runner.setState(projectManagerSession, 'working');
     h.runner.setState(projectManagerSession, 'idle');
@@ -450,7 +450,7 @@ describe('follow-up', () => {
     await setup('unblock');
     const { card, id, signal } = await overdueCard();
     await startAssignee(card, signal);
-    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     h.repos.obligations.close(id, 'fulfilled', now.toISOString());
     const delivered = h.repos.projectManagerSignals.get(signal.id)!.deliveredAt;
     await h.domain.projectManagerSignals.deliver('AR');

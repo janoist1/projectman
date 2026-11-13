@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canReadOperatorKnowledge,
-  DEFAULT_OPERATOR_PREFERENCE,
+  canReadProjectManagerKnowledge,
+  DEFAULT_PROJECT_MANAGER_PREFERENCE,
   ProjectManagerAgreementData,
   ProjectManagerKnowledgeChange,
   ProjectManagerKnowledgeDocument,
@@ -11,9 +11,10 @@ import {
 } from './operator-knowledge';
 
 it('allows only owners and administrators to read shared knowledge', () => {
-  for (const access of ['owner', 'admin'] as const) expect(canReadOperatorKnowledge({ access })).toBe(true);
+  for (const access of ['owner', 'admin'] as const)
+    expect(canReadProjectManagerKnowledge({ access })).toBe(true);
   for (const access of ['developer', 'viewer', 'client', 'ai', undefined] as const)
-    expect(canReadOperatorKnowledge({ access })).toBe(false);
+    expect(canReadProjectManagerKnowledge({ access })).toBe(false);
 });
 
 const agreement = { summary: 'Agreed scope', involvement: 'important', extraCritical: [] };
@@ -26,7 +27,12 @@ const knowledge = {
   principles: [{ ...principle, ...approval }],
   appliedProposalIds: [],
 };
-const preference = { schemaVersion: 1, revision: 0, data: DEFAULT_OPERATOR_PREFERENCE, updatedAt: null };
+const preference = {
+  schemaVersion: 1,
+  revision: 0,
+  data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
+  updatedAt: null,
+};
 
 describe('operator knowledge schemas', () => {
   it('accepts only strict knowledge changes and permits a server-generated principle id', () => {
@@ -54,7 +60,7 @@ describe('operator knowledge schemas', () => {
     for (const [schema, data] of [
       [ProjectManagerAgreementData, agreement],
       [ProjectManagerPrincipleData, principle],
-      [ProjectManagerPreferenceData, DEFAULT_OPERATOR_PREFERENCE],
+      [ProjectManagerPreferenceData, DEFAULT_PROJECT_MANAGER_PREFERENCE],
       [ProjectManagerKnowledgeDocument, knowledge],
       [ProjectManagerPreferenceDocument, preference],
     ] as const) {
@@ -76,7 +82,7 @@ describe('operator knowledge schemas', () => {
     expect(
       ProjectManagerPreferenceDocument.safeParse({
         ...preference,
-        data: { ...DEFAULT_OPERATOR_PREFERENCE, text: 'Any text' },
+        data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE, text: 'Any text' },
       }).success,
     ).toBe(false);
   });
@@ -173,12 +179,14 @@ describe('operator knowledge schemas', () => {
     for (const [field, values] of Object.entries(choices)) {
       for (const value of values)
         expect(
-          ProjectManagerPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: value }).success,
+          ProjectManagerPreferenceData.safeParse({ ...DEFAULT_PROJECT_MANAGER_PREFERENCE, [field]: value })
+            .success,
         ).toBe(true);
       expect(
-        ProjectManagerPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: 'custom' }).success,
+        ProjectManagerPreferenceData.safeParse({ ...DEFAULT_PROJECT_MANAGER_PREFERENCE, [field]: 'custom' })
+          .success,
       ).toBe(false);
-      const incomplete = { ...DEFAULT_OPERATOR_PREFERENCE } as Record<string, unknown>;
+      const incomplete = { ...DEFAULT_PROJECT_MANAGER_PREFERENCE } as Record<string, unknown>;
       delete incomplete[field];
       expect(ProjectManagerPreferenceData.safeParse(incomplete).success).toBe(false);
     }

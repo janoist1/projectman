@@ -6,7 +6,7 @@ import {
   memberOf,
   messageRoute,
   messageWakeBlock,
-  operatorWatchOf,
+  projectManagerWatchOf,
   ownerHandles,
   PENDING_INBOX_STATES,
   sessionWorkItemOf,
@@ -310,7 +310,7 @@ export class ProjectState {
     }
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
-      operatorWatch: operatorWatchOf(config),
+      operatorWatch: projectManagerWatchOf(config),
       signals: this.deps.projectManagerSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,

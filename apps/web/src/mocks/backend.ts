@@ -30,11 +30,11 @@ import {
   connectedActorOf,
   ownerReservedEffect,
   canonical,
-  canReadOperatorKnowledge,
-  DEFAULT_OPERATOR_PREFERENCE,
+  canReadProjectManagerKnowledge,
+  DEFAULT_PROJECT_MANAGER_PREFERENCE,
   ProjectManagerKnowledgeDocument,
   ProjectManagerPreferenceDocument,
-  operatorKnowledgeApprovalOf,
+  projectManagerKnowledgeApprovalOf,
   maskEmail,
   BindProjectEngineRequest,
   canBindEngine,
@@ -198,7 +198,7 @@ import {
   renameMemberInConfig,
   modelForProvider,
   nextCronRun,
-  OPERATOR_DISMISS_OPTION,
+  PROJECT_MANAGER_DISMISS_OPTION,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -3061,13 +3061,13 @@ export class MockBackend {
           this.operatorPreferences[this.viewerHandle] ?? {
             schemaVersion: 1,
             revision: 0,
-            data: DEFAULT_OPERATOR_PREFERENCE,
+            data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
             updatedAt: null,
           },
         ),
       );
     if ((rest === '/operator/knowledge' || rest === '/operator/preferences') && method === 'GET') {
-      if (!canReadOperatorKnowledge({ access: this.viewerAccess() }))
+      if (!canReadProjectManagerKnowledge({ access: this.viewerAccess() }))
         return error(403, 'operator_owner_only', 'Owner or admin access required');
       return rest === '/operator/knowledge'
         ? ok(clone(this.operatorKnowledge))
@@ -3080,7 +3080,7 @@ export class MockBackend {
                   this.operatorPreferences[handle] ?? {
                     schemaVersion: 1,
                     revision: 0,
-                    data: DEFAULT_OPERATOR_PREFERENCE,
+                    data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
                     updatedAt: null,
                   },
                 ),
@@ -7516,7 +7516,7 @@ export class MockBackend {
     if (refusal) return error(refusal.status, refusal.code, refusal.message, refusal.details);
     const relayed = this.integratorMode === 'super' && [item, ...groupMembers].every(isRelayableQuestionItem);
     const viewer = memberOf(this.config, this.viewerHandle)!;
-    const knowledge = operatorKnowledgeApprovalOf(item);
+    const knowledge = projectManagerKnowledgeApprovalOf(item);
     if (knowledge) {
       if (this.viewerAccess() !== 'owner')
         return error(403, 'owner_approval_required', 'Owner login required');
@@ -7531,7 +7531,7 @@ export class MockBackend {
       if (input.optionId === 'approve' && reason) {
         this.upsertInbox({
           ...item,
-          options: [OPERATOR_DISMISS_OPTION],
+          options: [PROJECT_MANAGER_DISMISS_OPTION],
           payload: { ...item.payload, operatorKnowledge: { ...knowledge, stale: { reason, at: nowIso() } } },
         });
         return error(409, 'operator_knowledge_stale', 'Proposal is out of date');

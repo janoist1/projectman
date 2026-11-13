@@ -2,7 +2,7 @@ import type { SuperCommand } from '../api/super-handoff';
 import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import { coordinationMemberOf } from './project-manager';
-import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
+import { applyConfigPatch, prepareSuperConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
 import { isKnownProvider, isPaidProvider, ownerReservedEffect, superConfigMutations } from './super-mutation';
 import type { OwnerReservedEffect, SuperMutationCommand } from './super-mutation';
@@ -82,7 +82,7 @@ export function superCommandMutations(
             context.config,
             applyConfigPatch(
               context.config,
-              prepareOperatorConfigPatch(context.config, context.configVersion, operation.patch),
+              prepareSuperConfigPatch(context.config, context.configVersion, operation.patch),
             ),
           );
         case 'config_revert': {

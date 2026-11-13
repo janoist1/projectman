@@ -3,10 +3,10 @@ import {
   isProjectManager,
   hasAccess,
   memberOf,
-  operatorKnowledgeApprovalOf,
+  projectManagerKnowledgeApprovalOf,
   ProjectManagerKnowledgeDocument,
   ownerHandles,
-  OPERATOR_DISMISS_OPTION,
+  PROJECT_MANAGER_DISMISS_OPTION,
   ProposeProjectManagerKnowledgeRequest,
 } from '@projectman/shared';
 import type {
@@ -126,7 +126,7 @@ export class ProjectManagerKnowledge {
           assignees: ownerHandles(loaded.config),
           title: args.title,
           taskKey: null,
-          options: [...DECISION_OPTIONS, OPERATOR_DISMISS_OPTION],
+          options: [...DECISION_OPTIONS, PROJECT_MANAGER_DISMISS_OPTION],
           payload: { operatorKnowledge: payload },
         });
         this.deps.steps.record({
@@ -155,7 +155,7 @@ export class ProjectManagerKnowledge {
         throw forbidden('operator_owner_only', 'only an owner using their own login may decide');
       await this.recoverLocked(item.projectKey);
       const current = this.deps.ctx.repos.inbox.get(item.id);
-      const payload = current && operatorKnowledgeApprovalOf(current);
+      const payload = current && projectManagerKnowledgeApprovalOf(current);
       if (!current || !payload) throw invalid('invalid_request', 'unknown knowledge proposal');
       if (current.state !== 'open') return;
       if (option === 'dismiss' || option === 'reject') {
@@ -269,7 +269,7 @@ export class ProjectManagerKnowledge {
   private pending(projectKey: string) {
     return this.deps.ctx.repos.inbox
       .listOpen('approval')
-      .filter((item) => item.projectKey === projectKey && operatorKnowledgeApprovalOf(item));
+      .filter((item) => item.projectKey === projectKey && projectManagerKnowledgeApprovalOf(item));
   }
 
   private async recoverLocked(projectKey: string): Promise<void> {
@@ -277,7 +277,7 @@ export class ProjectManagerKnowledge {
     if (!items.length) return;
     const document = await this.read(projectKey);
     for (const item of items) {
-      const payload = operatorKnowledgeApprovalOf(item)!;
+      const payload = projectManagerKnowledgeApprovalOf(item)!;
       if (!payload.applying) continue;
       if (document.appliedProposalIds.includes(payload.id)) this.finish(item, payload, document, null);
       else {
@@ -349,7 +349,7 @@ export class ProjectManagerKnowledge {
     if (!items.length) return;
     const knowledge = await this.read(projectKey);
     for (const item of items) {
-      const payload = operatorKnowledgeApprovalOf(item)!;
+      const payload = projectManagerKnowledgeApprovalOf(item)!;
       if (payload.stale || payload.applying) continue;
       if (knowledge.revision !== payload.baseRevision) this.stale(item, payload, 'knowledge_changed');
       else if (payload.baseConfigVersion !== null && payload.baseConfigVersion !== version)

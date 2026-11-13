@@ -2,14 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { priorityRefusal } from '../domain/task';
 import { integratorConfigRefusal } from './integrator';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
-import { OPERATOR_WATCH_LEVELS, operatorWatchOf } from './operator-watch';
+import { PROJECT_MANAGER_WATCH_LEVELS, projectManagerWatchOf } from './operator-watch';
 import { ownerOnlyChanges } from './owner-only';
-import {
-  ConfigChangeRow,
-  ProjectManagerLevel,
-  operatorAutonomousLevel,
-  operatorConfigVerdict,
-} from './operator';
+import { ConfigChangeRow, ProjectManagerLevel, superAutonomousLevel, superConfigVerdict } from './operator';
 import type { ProjectManagerConfigVerdict } from './operator';
 import { actorMoveRefusal } from './project-manager';
 import { AiMemberConfig, ProjectConfig } from './schema';
@@ -129,7 +124,7 @@ describe('recipient settings', () => {
     const previous = config();
     const next = structuredClone(previous);
     next.team.contacts = ['ann'];
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+    expect(superConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
       level: 'approval',
       changes: [expect.objectContaining({ field: 'contacts', level: 'approval' })],
     });
@@ -138,7 +133,7 @@ describe('recipient settings', () => {
     const previous = config();
     const next = structuredClone(previous);
     next.team.viewerRecipients = 'contacts';
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+    expect(superConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
       level: 'approval',
       changes: [expect.objectContaining({ field: 'viewerRecipients', level: 'approval' })],
     });
@@ -149,7 +144,7 @@ function verdict(edit: (next: ProjectConfig) => void, base: () => ProjectConfig 
   const previous = base();
   const next = structuredClone(previous);
   edit(next);
-  return { previous, next, result: operatorConfigVerdict(previous, next, { operator: 'operator' }) };
+  return { previous, next, result: superConfigVerdict(previous, next, { operator: 'operator' }) };
 }
 
 type Case = [string, (next: ProjectConfig) => void, ProjectManagerLevel];
@@ -295,10 +290,10 @@ const NEVER: Case[] = [
   ],
 ];
 
-describe('operatorConfigVerdict', () => {
+describe('superConfigVerdict', () => {
   it('defaults to report, patches and clears the watch level without mutating the input', () => {
     const previous = config();
-    expect(operatorWatchOf(previous)).toBe('report');
+    expect(projectManagerWatchOf(previous)).toBe('report');
     const patch = (operatorWatch: unknown) => PatchConfigRequest.parse({ baseVersion: 'v1', operatorWatch });
     const next = applyConfigPatch(previous, patch('unblock'));
     expect(next.team.operatorWatch).toBe('unblock');
@@ -308,39 +303,42 @@ describe('operatorConfigVerdict', () => {
     );
     const cleared = applyConfigPatch(next, patch(null));
     expect(cleared.team).not.toHaveProperty('operatorWatch');
-    expect(operatorWatchOf(cleared)).toBe('report');
+    expect(projectManagerWatchOf(cleared)).toBe('report');
     expect(next.team.operatorWatch).toBe('unblock');
     expect(() => patch('unknown')).toThrow();
   });
 
-  it.each(OPERATOR_WATCH_LEVELS)('decides a team watch field set to %s by its effective level', (level) => {
-    const previous = config();
-    const next = structuredClone(previous);
-    next.team.operatorWatch = level;
-    // Restating the default level is no change.
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject(
-      level === 'report'
-        ? { level: 'now', changes: [] }
-        : {
-            level: 'approval',
-            changes: [
-              {
-                area: 'project',
-                target: null,
-                field: 'operatorWatch',
-                before: 'report',
-                after: level,
-                level: 'approval',
-              },
-            ],
-          },
-    );
-    expect(ownerOnlyChanges(previous, next)).toEqual(level === 'report' ? [] : ['operator_watch']);
-    expect(integratorConfigRefusal(previous, next)).toBe(level === 'report' ? null : 'owner_settings');
-    const cleared = structuredClone(next);
-    delete cleared.team.operatorWatch;
-    expect(ownerOnlyChanges(next, cleared)).toEqual(level === 'report' ? [] : ['operator_watch']);
-  });
+  it.each(PROJECT_MANAGER_WATCH_LEVELS)(
+    'decides a team watch field set to %s by its effective level',
+    (level) => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.team.operatorWatch = level;
+      // Restating the default level is no change.
+      expect(superConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject(
+        level === 'report'
+          ? { level: 'now', changes: [] }
+          : {
+              level: 'approval',
+              changes: [
+                {
+                  area: 'project',
+                  target: null,
+                  field: 'operatorWatch',
+                  before: 'report',
+                  after: level,
+                  level: 'approval',
+                },
+              ],
+            },
+      );
+      expect(ownerOnlyChanges(previous, next)).toEqual(level === 'report' ? [] : ['operator_watch']);
+      expect(integratorConfigRefusal(previous, next)).toBe(level === 'report' ? null : 'owner_settings');
+      const cleared = structuredClone(next);
+      delete cleared.team.operatorWatch;
+      expect(ownerOnlyChanges(next, cleared)).toEqual(level === 'report' ? [] : ['operator_watch']);
+    },
+  );
   it('no change is now, with no rows', () => {
     expect(verdict(() => {}).result).toEqual({ level: 'now', changes: [] });
   });
@@ -489,7 +487,7 @@ describe('operatorConfigVerdict', () => {
     };
 
     it('putting back a model and a leave is now', () => {
-      const result = operatorConfigVerdict(
+      const result = superConfigVerdict(
         changed(),
         (() => {
           const c = config();
@@ -503,7 +501,7 @@ describe('operatorConfigVerdict', () => {
     });
 
     it('putting back the network is approval, like turning it off', () => {
-      const result = operatorConfigVerdict(changed(), config(), { operator: 'operator' });
+      const result = superConfigVerdict(changed(), config(), { operator: 'operator' });
       expect(result.level).toBe('approval');
       expect(result.changes.map((row) => `${row.field}:${row.level}`).sort()).toEqual([
         'model:now',
@@ -517,7 +515,7 @@ describe('operatorConfigVerdict', () => {
     });
 
     it('a state that equals the current one is no change, whatever the way there was', () => {
-      expect(operatorConfigVerdict(changed(), changed(), { operator: 'operator' })).toEqual({
+      expect(superConfigVerdict(changed(), changed(), { operator: 'operator' })).toEqual({
         level: 'now',
         changes: [],
       });
@@ -528,8 +526,8 @@ describe('operatorConfigVerdict', () => {
     const previous = config();
     const next = structuredClone(previous);
     ai(next, 'writer').model = 'sonnet';
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' }).level).toBe('now');
-    expect(operatorConfigVerdict(previous, next, { operator: 'writer' }).level).toBe('approval');
+    expect(superConfigVerdict(previous, next, { operator: 'operator' }).level).toBe('now');
+    expect(superConfigVerdict(previous, next, { operator: 'writer' }).level).toBe('approval');
   });
 
   it('an invitation binding is still a change to a person', () => {
@@ -537,7 +535,7 @@ describe('operatorConfigVerdict', () => {
     (member(previous, 'ann') as { email?: string }).email = undefined;
     const next = structuredClone(previous);
     (member(next, 'ann') as { email?: string }).email = 'ann@example.com';
-    const result = operatorConfigVerdict(previous, next, {
+    const result = superConfigVerdict(previous, next, {
       operator: 'operator',
       invitationBinding: { handle: 'ann', email: 'ann@example.com' },
     });
@@ -549,7 +547,7 @@ describe('operatorConfigVerdict', () => {
       ai(n, 'writer').model = 'sonnet';
       stage(n, 'dev').name = 'X';
     });
-    const b = operatorConfigVerdict(a.previous, a.next, { operator: 'operator' });
+    const b = superConfigVerdict(a.previous, a.next, { operator: 'operator' });
     expect(b).toEqual(a.result);
   });
 
@@ -572,10 +570,10 @@ describe('operatorConfigVerdict', () => {
   });
 });
 
-describe('operatorAutonomousLevel (decision 55)', () => {
+describe('superAutonomousLevel (decision 55)', () => {
   const autonomous = (edit: (next: ProjectConfig) => void) => {
     const { previous, next, result } = verdict(edit);
-    return { before: result.level, after: operatorAutonomousLevel(previous, next, result, 'operator') };
+    return { before: result.level, after: superAutonomousLevel(previous, next, result, 'operator') };
   };
 
   it.each<[string, (next: ProjectConfig) => void]>([

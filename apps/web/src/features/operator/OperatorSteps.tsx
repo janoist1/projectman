@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { operatorKnowledgeApprovalOf } from '@projectman/shared';
+import { projectManagerKnowledgeApprovalOf } from '@projectman/shared';
 import type { InboxItem, ProjectManagerRequestView, ProjectManagerStep } from '@projectman/shared';
 import { useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -105,7 +105,8 @@ function StepRow({
   const { members } = useProjectIndexes(key);
   const decision = useOperatorDecision();
   const group = GROUP_OF[step.status];
-  const knowledge = inboxItem && inboxItem.state === 'open' ? operatorKnowledgeApprovalOf(inboxItem) : null;
+  const knowledge =
+    inboxItem && inboxItem.state === 'open' ? projectManagerKnowledgeApprovalOf(inboxItem) : null;
   return (
     <li className={styles.step} data-group={group} data-status={step.status}>
       <span className={styles.icon}>

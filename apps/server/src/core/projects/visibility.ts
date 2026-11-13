@@ -2,7 +2,7 @@ import {
   canReadDocuments,
   canSeeAllTeamMessages,
   canSeeInboxItem,
-  canSeeOperatorSessions,
+  canSeeProjectManagerSessions,
   canSeeTeamMessage,
   canSeeTimelineEvent,
   canSeeWorkQueue,
@@ -133,7 +133,7 @@ export function canSeeProjectEvent(
     return canSeeAllTeamMessages(viewer) || event.from === viewer.handle;
   // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
   // (PM-475, PM-1080).
-  if (!canSeeOperatorSessions(viewer) && isRestrictedSession) {
+  if (!canSeeProjectManagerSessions(viewer) && isRestrictedSession) {
     if (event.type === 'session_upserted' && isRestrictedSession(event.session.id)) return false;
     if (event.type === 'chat_appended' && isRestrictedSession(event.sessionId)) return false;
   }

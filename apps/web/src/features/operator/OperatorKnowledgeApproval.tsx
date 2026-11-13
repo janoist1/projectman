@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { canReadOperatorKnowledge } from '@projectman/shared';
+import { canReadProjectManagerKnowledge } from '@projectman/shared';
 import type {
   InboxItem,
   ProjectManagerKnowledgeApprovalPayload,
@@ -29,7 +29,7 @@ export function OperatorKnowledgeBody({
   const knowledge = useQuery({
     queryKey: queryKeys.operatorKnowledge(key),
     queryFn: () => api.operatorKnowledge(key),
-    enabled: !me.via && canReadOperatorKnowledge({ access }),
+    enabled: !me.via && canReadProjectManagerKnowledge({ access }),
   });
   const change = payload.change;
   const previous = change.kind === 'agreement_replace' ? knowledge.data?.agreement?.data : null;

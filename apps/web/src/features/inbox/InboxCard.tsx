@@ -12,7 +12,7 @@ import {
   isIntegratorInboxItem,
   alertPayloadOf,
   handOnRequestOf,
-  operatorKnowledgeApprovalOf,
+  projectManagerKnowledgeApprovalOf,
   emailApprovalOf,
   questionPayloadOf,
   ProjectManagerHandoff,
@@ -225,7 +225,7 @@ export function InboxCard({
   onReplied,
   onReplySending,
 }: InboxCardProps) {
-  const operatorKnowledge = operatorKnowledgeApprovalOf(item);
+  const operatorKnowledge = projectManagerKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
   const project = useContext(ProjectContext);
   const topicConfig = useConfig(

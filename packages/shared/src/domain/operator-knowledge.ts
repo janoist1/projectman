@@ -3,7 +3,11 @@ import { MemberHandle } from './member';
 import type { HumanAccess } from './member';
 
 /** Shared agreement and principles are visible only to owners and administrators. */
-export function canReadOperatorKnowledge({ access }: { access: HumanAccess | 'ai' | undefined }): boolean {
+export function canReadProjectManagerKnowledge({
+  access,
+}: {
+  access: HumanAccess | 'ai' | undefined;
+}): boolean {
   return access === 'owner' || access === 'admin';
 }
 
@@ -71,7 +75,7 @@ export const ProjectManagerPreferenceData = z.strictObject({
 });
 export type ProjectManagerPreferenceData = z.infer<typeof ProjectManagerPreferenceData>;
 
-export const DEFAULT_OPERATOR_PREFERENCE: Readonly<ProjectManagerPreferenceData> = Object.freeze({
+export const DEFAULT_PROJECT_MANAGER_PREFERENCE: Readonly<ProjectManagerPreferenceData> = Object.freeze({
   length: 'brief',
   technicalLevel: 'plain',
   detail: 'offer',

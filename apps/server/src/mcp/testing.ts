@@ -11,7 +11,7 @@ import type {
 } from '@projectman/shared';
 import {
   BUILT_IN_ROLE_DUTIES,
-  DEFAULT_OPERATOR_PREFERENCE,
+  DEFAULT_PROJECT_MANAGER_PREFERENCE,
   DUTIES,
   TaskComplexity,
 } from '@projectman/shared';
@@ -550,7 +550,12 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     },
     async getProjectManagerPreference(ctx) {
       await enter('getProjectManagerPreference', ctx, {});
-      return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
+      return {
+        schemaVersion: 1,
+        revision: 0,
+        data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE },
+        updatedAt: null,
+      };
     },
     async setProjectManagerPreference(ctx, args) {
       await enter('setProjectManagerPreference', ctx, args);

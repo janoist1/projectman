@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   canSeeAllTeamMessages,
-  canSeeOperatorSessions,
+  canSeeProjectManagerSessions,
   MemberHandle,
   ReadTeamMessagesRequest,
   routes,
@@ -45,7 +45,7 @@ const MessagesQuery = z.object({
  * (PM-475, PM-1080): to anyone else they do not exist.
  */
 function assertMaySeeSession(domain: ApiDomain, viewer: Viewer, sessionId: string): void {
-  if (!canSeeOperatorSessions(viewer) && domain.sessions.isRestrictedSession(sessionId))
+  if (!canSeeProjectManagerSessions(viewer) && domain.sessions.isRestrictedSession(sessionId))
     throw notFound('session', sessionId);
 }
 

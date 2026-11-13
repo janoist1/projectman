@@ -13,7 +13,7 @@ import {
   ProjectManagerQueueOutcome,
 } from './member-queue';
 import type { MemberQueueHoldCode } from './member-queue';
-import { canSeeAllTeamMessages, canSeeOperatorSessions, canSeeTeamMessage } from './message';
+import { canSeeAllTeamMessages, canSeeProjectManagerSessions, canSeeTeamMessage } from './message';
 import type { TeamMessage } from './message';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -267,7 +267,7 @@ export function canSeeWorkQueueItem(
       return facts.inbox ? canSeeInboxItem(viewer, facts.inbox) : canSeeAllTeamMessages(viewer);
     case 'signal':
     case 'checklist':
-      return canSeeOperatorSessions(viewer);
+      return canSeeProjectManagerSessions(viewer);
     case 'fix_limit':
     case 'start':
     case 'obligation':

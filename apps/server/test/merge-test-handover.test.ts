@@ -64,6 +64,39 @@ describe('handover selection', () => {
     expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
   });
 
+  it('runs the scope guard test with a path-owned deploy/mac change (PM-1436)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.testFilters).toContain('apps/server/test/merge-test-scope.test.ts');
+  });
+
+  it('selects the scope guard test with a deploy/mac change next to a test no rule names (PM-1436)', () => {
+    const tree = [
+      file('apps/server/test/engine-app-new.test.ts', "readFileSync('deploy/mac/x');"),
+      file('apps/server/test/merge-test-scope.test.ts'),
+    ];
+    const selection = select(
+      tree,
+      ['apps/server/test/engine-app-new.test.ts', 'deploy/mac/menubar/Sources/App.swift'],
+      ['apps/server/test/engine-app-new.test.ts'],
+    );
+    expect(selection.kind).toBe('targeted');
+    expect(selection.tests).toEqual([
+      {
+        workspace: 'apps/server',
+        files: expect.arrayContaining(['apps/server/test/merge-test-scope.test.ts']),
+      },
+    ]);
+  });
+
+  it('selects the scope guard test for a changed or new server test file (PM-1436)', () => {
+    const tree = [
+      file('apps/server/test/other.test.ts', "readFileSync('deploy/mac/x');"),
+      file('apps/server/test/merge-test-scope.test.ts'),
+    ];
+    const selection = select(tree, ['apps/server/test/other.test.ts']);
+    expect(selection.tests[0]?.files).toContain('apps/server/test/merge-test-scope.test.ts');
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');

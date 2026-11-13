@@ -12,7 +12,7 @@ import type {
   ProjectConfig,
   RepoConfig,
 } from '@projectman/shared';
-import { isEngineLinkLost } from '../../contracts';
+import { ENGINE_RELEASE_JOB, isEngineLinkLost } from '../../contracts';
 import type {
   AppBuildResult,
   EngineDirectory,
@@ -47,9 +47,8 @@ const OUTPUT_TAIL_MAX = 4000;
 const RUN_SLACK_MINUTES = 30;
 const LIST_LIMIT_DEFAULT = 20;
 const LIST_LIMIT_MAX = 100;
-/** The dedicated workflow that builds the engine app of a release (PM-1198), and the job id used when none is registered. */
+/** The dedicated workflow that builds the engine app of a release (PM-1198). */
 const ENGINE_RELEASE_WORKFLOW = 'projectman-engine-release.yml';
-const ENGINE_RELEASE_JOB = 'engine-release';
 
 export interface StartComputeJobInput {
   projectKey: string;

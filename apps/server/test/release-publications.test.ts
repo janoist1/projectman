@@ -217,6 +217,26 @@ describe('publish_release', () => {
       ).toMatchObject({ requestedBy: 'owner', taskKey: null });
     });
 
+    it('reuses the live run of the same commit instead of starting another', async () => {
+      await setup({ engineRelease: 'registered' });
+      const first = await publish();
+      await vi.waitFor(() => expect(jobs.specs).toHaveLength(1));
+
+      const again = await h.domain.computeJobs.startAppBuild(OWNER_ACTOR, {
+        projectKey: 'AR',
+        repo: 'web',
+        commit: sha(3),
+      });
+
+      expect(first.appBuild).toMatchObject({ state: 'started' });
+      expect(again).toMatchObject({
+        state: 'reused',
+        job: 'engine-release',
+        runId: (first.appBuild as { runId: string }).runId,
+      });
+      expect(jobs.specs).toHaveLength(1);
+    });
+
     it('reports not_configured when the repository registers no engine-release job', async () => {
       await setup();
 

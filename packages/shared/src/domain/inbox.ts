@@ -39,8 +39,6 @@ export const InboxKind = z.enum([
   'alert',
   'hand_on',
   'merge_request',
-  /** The approval of a proposed release of the instance itself (PM-491); see `ReleaseApprovalPayload`. */
-  'release',
   /** A human was mentioned in a card note (PM-1307); see `MentionPayload`. */
   'mention',
 ]);
@@ -73,24 +71,6 @@ export const EmailParkedAlert = z.object({
   attachmentNames: z.array(z.string()),
 });
 export type EmailParkedAlert = z.infer<typeof EmailParkedAlert>;
-
-/**
- * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
- * `approve` (primary) and `reject` (danger); a note is optional.
- */
-export const ReleaseApprovalPayload = z.object({
-  releaseId: z.string(),
-  commit: z.string(),
-  baseCommit: z.string().nullable(),
-  tasks: z.array(z.object({ key: TaskKey, title: z.string() })),
-  summary: z.string(),
-});
-export type ReleaseApprovalPayload = z.infer<typeof ReleaseApprovalPayload>;
-export function releaseApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): ReleaseApprovalPayload | null {
-  if (item.kind !== 'release') return null;
-  const parsed = ReleaseApprovalPayload.safeParse(item.payload.release);
-  return parsed.success ? parsed.data : null;
-}
 
 export const MergeRequestPayload = z.object({
   taskKey: TaskKey,
@@ -286,12 +266,7 @@ export function canResolveInboxItem(
   item: Pick<InboxItem, 'kind' | 'assignees'>,
 ): boolean {
   if (item.assignees.includes(viewer.handle)) return true;
-  return (
-    item.kind !== 'decision' &&
-    item.kind !== 'release' &&
-    item.kind !== 'mention' &&
-    viewer.access === 'owner'
-  );
+  return item.kind !== 'decision' && item.kind !== 'mention' && viewer.access === 'owner';
 }
 
 /**

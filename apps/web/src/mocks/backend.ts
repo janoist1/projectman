@@ -199,7 +199,6 @@ import {
   modelForProvider,
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
-  operatorApprovalOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -3458,8 +3457,7 @@ export class MockBackend {
               (item) =>
                 inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
-                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
-                (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)),
             )
             .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),

@@ -2,8 +2,6 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, ReleaseFailedAlert, ResolveInboxRequest } from '@projectman/shared';
-import { useBoard } from '../../api/queries';
-import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Fold } from '../../components/Fold';
 import { Icon } from '../../components/Icon';
@@ -11,34 +9,6 @@ import { t } from '../../i18n/t';
 import { releaseFailedWords } from '../../lib/release';
 import styles from './InboxCard.module.css';
 import releaseStyles from './ReleaseInbox.module.css';
-
-/** The release card as the board knows it, and the configuration for its repository. */
-function useReleaseFacts(taskKey: string | null) {
-  const { key } = useProject();
-  const board = useBoard(key);
-  const task = taskKey ? board.data?.tasks.find((entry) => entry.key === taskKey) : undefined;
-  return { projectKey: key, task };
-}
-
-/** `KEY cím` of the release card, a link to it; a card the board no longer lists shows the fallback title, else its key only. */
-export function ReleaseCardLink({ taskKey, fallback }: { taskKey: string; fallback?: string }) {
-  const { projectKey, task } = useReleaseFacts(taskKey);
-  return (
-    <Link to={`/p/${projectKey}/tasks/${taskKey}`}>
-      <span className={releaseStyles.key}>{taskKey}</span>
-      {task?.title ?? fallback ?? ''}
-    </Link>
-  );
-}
-
-/** What a decided release shows in the list of decisions: the release card, linked. */
-export function ReleaseSubject({ taskKey, title }: { taskKey: string; title?: string }) {
-  return (
-    <span className={releaseStyles.cardLine}>
-      <ReleaseCardLink taskKey={taskKey} fallback={title} />
-    </span>
-  );
-}
 
 /** Whether the element's content is taller than the box it is cut to. */
 export function useOverflowing(ref: RefObject<HTMLElement | null>, text: string, open: boolean): boolean {

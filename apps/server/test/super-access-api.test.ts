@@ -44,15 +44,6 @@ const RESOLVE_PARITY_OPTIONS = ['approve', 'answer', 'allow'].map((id) => ({
 const RESOLVE_PARITY_CASES = [
   {
     mode: 'own',
-    kind: 'approval',
-    assignees: [null],
-    payload: { operator: RETIRED_OPERATOR_APPROVAL },
-    request: { optionId: 'approve' },
-    status: 409,
-    code: 'inbox_item_closed',
-  },
-  {
-    mode: 'own',
     kind: 'decision',
     assignees: ['someone-else'],
     payload: {},

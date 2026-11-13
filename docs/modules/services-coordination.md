@@ -68,9 +68,9 @@ path under its own key.
 
 The fields of every kind come from the guide topic `operations` (generated from the schemas).
 
-A decision on an old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
-events keep rendering (`operatorApprovalOf`, `OperatorApproval.tsx`), and configuration history reads the
-`Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
+Migration 157 (PM-1384) rewrote the closed `release` and Operator approval inbox rows to `alert` (the open ones were
+cancelled), so no `operator_approval` item remains. Steps and `operator_*` timeline events keep rendering, and
+configuration history reads the `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
 carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`); a non-empty `operations` is
 `invalid_request`.
 
@@ -224,9 +224,9 @@ usual delivery rules (grouping, the 15-minute project wake interval). The case h
 `next_step` obligation kind follows every open card by the rule `cardDuty`, and the project manager gets a card nobody
 can take (class `unowned`) as the `wake` and `tell_pm` rungs of that ladder, not as a second signal.
 `ARCHITECTURE.md`, "Obligation tracking", holds the principle (an event only speeds things up, the once-a-minute sweep
-over the board is what is relied on). Older signal kinds (`idle`, `merge_waiting`, `ready_waiting`, `work_stalled`,
-`refinement_stalled`, `nobody`) stay in the union and in `RETIRED_KINDS` only so old rows and timeline events keep
-rendering; the sweep resolves an open row of such a kind.
+over the board is what is relied on). The signal kinds `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are gone: migration 157
+(PM-1384) deleted their rows and narrowed the kind check. Only `unreleased` stays in `RETIRED_KINDS` (the sweep
+resolves an open row of it).
 
 **`senior_wait` (PM-1251).** The `senior_wait` obligation's hand-over raises it (`senior_wait:<obligation id>`,
 `OperatorSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its

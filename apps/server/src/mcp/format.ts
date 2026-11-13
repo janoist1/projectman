@@ -271,24 +271,16 @@ function signalLine(signal: OperatorSignal): string {
     outage: 'A provider or engine outage needs attention.',
     relation_check:
       'A card changed that others relate to (subject: the relations as kind:KEY pairs; facts list them). Check each related card and its relation; fix a relation that no longer holds, then close the case with dismiss_signal and a note. It closes itself when the relations are gone.',
-    nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
     obligation_overdue:
       'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
     senior_wait:
       'A card waits for a developer whose limit reaches its points (subject: the obligation; facts name the card, the Seniors and why). Decide it with decide_senior_wait (wait or any, with a reason); when the choice needs more capacity (money), ask the owners first with ask_human and the cost topic.',
-    idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
-    merge_waiting:
-      'Retired kind (an old signal): the merge was requested, but the merger had not started it.',
     merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
     unreleased: 'Work merged on the default branch has waited a long time for a release.',
-    ready_waiting:
-      'Retired kind (an old signal): startable cards (subject) waited while a developer had free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
-    refinement_stalled:
-      "Retired kind (an old signal): a member's refinement turn ended without its label (subject: the label).",
     start_blocked:
       "A card's start waits for a repository choice or a stuck member workspace (subject: the reason; facts say who waits and what to do). It closes itself when the reason ends; a decision question about it carries this signal_id.",
   };

@@ -8,7 +8,6 @@ import {
   fixLimitDecisionOf,
   handOnRequestOf,
   hasBoundOrigin,
-  operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   questionPayloadOf,
   isLinkedQuestion,
@@ -67,7 +66,6 @@ import { OperatorTrail } from './OperatorTrail';
 import { WaitingBand } from './WaitingBand';
 import { FoldedCommand } from './PermissionParts';
 import { QuestionSources } from './QuestionSources';
-import { ReleaseSubject } from './ReleaseInbox';
 import { ownerCommandOf } from './commandPresentation';
 import styles from './InboxPage.module.css';
 
@@ -121,10 +119,6 @@ function RecentRow({
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
         {item.kind === 'permission' ? (
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
-        ) : item.kind === 'release' && item.taskKey ? (
-          <span className={styles.recentSubject}>
-            <ReleaseSubject taskKey={item.taskKey} title={item.title} />
-          </span>
         ) : (
           <span className={styles.recentSubject}>{subject}</span>
         )}
@@ -501,22 +495,19 @@ export function InboxPage() {
                 target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
               }),
             )
-          : // A refused release decision (the integrator's key is no approval) says why on its card.
-            item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
-            ? errorMessage(resolve.error)
-            : // A mention's "Láttam" that failed leaves it open and says so on the card (PM-1276).
-              item.kind === 'mention' && resolveFailedFor(item)
-              ? t('inbox.mention.closeFailed')
-              : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
-                ? t('inbox.fixLimit.error')
-                : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
-                  displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
-                  ? errorMessage(resolveFailedFor(item))
-                  : null
+          : // A mention's "Láttam" that failed leaves it open and says so on the card (PM-1276).
+            item.kind === 'mention' && resolveFailedFor(item)
+            ? t('inbox.mention.closeFailed')
+            : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
+              ? t('inbox.fixLimit.error')
+              : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
+                displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
+                ? errorMessage(resolveFailedFor(item))
+                : null
       }
       stale={
-        // A stale Operator approval says so on its card, not in a toast.
-        (operatorApprovalOf(item) !== null || operatorKnowledgeApprovalOf(item) !== null) &&
+        // A stale Operator knowledge approval says so on its card, not in a toast.
+        operatorKnowledgeApprovalOf(item) !== null &&
         resolve.isError &&
         resolve.variables?.item.id === item.id &&
         isStaleError(resolve.error)
@@ -538,7 +529,7 @@ export function InboxPage() {
                 : undefined;
               const text = ownerCommandOf(operation)
                 ? t(body.optionId === 'yes' ? 'ownerCommand.approved' : 'ownerCommand.refused')
-                : operatorApprovalOf(target) !== null || operatorKnowledgeApprovalOf(target) !== null
+                : operatorKnowledgeApprovalOf(target) !== null
                   ? operatorDecisionToast(target, body.optionId)
                   : target.kind === 'hand_on'
                     ? handOnToast(target, pipeline)
@@ -560,7 +551,6 @@ export function InboxPage() {
               }
               if (
                 target.kind !== 'hand_on' &&
-                target.kind !== 'release' &&
                 target.kind !== 'mention' &&
                 !fixLimitDecisionOf(target) &&
                 displayKindOf(target) !== 'todo' &&

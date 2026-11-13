@@ -33,7 +33,7 @@ import {
   technicalDeciderOf,
   FixLimitOptionId,
   inboxResolveRefusal,
-  reservedSuperDecisionRefusal,
+  superDecisionRefusal,
   ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
   ScreeningTodo as ScreeningTodoSchema,
@@ -622,7 +622,10 @@ export class InboxService {
     // queue item does not lend the owner's authority (PM-1010, decision 66).
     if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
       throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
-    const refusal = reservedSuperDecisionRefusal(item, scope.actor.handle, this.sessionMemberOf(item));
+    const refusal = superDecisionRefusal(item, {
+      operatorHandle: scope.actor.handle,
+      sessionMember: this.sessionMemberOf(item),
+    });
     if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
     return this.resolution(
       optionId,
@@ -2455,7 +2458,7 @@ export class InboxService {
    */
   async cancelOpenFromSource(projectKey: string, handle: string): Promise<void> {
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
-      if (item.source !== handle || ['decision', 'release', 'mention'].includes(item.kind)) continue;
+      if (item.source !== handle || ['decision', 'mention'].includes(item.kind)) continue;
       if (item.kind === 'question' && this.ctx.repos.inbox.groupOf(item.id)) {
         await this.closeQuestion(item.id, {
           rule: 'withdrawn',

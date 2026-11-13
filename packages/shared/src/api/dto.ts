@@ -225,26 +225,21 @@ export const OPERATOR_SILENT_WORK_MINUTES = 30;
 /** A merge on the default branch that stood unreleased this long opens an `unreleased` signal (PM-1201). */
 export const OPERATOR_UNRELEASED_HOURS = 24;
 /**
- * `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are no longer raised (PM-1152,
+ * The stall kinds `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are gone (PM-1152,
  * PM-1226: the obligation ladder watches those stalls, its project manager rung is `obligation_overdue`);
- * they stay in the enum for the rows that exist.
+ * migration 157 deleted their rows.
  */
 export const OperatorSignalKind = z.enum([
   'loop_suspected',
   'process_cleanup_failed',
   'outage',
-  'nobody',
   'stalled',
   'silent',
-  'idle',
-  'merge_waiting',
   'merge_blocked',
   'unreleased',
-  'ready_waiting',
   'answer_stalled',
   'structural_pattern',
   'milestone_closed',
-  'refinement_stalled',
   'start_blocked',
   'obligation_overdue',
   'senior_wait',
@@ -934,53 +929,6 @@ export function operatorKnowledgeOperationIncluded(
 const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
 export function operatorCriticalOp(op: OperatorOperation['op']): boolean {
   return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
-}
-const OperatorConsequence = z.enum([
-  'network',
-  'permission_mode',
-  'pipeline',
-  'labels',
-  'member_hire',
-  'member_retire',
-  'member_rename',
-  'member_other',
-  'locations',
-  'review_test',
-  'operator_watch',
-  'fix_limit',
-  'session_stop',
-  'message_send',
-  'project_pause',
-  'project_resume',
-  'project',
-  'other',
-]);
-export const OperatorApprovalPayload = z.object({
-  requestId: z.string(),
-  stepId: z.string(),
-  quote: z.string(),
-  action: OperatorAction,
-  operation: OperatorOperation,
-  changes: z.array(ConfigChangeRow),
-  consequence: OperatorConsequence,
-  baseVersion: z.string().nullable(),
-  session: z.object({ id: z.string(), startedAt: z.string() }).nullable(),
-  plan: OperatorPlan.nullable().optional(),
-  expiresAt: z.string().nullable().optional(),
-  stale: z
-    .object({
-      reason: z.enum(['config_changed', 'session_changed', 'pause_changed', 'expired', 'interrupted']),
-      at: z.string(),
-    })
-    .nullable(),
-});
-export type OperatorApprovalPayload = z.infer<typeof OperatorApprovalPayload>;
-export function operatorApprovalOf(
-  item: Pick<InboxItem, 'kind' | 'payload'>,
-): OperatorApprovalPayload | null {
-  if (item.kind !== 'approval') return null;
-  const parsed = OperatorApprovalPayload.safeParse(item.payload.operator);
-  return parsed.success ? parsed.data : null;
 }
 export const OPERATOR_DISMISS_OPTION: InboxOption = { id: 'dismiss', label: 'dismiss', style: 'secondary' };
 

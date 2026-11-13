@@ -1,9 +1,8 @@
 import type { ErrorCode } from '../api/error-codes';
-import { operatorApprovalOf, operatorKnowledgeApprovalOf } from '../api/dto';
+import { operatorKnowledgeApprovalOf } from '../api/dto';
 import type { ResolveInboxRequest } from '../api/dto';
 import { approvalRefusal } from '../config/labels';
 import { memberOf } from '../config/lookup';
-import { RETIRED_OPERATOR_HANDLE } from '../config/operator-member';
 import type { ProjectConfig } from '../config/schema';
 import { hasBoundOrigin, hasConnectedOrigin } from './actor-origin';
 import type { Actor } from './event';
@@ -70,21 +69,6 @@ const refused = (
   message: string,
   details?: Record<string, unknown>,
 ): InboxResolveRefusal => ({ status, code, message, ...(details ? { details } : {}) });
-
-/**
- * Whether a decision stays reserved to the owner's own login on a super step (PM-883). What the connected Claude
- * asked itself (the holder's name is its source) stays reserved, and so does what the retired Operator asked
- * (decision 66): its member is gone, its items remain.
- */
-export function reservedSuperDecisionRefusal(
-  item: Pick<InboxItem, 'kind' | 'payload' | 'source'>,
-  actorHandle: string | null,
-  sessionMember: string | null | undefined,
-): 'owner_approval_required' | null {
-  if (item.source === RETIRED_OPERATOR_HANDLE || sessionMember === RETIRED_OPERATOR_HANDLE)
-    return 'owner_approval_required';
-  return superDecisionRefusal(item, { operatorHandle: actorHandle, sessionMember });
-}
 
 /**
  * Why `resolver` may not resolve `item` with `request`, or null when they may (S-03). The one authority rule of
@@ -170,7 +154,10 @@ export function inboxResolveRefusal(
       return refused(403, 'owner_approval_required', 'this item requires a person using their own login');
     // Every pending group member must be decidable.
     for (const member of [item, ...facts.groupMembers]) {
-      const reserved = reservedSuperDecisionRefusal(member, actor.handle, facts.sessionMemberOf(member));
+      const reserved = superDecisionRefusal(member, {
+        operatorHandle: actor.handle,
+        sessionMember: facts.sessionMemberOf(member),
+      });
       const asked =
         member.kind === 'question' &&
         externalQuestionAnswerRefusal(member.payload, { via, superActor: actor });
@@ -178,8 +165,6 @@ export function inboxResolveRefusal(
         return refused(403, 'owner_approval_required', 'this item requires a person using their own login');
     }
   }
-  if (operatorApprovalOf(item))
-    return refused(409, 'inbox_item_closed', 'Operator approvals have been retired');
   if (operatorKnowledgeApprovalOf(item)?.stale && request.optionId !== 'dismiss')
     return refused(409, 'operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
   if (!item.options.some((option) => option.id === request.optionId))
@@ -199,8 +184,6 @@ export function inboxResolveRefusal(
     return refused(400, 'answer_required', 'a free-text answer needs a note');
   if (item.kind === 'question' && request.optionId === TODO_CANNOT_OPTION.id && !note)
     return refused(400, 'todo_reason_required', 'say why the task cannot be done');
-  if (item.kind === 'release')
-    return refused(409, 'inbox_item_closed', 'release approvals have been retired');
   // Files go back to an AI member's session or an integrator's question; a group's answer carries them to all.
   if (
     request.attachmentIds?.length &&

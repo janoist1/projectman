@@ -16,13 +16,16 @@ function corner(state: ProjectManagerCorner['state'], open: number): ProjectMana
   } as ProjectManagerCorner;
 }
 
-describe('operatorStripOf without an item in work', () => {
+describe('projectManagerStripOf without an item in work', () => {
   it('says the session is starting only while it is starting', () => {
     expect(projectManagerStripOf(corner('starting', 2))).toEqual({ kind: 'starting' });
   });
 
-  // PM-1269: an open item that wakes nobody stays in the queue while the Operator is idle.
-  it.each(['available', 'working', 'on_leave'] as const)('has no strip while the Operator is %s', (state) => {
-    expect(projectManagerStripOf(corner(state, 2))).toBeNull();
-  });
+  // PM-1269: an open item that wakes nobody stays in the queue while the project manager is idle.
+  it.each(['available', 'working', 'on_leave'] as const)(
+    'has no strip while the project manager is %s',
+    (state) => {
+      expect(projectManagerStripOf(corner(state, 2))).toBeNull();
+    },
+  );
 });

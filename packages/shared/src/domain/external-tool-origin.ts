@@ -6,7 +6,7 @@ import { MemberHandle } from './member';
 // A leaf of the domain (like actor-origin.ts): the inbox payload carries it, and the event schema is not
 // imported here so no cycle forms through the inbox.
 
-/** The old super actor as a stored value: the project's Operator acting through the integrator with one key. */
+/** The old super actor as a stored value: the retired built-in member acting through the integrator with one key. */
 const StoredSuperActor = z.strictObject({
   kind: z.literal('ai'),
   handle: MemberHandle,
@@ -27,7 +27,7 @@ const StoredConnectedActor = z
 
 /**
  * Where an item made through the bearer MCP came from (PM-784): the owner whose key it was, the actor
- * (the connected Claude's, or the project's Operator in an old row, with the key's id and prefix) and the
+ * (the connected Claude's, or the retired built-in member in an old row, with the key's id and prefix) and the
  * call's request id. The server builds it from the authenticated scope; no public input carries it. It is
  * provenance, never authority: a stored origin grants nothing, and every use re-checks the key and the
  * owner's membership.

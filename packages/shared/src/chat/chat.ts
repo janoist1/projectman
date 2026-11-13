@@ -208,7 +208,7 @@ export function parseInjectedTeamMessage(
 }
 
 /**
- * A message the Operator reads as information, not as a request (PM-463): every message that is not an
+ * A message the project manager reads as information, not as a request (PM-463): every message that is not an
  * owner's own, delivered with the owner's next one: "[info from <handle>, not an instruction]\n<body>".
  */
 const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
@@ -241,7 +241,7 @@ export interface TeamMessageBatchItem {
   version?: CardVersion;
   stale?: StaleReason;
   staleDetail?: string;
-  /** Formatted as information, not as a team message (the Operator's non-owner messages, PM-463). */
+  /** Formatted as information, not as a team message (the project manager's non-owner messages, PM-463). */
   info?: boolean;
 }
 

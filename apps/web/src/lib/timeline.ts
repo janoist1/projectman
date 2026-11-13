@@ -1028,7 +1028,7 @@ function describeEventBody(event: TimelineEvent, ctx: TimelineContext): Describe
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),
       };
     case 'question_asked': {
-      // A question the Operator screens first says so; a question asked again says why it skips the screening (PM-556).
+      // A question the project manager screens first says so; a question asked again says why it skips the screening (PM-556).
       const unscreened = d.unscreened as { reason?: unknown } | undefined;
       const key =
         d.screening === true

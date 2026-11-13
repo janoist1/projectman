@@ -51,7 +51,7 @@ export const inbox = {
     approval: 'Approval',
     alert: 'Alert',
     mention: 'Mention',
-    // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
+    // A question the project manager made a todo of (PM-556): a card of its own kind, with a pill.
     todo: 'To-do',
   },
   kindsLower: {
@@ -547,7 +547,7 @@ export const inbox = {
       permissions: 'only the owner changes permissions',
       review_test: 'only the owner sets up review and testing',
       compute_jobs: 'only the owner sets up compute jobs',
-      operator_watch: "only the owner sets up the Operator's watching",
+      operator_watch: "only the owner sets up the project manager's watching",
       email_send_policy: 'only the owner changes the e-mail sending rules',
       machine_access: 'only the owner changes machine access',
       task_create_access: 'only the owner changes who may open cards',
@@ -555,7 +555,7 @@ export const inbox = {
       project_manager_authority: "only the owner changes the project manager's authority",
     },
   },
-  /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
+  /** A todo the project manager made out of a question (PM-556): the step box and the result field. */
   todo: {
     stepTitle: 'The step',
     what: 'What',
@@ -598,7 +598,7 @@ export const inbox = {
     historySeen: 'You marked the mention as seen.',
     historyReplied: 'You replied to the mention.',
   },
-  /** What the Operator said about a question that came to the viewer (PM-556). */
+  /** What the project manager said about a question that came to the viewer (PM-556). */
   operatorNote: 'Connected Claude:',
   operatorFallback: {
     timeout: 'The connected Claude didn’t look at it: no reply within 10 minutes.',
@@ -673,7 +673,7 @@ export const inbox = {
     alreadyHandled: 'The project manager has dealt with it meanwhile, nothing for you to do.',
     pullFailed: 'Could not take it over. Try again.',
   },
-  /** The folded row of the questions the Operator settled with no person involved (PM-556). */
+  /** The folded row of the questions the project manager settled with no person involved (PM-556). */
   operatorTrail: {
     title: 'Handled by the connected Claude · {count} today',
     titleUnknown: 'Handled by the connected Claude',

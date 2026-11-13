@@ -31,7 +31,7 @@
   margin-left: 26px;
 }
 
-/* The fixed facts of the built-in Operator: read, not edited (PM-447). */
+/* The fixed facts of the built-in project manager: read, not edited (PM-447). */
 .fixed {
   display: grid;
   grid-template-columns: max-content 1fr;

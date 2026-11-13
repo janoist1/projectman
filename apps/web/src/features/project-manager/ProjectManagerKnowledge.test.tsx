@@ -96,7 +96,7 @@ function proposal(
     resolution: null,
   };
 }
-describe('Operator knowledge view', () => {
+describe('project manager knowledge view', () => {
   it('reads the agreement and personal style, and prefills edits without sending', async () => {
     const project = setup();
     const { onPrefill } = renderView(project);
@@ -185,7 +185,7 @@ describe('Operator knowledge view', () => {
   });
 });
 
-describe('Operator knowledge approvals', () => {
+describe('project manager knowledge approvals', () => {
   it('does not replay a proposal prefill after closing and reopening the panel', async () => {
     const project = setup();
     const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });

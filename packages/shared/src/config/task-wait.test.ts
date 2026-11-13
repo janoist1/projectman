@@ -414,7 +414,7 @@ describe('every reason', () => {
     expect(handles(result)).toEqual(['analyst']);
   });
 
-  it('inbox: a question the Operator screens is a pending question, but not "for" a viewer yet (PM-556)', () => {
+  it('inbox: a question the project manager screens is a pending question, but not "for" a viewer yet (PM-556)', () => {
     const screened = item({ state: 'screening', assignees: ['owner'] });
     expect(wait(card(), { openItems: [screened] })).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_1' });
     // Not an item of the viewer's own list: the card does not read as waiting for them.

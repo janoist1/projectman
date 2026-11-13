@@ -50,14 +50,14 @@ describe('team message visibility', () => {
       expect(canSeeAllTeamMessages({ access })).toBe(false);
   });
 
-  it('lets only an owner and an admin see the Operator’s sessions (PM-475)', () => {
+  it('lets only an owner and an admin see the project manager’s sessions (PM-475)', () => {
     expect(canSeeProjectManagerSessions({ access: 'owner' })).toBe(true);
     expect(canSeeProjectManagerSessions({ access: 'admin' })).toBe(true);
     for (const access of ['developer', 'viewer', 'client', 'ai'] as const)
       expect(canSeeProjectManagerSessions({ access })).toBe(false);
   });
 
-  it('tells the Operator’s conversations apart by the person they are with (PM-475)', () => {
+  it('tells the project manager’s conversations apart by the person they are with (PM-475)', () => {
     const general = { type: 'general' } as const;
     expect(sameWorkItem(general, { type: 'general' })).toBe(true);
     expect(sameWorkItem({ type: 'general', with: 'cleo' }, { type: 'general', with: 'cleo' })).toBe(true);

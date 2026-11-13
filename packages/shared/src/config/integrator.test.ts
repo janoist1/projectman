@@ -101,7 +101,7 @@ describe('credential operation access (PM-759)', () => {
         });
     });
   }
-  it('lets a super key act in a project without an Operator', () => {
+  it('lets a super key act in a project without a project manager', () => {
     for (const operation of ['write', 'approval'] as const)
       expect(superAccessVerdict(config(), { mode: 'super', operation, ownerMembership: true })).toEqual({
         allowed: true,

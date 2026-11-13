@@ -251,7 +251,7 @@ export function workQueueSourceNeedsFacts(source: MemberQueueSource): boolean {
 /**
  * Whether the viewer may read the item: its source's own rule decides. A team message is its parties' (and the
  * owner's and admin's), an inbox item follows `canSeeInboxItem` (a screening item and a private proposal are
- * hidden), a signal or checklist notice is for those who see the Operator's sessions, a card-level fact (a held
+ * hidden), a signal or checklist notice is for those who see the project manager's sessions, a card-level fact (a held
  * fix limit, a start, an obligation) shows. A source that can no longer be read (a deleted message) is seen
  * only by those who see every message.
  */

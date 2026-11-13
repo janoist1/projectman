@@ -153,8 +153,8 @@ function RowHead({
 }
 
 /**
- * The "Mi változik" table of an Operator approval (PM-447): before → after, at most three rows, the rest behind a
- * "+N további változás" button. Used by the Rád vár card, by the inline approval in the Operator's steps and by
+ * The "Mi változik" table of a project manager approval (PM-447): before → after, at most three rows, the rest behind a
+ * "+N további változás" button. Used by the Rád vár card, by the inline approval in the project manager's steps and by
  * the done steps.
  */
 export function ProjectManagerChanges({ changes }: { changes: readonly ConfigChangeRow[] }) {

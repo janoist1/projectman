@@ -82,7 +82,7 @@ export const ActorOriginMeta = z.union([
 ]);
 export type ActorOriginMeta = z.infer<typeof ActorOriginMeta>;
 
-/** An actor of the Operator's super mode: the consistent combination of the origin fields. */
+/** An actor of the old super mode: the consistent combination of the origin fields. */
 export type SuperActor = Actor & {
   kind: 'ai';
   handle: string;
@@ -125,7 +125,7 @@ export function hasBoundOrigin(actor: Actor | null | undefined): actor is BoundA
 
 /**
  * The connected Claude behind a step, in either shape, or null for a plain actor: the key it acted with and
- * the person whose Claude it was. An old super step has no holder (its actor was the Operator).
+ * the person whose Claude it was. An old super step has no holder (its actor was the retired built-in member).
  */
 export function connectedOriginOf(
   actor: Actor | null | undefined,

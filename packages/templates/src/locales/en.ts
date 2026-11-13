@@ -16,7 +16,7 @@ export const en: TemplateLocale = {
       labels: { title: 'Labels', hint: 'Choose labels that describe work and approvals.' },
       clients: { title: 'Clients', hint: 'Decide who participates from the client side.' },
       release: { title: 'Release', hint: 'Agree on how changes reach users.' },
-      agreement: { title: 'Working agreement', hint: 'Approve how the Operator works with you.' },
+      agreement: { title: 'Working agreement', hint: 'Approve how the project manager works with you.' },
       first_task: { title: 'First task', hint: 'Create the first task.' },
       code_review: {
         title: 'Code review',

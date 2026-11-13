@@ -22,7 +22,7 @@ import styles from './HistorySection.module.css';
 import { historyDetailLines, historySummary } from './historyText';
 import { SettingsSection } from './SettingsSection';
 
-/** Who a saved version is shown as: the Operator by name when it made the change, else the stored author. */
+/** Who a saved version is shown as: the project manager by name when it made the change, else the stored author. */
 export function historyAuthorOf(
   entry: ConfigVersionEntry,
   members: MemberIndex,
@@ -34,7 +34,7 @@ export function historyAuthorOf(
 }
 
 /**
- * The member an avatar shows for a version: the actor, then the Operator, then a member whose name is
+ * The member an avatar shows for a version: the actor, then the project manager, then a member whose name is
  * the stored author's (only for the avatar, never for the attribution); none when that is not clear.
  */
 function avatarMember(entry: ConfigVersionEntry, members: MemberIndex): MemberView | undefined {

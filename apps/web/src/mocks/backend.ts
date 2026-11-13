@@ -685,7 +685,7 @@ export class MockBackend {
   /** The viewer's web push devices and settings (PM-815); a test fills the device list. */
   readonly push = new MockPush();
   readonly owners = new MockOwners();
-  /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
+  /** What the owner asked the project manager for, with its steps (PM-447); a test or a scenario fills it. */
   projectManagerRequests: ProjectManagerRequestView[] = [];
   checklist: ProjectChecklist | null = null;
   projectManagerKnowledge: ProjectManagerKnowledgeDocument = {
@@ -696,7 +696,7 @@ export class MockBackend {
     appliedProposalIds: [],
   };
   projectManagerPreferences: Record<string, ProjectManagerPreferenceDocument> = {};
-  /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
+  /** The project manager's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
   projectManagerSignals: ProjectManagerSignal[] = [];
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
@@ -706,7 +706,7 @@ export class MockBackend {
   integratorQueueItems: WorkQueueItem[] = [];
   /** The open obligations of the cards (PM-806); a test fills it, the card's steps are computed from it. */
   obligations: Obligation[] = [];
-  /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
+  /** The grant of machine operations the project manager works with (PM-890): off, and the viewer can manage it. */
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -3088,7 +3088,7 @@ export class MockBackend {
           });
     }
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
-    if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
+    if (signalMatch && method === 'POST') return this.dismissProjectManagerSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
@@ -6828,8 +6828,8 @@ export class MockBackend {
 
   /**
    * The same-role collision a message from the viewer would cause on an open card, from the mock's own
-   * sessions, or null; the rule itself is the shared `cardBusyGroups`. The Operator and the project
-   * manager never count.
+   * sessions, or null; the rule itself is the shared `cardBusyGroups`. The project
+   * manager never counts.
    */
   private cardBusyOf(taskKey: string | undefined, to: readonly string[]): CardBusyDetails | null {
     const task = taskKey ? this.findTask(taskKey) : undefined;
@@ -6901,7 +6901,7 @@ export class MockBackend {
     if (refusal) return refusal;
     const busy = input.despiteWorkers ? null : this.cardBusyOf(input.taskKey, input.to);
     if (busy) return error(409, 'card_busy', 'The card already has a worker of the same role', busy);
-    // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
+    // "Igen, intézd" accepts the project manager's open signal with the message itself (PM-476).
     const signal = input.operatorSignal
       ? this.projectManagerSignals.find((entry) => entry.id === input.operatorSignal)
       : undefined;
@@ -7164,7 +7164,7 @@ export class MockBackend {
   }
 
   /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */
-  private dismissOperatorSignal(id: string): MockResponse {
+  private dismissProjectManagerSignal(id: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
     if (viewer?.role !== 'owner') return error(403, 'operator_owner_only', 'Only the owner may decide');
     const signal = this.projectManagerSignals.find((entry) => entry.id === id);
@@ -7433,12 +7433,12 @@ export class MockBackend {
   }
 
   /**
-   * The questions the Operator screened (PM-556), for an owner or an admin: those it still holds, and those it
+   * The questions the project manager screened (PM-556), for an owner or an admin: those it still holds, and those it
    * settled itself (answered, forwarded, or found moot) since the given time, newest first, at most 20.
    */
   private screenedQuestions(query: URLSearchParams): MockResponse {
     if (!['owner', 'admin'].includes(this.viewerAccess()))
-      return error(403, 'insufficient_access', 'Only an admin sees what the Operator screened');
+      return error(403, 'insufficient_access', 'Only an admin sees what the project manager screened');
     const since = query.get('since');
     if (!since || Number.isNaN(Date.parse(since))) return error(400, 'invalid_request', 'Invalid since');
     const settled = (item: InboxItem): boolean => {

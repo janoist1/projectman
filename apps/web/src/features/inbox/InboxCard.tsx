@@ -112,7 +112,7 @@ export interface InboxCardProps {
   headingLevel?: 2 | 3;
   /** Why the last answer was refused (a closed gate on "Tovább"); shown under the buttons. */
   error?: string | null;
-  /** An Operator approval the server just refused as out of date (409); the card says so and offers "Rendben". */
+  /** A project manager approval the server just refused as out of date (409); the card says so and offers "Rendben". */
   stale?: boolean;
   /** A question that asks for an approval says its answer sets no label (PM-484); see `approvalHintOf`. */
   approvalHint?: ApprovalHint | null;
@@ -255,7 +255,7 @@ export function InboxCard({
     ? generalQuestionSources(group).some((source) => source.state === 'live')
     : false;
   const handOn = handOnRequestOf(item);
-  // A question the Operator made a todo of (PM-556): the result field is always open, with two buttons.
+  // A question the project manager made a todo of (PM-556): the result field is always open, with two buttons.
   const todo = isTodo(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const fixLimit = fixLimitDecisionOf(item);
@@ -393,10 +393,10 @@ export function InboxCard({
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
   const extras = questionExtras(item);
-  // What came with a question from an AI member (PM-556): the Operator's word, why it did not look, why it is asked again.
+  // What came with a question from an AI member (PM-556): the project manager's word, why it did not look, why it is asked again.
   const displayKind = displayKindOf(item);
   const open = item.state === 'open';
-  const operatorNote = open ? projectManagerNoteOf(item) : null;
+  const projectManagerNote = open ? projectManagerNoteOf(item) : null;
   const steps = todo && !handoff ? todoRows(item) : [];
   const fallback = open ? projectManagerFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
@@ -752,13 +752,13 @@ export function InboxCard({
             <strong>{nameOf(question?.screening?.by ?? '', members, myHandle)}:</strong> {group.note}
           </span>
         </p>
-      ) : operatorNote ? (
+      ) : projectManagerNote ? (
         <p className={styles.operatorNote}>
           <span className={styles.operatorAvatar} aria-hidden="true">
             OP
           </span>
           <span>
-            <strong>{t('inbox.operatorNote')}</strong> {operatorNote}
+            <strong>{t('inbox.operatorNote')}</strong> {projectManagerNote}
           </span>
         </p>
       ) : null}

@@ -159,7 +159,7 @@ export function labelRefusal(
   if (actor.kind === 'system' || !label) return null;
   const holders = labelHolders(config, label);
   const delegated = authorityHolds(config, label, authority);
-  // A super-mode step acts in the Operator's own name on the key owner's holding (PM-870): the approval
+  // A super-mode step acts as its holder or issuer on the key owner's holding (PM-870): the approval
   // labels and the human-only labels are open to it, as long as that owner holds the label.
   const superDelegated = delegated && hasBoundOrigin(actor);
   if (actor.via === 'integrator' && isOwnerApprovalLabel(config, label) && !superDelegated)

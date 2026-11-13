@@ -315,7 +315,7 @@ export const timeline = {
     question_answered: 'Answer: {answer}',
     question_answered_grouped: 'Answer to the shared question: {answer}',
     question_grouped: 'Merged into a shared question: {count|# question|# questions}, one answer',
-    // The Operator’s screening of a question (PM-556); the row names who acted.
+    // The project manager’s screening of a question (PM-556); the row names who acted.
     question_screened_answered: 'Answered {asker}’s question: “{answer}”',
     question_screened_forwarded: 'Passed {asker}’s question on to {to}: {note}',
     question_screened_moot: 'Closed {asker}’s question as moot: {note}',

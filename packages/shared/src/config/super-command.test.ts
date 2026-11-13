@@ -317,7 +317,7 @@ describe('super command classification (PM-762)', () => {
       AiMemberConfig.parse({
         handle,
         kind: 'ai',
-        displayName: 'Operator',
+        displayName: 'Legacy coordinator',
         role,
         sponsor: 'owner',
       }),

@@ -1,4 +1,4 @@
-/** The Operator's panel in the top right corner (PM-429, PM-447): the conversation of every person of the project. */
+/** The project manager's panel in the top right corner (PM-429, PM-447): the conversation of every person of the project. */
 export const operator = {
   checklist: {
     title: 'Indulás',

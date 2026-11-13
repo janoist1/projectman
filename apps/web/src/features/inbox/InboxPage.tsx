@@ -506,7 +506,7 @@ export function InboxPage() {
                 : null
       }
       stale={
-        // A stale Operator knowledge approval says so on its card, not in a toast.
+        // A stale project manager knowledge approval says so on its card, not in a toast.
         projectManagerKnowledgeApprovalOf(item) !== null &&
         resolve.isError &&
         resolve.variables?.item.id === item.id &&
@@ -649,7 +649,12 @@ export function InboxPage() {
               pipeline={pipeline}
             />
             {can.manageTeam ? (
-              <ProjectManagerTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+              <ProjectManagerTrail
+                projectKey={key}
+                members={members}
+                myHandle={myHandle}
+                taskHrefOf={taskHrefOf}
+              />
             ) : null}
           </>
         ) : null}
@@ -664,7 +669,12 @@ export function InboxPage() {
             pipeline={pipeline}
           />
           {can.manageTeam ? (
-            <ProjectManagerTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+            <ProjectManagerTrail
+              projectKey={key}
+              members={members}
+              myHandle={myHandle}
+              taskHrefOf={taskHrefOf}
+            />
           ) : null}
         </aside>
       )}

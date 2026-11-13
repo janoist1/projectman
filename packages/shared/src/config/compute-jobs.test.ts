@@ -28,7 +28,13 @@ function config(): ProjectConfig {
       limits: {},
       members: [
         { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner' },
-        { kind: 'ai', handle: 'operator', displayName: 'Operator', role: 'ai_operator', sponsor: 'owner' },
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Legacy coordinator',
+          role: 'ai_operator',
+          sponsor: 'owner',
+        },
       ],
     },
     pipeline: {
@@ -119,7 +125,7 @@ describe('compute_jobs owner-only change (PM-1148)', () => {
   });
 });
 
-describe('the Operator changing compute jobs (PM-1148)', () => {
+describe('the project manager changing compute jobs (PM-1148)', () => {
   it('needs the approval and names the repository', () => {
     const before = config();
     const next = applyConfigPatch(before, parse({ repoComputeJobs: [{ repo: 'web', computeJobs: null }] }));

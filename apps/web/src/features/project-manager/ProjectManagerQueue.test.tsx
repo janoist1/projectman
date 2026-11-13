@@ -60,7 +60,7 @@ const button = () =>
 const queueLink = () => screen.findByRole('link', { name: t('operator.queue.strip.label') });
 const composer = () => screen.findByRole('textbox', { name: t('operator.composer.label' as const) });
 
-describe('the Operator button with a queue', () => {
+describe('the project manager button with a queue', () => {
   it('names the queue length and shows the count', async () => {
     const project = mockProject();
     project.backend.queueItems = [item({ id: 'q1' }), item({ id: 'q2' })];

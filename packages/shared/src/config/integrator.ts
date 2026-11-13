@@ -26,7 +26,7 @@ export function superAccessVerdict(
   if (facts.mode === 'read' && facts.operation !== 'read')
     return { allowed: false, code: 'integrator_read_only' };
   if (facts.operation === 'key_management') return { allowed: false, code: 'integrator_not_allowed' };
-  // The super key decides approvals in the Operator's own name (PM-870).
+  // The super key decides approvals as its holder or the queue item's issuer (PM-870).
   if (facts.operation === 'approval' && facts.mode !== 'super')
     return { allowed: false, code: 'owner_approval_required' };
   // The connected Claude acts as its holder or the queue item's issuer, so the project needs no Operator (decision 66).
@@ -78,7 +78,7 @@ export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
  * Why an integrator configuration change may not commit `next` over `previous`, or null when it may. Compares the
  * end result, so PUT, PATCH, roles, members and revert are decided alike. Never 'invitations'.
  *
- * These restrictions also classify configuration effects for the Operator's mutation policy.
+ * These restrictions also classify configuration effects for the connected Claude's mutation policy.
  */
 export function integratorConfigRefusal(
   previous: ProjectConfig,

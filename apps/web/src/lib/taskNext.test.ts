@@ -54,7 +54,7 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
         expiresAt: '2026-10-22T12:00:00.000Z',
       },
     },
-  ])('attributes an Operator request to the Operator in task status', (payload) => {
+  ])('attributes a project manager request to the project manager in task status', (payload) => {
     const item = plainLanguageQuestion({
       source: 'system',
       payload: { question: 'Complete work', ...payload },

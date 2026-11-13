@@ -182,7 +182,7 @@ describe('fix limit decision details', () => {
     );
   });
 
-  it('keeps Operator queue decisions outside the owner inbox', async () => {
+  it('keeps project manager queue decisions outside the owner inbox', async () => {
     const f = fixture();
     // A fix limit without an integrator opens under an owner topic; the integrator's item has none.
     const { ownerTopic: _topic, ...rest } = f.item.payload;
@@ -199,7 +199,7 @@ describe('fix limit decision details', () => {
     expect(board.openInboxCount).toBe(0);
   });
 
-  it('keeps an Operator resolution outside the owner decisions', async () => {
+  it('keeps a project manager resolution outside the owner decisions', async () => {
     const f = fixture();
     const at = new Date().toISOString();
     f.item.payload = { ...f.item.payload, recipient: 'integrator', integratorOpenedAt: at };

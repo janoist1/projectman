@@ -23,7 +23,7 @@ export const queryKeys = {
   workQueueAll: (key: string) => ['project', key, 'workQueue'] as const,
   workQueue: (key: string, queue: string, closedSince: string | null) =>
     ['project', key, 'workQueue', queue, closedSince] as const,
-  /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
+  /** The project manager's grant for machine operations (PM-881); one for the whole instance. */
   projectManagerPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
   projectManagerPreferenceMe: (key: string, handle: string | null) =>
     ['project', key, 'operator-preference', handle] as const,
@@ -79,7 +79,7 @@ export const queryKeys = {
   involvements: (key: string) => ['project', key, 'involvements'] as const,
   /** The newest closed items of the inbox. */
   inboxHistory: (key: string) => ['project', key, 'inbox-history'] as const,
-  /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
+  /** The project manager's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
   screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
   screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,
   /** The project's message feed; also the prefix of the thread and unread queries below. */

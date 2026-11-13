@@ -74,8 +74,8 @@ export function projectManagerStatusWithQueue(channel: ProjectManagerCorner | un
 
 /**
  * The strip above the conversation while the queue has items: the item being worked on, or why none is (PM-890).
- * Without a current item the Operator is on its way ("starting") or cannot start ("waiting": paused, out of quota).
- * An idle ("available"), working or away Operator with open items shows no strip: what is open then does not wait for
+ * Without a current item the project manager is on its way ("starting") or cannot start ("waiting": paused, out of quota).
+ * An idle ("available"), working or away project manager with open items shows no strip: what is open then does not wait for
  * a session start (a message that wakes nobody, an item at another place), so "starting" would stay for good (PM-1269).
  */
 export type ProjectManagerStrip =

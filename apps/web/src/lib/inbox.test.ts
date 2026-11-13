@@ -143,7 +143,7 @@ describe('the screened question helpers (PM-561)', () => {
     ).toBe('wait');
   });
 
-  it('keeps what the Operator settled out of the history, unless the question had gone to the people', () => {
+  it('keeps what the project manager settled out of the history, unless the question had gone to the people', () => {
     const closedAs = (
       rule: NonNullable<InboxItem['resolution']>['rule'],
       screening: Record<string, unknown>,
@@ -195,19 +195,19 @@ describe('the screened question helpers (PM-561)', () => {
     expect(answerDeliveryText(asked({}), members, 'owner')).toBeNull();
   });
 
-  it('marks the Operator trail rows and notes what it held', () => {
+  it('marks the project manager trail rows and notes what it held', () => {
     expect(projectManagerTrailMark(asked({}, { state: 'screening' }))).toBe('at');
     expect(projectManagerTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
     expect(projectManagerTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
     expect(projectManagerTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
     const members = new Map();
-    expect(projectManagerTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner')).toBe(
-      'Not needed.',
-    );
+    expect(
+      projectManagerTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner'),
+    ).toBe('Not needed.');
     expect(projectManagerTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
   });
 
-  it('says a question waits for the Operator’s machine instead of naming a time (PM-708)', () => {
+  it('says a question waits for the project manager’s machine instead of naming a time (PM-708)', () => {
     const queued = screened(
       { queue: { reason: 'engine_offline', since: '2026-09-30T10:00:00.000Z', remainingMs: 600_000 } },
       { state: 'screening' },

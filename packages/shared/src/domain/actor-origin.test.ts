@@ -115,7 +115,7 @@ describe('connected Claude actor origin (decision 66)', () => {
     expect(isConnectedOwnerActor(humanConfig, holder)).toBe(true);
     expect(isConnectedOwnerActor(humanConfig, connectedActorOf('helper', credential))).toBe(false);
     expect(isConnectedOwnerActor(humanConfig, issuerStep)).toBe(false);
-    // An old super actor keeps its own rule: the selected coordinator, not the retired Operator.
+    // An old super actor keeps its own rule: the selected coordinator, not the retired built-in member.
     expect(isConnectedOwnerActor(config, pmSuperActor)).toBe(true);
     expect(isConnectedOwnerActor(config, superActor)).toBe(false);
   });
@@ -197,7 +197,7 @@ describe('super-mode actor origin (PM-757)', () => {
   it('recognises the super origin of the coordinator and grants nothing by itself', () => {
     expect(isCoordinatorSuperActor(config, { kind: 'ai', handle: 'pm' })).toBe(false);
     expect(isCoordinatorSuperActor(config, { ...pmSuperActor, handle: 'other' })).toBe(false);
-    // An old super row of the retired Operator names no member any more.
+    // An old super row of the retired built-in member names no member any more.
     expect(isCoordinatorSuperActor(config, superActor)).toBe(false);
   });
 

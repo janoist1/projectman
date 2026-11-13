@@ -81,7 +81,7 @@ describe('projectManagerSignalStepRefusal', () => {
     stepsAt: [],
     now: NOW,
   } as const;
-  it('accepts cleanup signals but gives the Operator no autonomous step for them', () => {
+  it('accepts cleanup signals but gives the project manager no autonomous step for them', () => {
     expect(ProjectManagerSignalKind.parse('process_cleanup_failed')).toBe('process_cleanup_failed');
     expect(
       projectManagerSignalStepRefusal({ ...base, kind: 'process_cleanup_failed', level: 'drive' }),

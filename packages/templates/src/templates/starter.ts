@@ -1,6 +1,6 @@
 import { defineTemplate } from './draft';
 
-/** An editable starting point for the team the owner builds with the Operator. */
+/** An editable starting point for the team the owner builds with the project manager. */
 export const starter = defineTemplate('starter', (t) => {
   const developer = t.hire('developer');
   return t.finish({

@@ -58,7 +58,7 @@
   color: var(--c-accent-text);
 }
 
-/* The Operator's own colour (PM-447): its built-in marks. */
+/* The project manager's own colour (PM-447): its built-in marks. */
 .operator {
   background: var(--role-operator-bg);
   color: var(--role-operator-fg);

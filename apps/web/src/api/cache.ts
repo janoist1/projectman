@@ -202,7 +202,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   }
   // The project manager's channel state follows these (PM-434 adds no event of its own). Activity ticks and
   // plan usage are not part of it (PM-1109), and a session or a message only when the manager is in it.
-  // The Operator's channel adds the Operator's steps, which an approval in the inbox settles (`inbox_upserted`).
+  // The project manager's channel adds the project manager's steps, which an approval in the inbox settles (`inbox_upserted`).
   if ('projectKey' in event && event.projectKey !== undefined) {
     const key = event.projectKey;
     const cornerChanged =
@@ -366,7 +366,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
             }
           : view,
       );
-      // The Operator's trail follows a question that moves through screening (PM-561).
+      // The project manager's trail follows a question that moves through screening (PM-561).
       if (item.kind === 'question') invalidate(queryKeys.screenedQuestionsAll(key));
       // An item of the connected Claude's queue came, was resolved or passed on (PM-1294).
       if (wasIntegratorInboxItem(item)) invalidateWorkQueues(key);

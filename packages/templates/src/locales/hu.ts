@@ -16,7 +16,7 @@ export const hu: TemplateLocale = {
       labels: { title: 'Címkék', hint: 'Válassz címkéket a munkához és a jóváhagyásokhoz.' },
       clients: { title: 'Ügyfelek', hint: 'Döntsétek el, ki vesz részt az ügyfél oldaláról.' },
       release: { title: 'Kiadás', hint: 'Egyeztessétek, hogyan jutnak el a változások a felhasználókhoz.' },
-      agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled az Operátor.' },
+      agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled a projektmenedzser.' },
       first_task: { title: 'Első kártya', hint: 'Hozd létre az első kártyát.' },
       code_review: {
         title: 'Kódátnézés',

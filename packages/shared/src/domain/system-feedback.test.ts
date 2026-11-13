@@ -305,7 +305,7 @@ describe('contract', () => {
     expect(SystemFeedbackPrepared.safeParse({ result: 'ready', title: 't' }).success).toBe(false);
   });
 
-  it('parses an Operator step without the system feedback field as before', () => {
+  it('parses a project manager step without the system feedback field as before', () => {
     const step = {
       id: 's',
       requestId: 'r',

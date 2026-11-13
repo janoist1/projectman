@@ -19,7 +19,13 @@ function config(repos: object[]): ProjectConfig {
       limits: {},
       members: [
         { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner' },
-        { kind: 'ai', handle: 'operator', displayName: 'Operator', role: 'ai_operator', sponsor: 'owner' },
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Legacy coordinator',
+          role: 'ai_operator',
+          sponsor: 'owner',
+        },
       ],
     },
     pipeline: {
@@ -293,7 +299,7 @@ describe('repoDocs patch', () => {
     expect(unknownPatchRepo(two(), unknown)).toBe('ghost');
   });
 
-  it('is a change that needs the approval when the Operator makes it', () => {
+  it('is a change that needs the approval when the project manager makes it', () => {
     const before = two();
     const next = applyConfigPatch(
       before,

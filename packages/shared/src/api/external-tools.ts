@@ -5,7 +5,7 @@ import { InboxItem } from '../domain/inbox';
 import { MessageAttachmentRef } from '../domain/message-attachment';
 
 /**
- * What the bearer MCP adds to the Operator's tools for the integrator in super mode (PM-784): the durable
+ * What the bearer MCP adds to the connected Claude's tools for the integrator in super mode (PM-784): the durable
  * readers for the answers it cannot wait for, and the chunked file content. The inputs of the shared
  * tools keep their own schemas; these are the results and the two new readers' inputs.
  */

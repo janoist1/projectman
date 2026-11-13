@@ -24,7 +24,7 @@ import type { MemberConfig } from './schema';
 type MemberInput = Record<string, unknown>;
 
 describe('coordination actors', () => {
-  it('selects the live PM and never substitutes the Operator or a member on leave', () => {
+  it('selects the live PM and never substitutes the retired built-in member or a member on leave', () => {
     const config = configWith([
       ai('away', { onLeave: true }),
       ai('pm'),

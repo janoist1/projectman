@@ -69,7 +69,7 @@ export const ERROR_CODES = [
   'docs_edit_ambiguous',
   'docs_edit_not_found',
   'docs_not_append_only',
-  // The Operator's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
+  // The project manager's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
   // change; no change at all; the file moved on since it was read; a write already waits or runs (409);
   // the write did not go up (409).
   'docs_not_configured',
@@ -255,12 +255,12 @@ export const ERROR_CODES = [
   'operator_no_request',
   'operator_only',
   'operator_owner_approval',
-  // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
+  // The project manager (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
   'operator_plan_required',
   'operator_preference_no_person',
-  // The Operator's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
+  // The project manager's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
   // a start_member on a card for a member with no role on it.
   'operator_signal_budget',
   'operator_signal_closed',
@@ -293,7 +293,7 @@ export const ERROR_CODES = [
   'provider_rate_limited',
   'provider_unsupported',
   'question_group_incompatible',
-  // The Operator may not answer this queue item as a member's question (PM-1009).
+  // The project manager may not answer this queue item as a member's question (PM-1009).
   'question_not_answerable',
   'question_not_screening',
   'queue_item_not_processing',
@@ -390,7 +390,7 @@ export const ERROR_CODES = [
   'system_feedback_issue_url',
   // The project already recorded the most new items a day allows (409).
   'system_feedback_limit',
-  // Only the Operator records system feedback (403).
+  // Only the project manager records system feedback (403).
   'system_feedback_operator_only',
   // The item is not in the state the action needs (409).
   'system_feedback_wrong_state',
@@ -414,7 +414,7 @@ export const ERROR_CODES = [
   'theme_on_subtask',
   'theme_on_theme',
   'theme_project',
-  // The Operator screens AI members' questions (PM-558): a task the person cannot do needs a reason; the
+  // The project manager screens AI members' questions (PM-558): a task the person cannot do needs a reason; the
   // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
   'todo_reason_required',
   'too_many_attempts',

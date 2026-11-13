@@ -39,7 +39,7 @@ describe('superDecisionRefusal', () => {
       'owner_approval_required',
     );
   });
-  it('protects Operator proposals in the existing approval payload', () => {
+  it('protects project manager proposals in the existing approval payload', () => {
     expect(
       superDecisionRefusal(
         { ...item, kind: 'approval', payload: { operator: {} } },
@@ -47,17 +47,17 @@ describe('superDecisionRefusal', () => {
       ),
     ).toBe('owner_approval_required');
   });
-  it('refuses the Operator as the source', () => {
+  it('refuses the project manager as the source', () => {
     expect(superDecisionRefusal({ ...item, source: 'operator' }, { operatorHandle: 'operator' })).toBe(
       'owner_approval_required',
     );
   });
-  it('refuses the Operator as the session member', () => {
+  it('refuses the project manager as the session member', () => {
     expect(superDecisionRefusal(item, { operatorHandle: 'operator', sessionMember: 'operator' })).toBe(
       'owner_approval_required',
     );
   });
-  it('requires a configured Operator', () => {
+  it('requires a configured project manager', () => {
     expect(superDecisionRefusal(item, { operatorHandle: null })).toBe('owner_approval_required');
   });
   it('allows another member’s question', () => {

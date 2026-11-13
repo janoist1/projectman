@@ -27,7 +27,7 @@ export interface InboxResolver {
   handle: string;
   access: HumanAccess;
   via?: 'integrator';
-  /** The bound origin (an Operator or a connected Claude) of a step made on the owner's authority (PM-757). */
+  /** The bound origin (a coordinator or a connected Claude) of a step made on the owner's authority (PM-757). */
   superActor?: Actor;
 }
 
@@ -35,7 +35,7 @@ export interface InboxResolveFacts {
   config: ProjectConfig;
   /**
    * The integrator credential the request runs under, null for a person's own login. `boundOrigin`: its live
-   * actor is an Operator or a connected Claude, which may decide on the owner's authority (PM-875).
+   * actor is a coordinator or a connected Claude, which may decide on the owner's authority (PM-875).
    */
   credential: { mode: 'read' | 'super'; boundOrigin: boolean } | null;
   /** The super endpoint closing the integrator's own todo (PM-806), not an answer. */
@@ -113,7 +113,7 @@ export function inboxResolveRefusal(
       'an integrator item needs the dedicated super endpoint or the owner login',
     );
   }
-  // A permission is the owner's own decision; other decisions also take the Operator's on the owner's authority.
+  // A permission is the owner's own decision; other decisions also take the project manager's on the owner's authority.
   if (
     item.kind === 'permission'
       ? !ownLogin

@@ -2720,7 +2720,8 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   Every test invocation, including reruns, uses the default and hanging-process reporters plus
   controller-side start/end events for each file (from collection through teardown). The npm
   parent process gives each active file 180 seconds, with 20-second test and hook defaults. On a
-  file deadline it prints all active file names as `FAIL` lines and stops the command through
+  file deadline it prints the file over its deadline as a `FAIL` line, the other active files as
+  `Stopped with it, not failed` lines with their running time (PM-1440), and stops the command through
   the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
   the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
   groups, already required by the child guard, stop even synchronously blocked workers and

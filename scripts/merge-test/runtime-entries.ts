@@ -13,6 +13,7 @@ export const RUNTIME_ENTRIES: Readonly<Record<string, readonly string[]>> = {
 
   // Helpers and scripts with a fixed command set. Generic command runners stay unlisted.
   'apps/server/test/helpers/golden-path.ts': [],
+  'apps/server/test/helpers/member-workspaces.ts': [], // Only git.
   'apps/server/test/helpers/migration-source.ts': [],
   'scripts/browsers.mjs': [], // Starts Playwright's package CLI.
   'scripts/engine/cli.ts': ['apps/server/src/index.ts'],
@@ -28,7 +29,6 @@ export const RUNTIME_ENTRIES: Readonly<Record<string, readonly string[]>> = {
   'apps/server/src/worktree/worktree-manager.test.ts': [],
   'apps/server/test/config-store.test.ts': [],
   'apps/server/test/member-workspaces-base.test.ts': [],
-  'apps/server/test/member-workspaces.test.ts': [],
   'apps/server/test/review-pins.test.ts': [],
   'apps/server/test/structure-api.test.ts': [],
 

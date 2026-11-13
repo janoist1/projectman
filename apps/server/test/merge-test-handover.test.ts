@@ -464,6 +464,7 @@ describe('selection rules', () => {
     const tree = [
       file(changed, 'export const l = 1;'),
       file('apps/server/test/member-workspaces.test.ts'),
+      file('apps/server/test/member-workspaces-review.test.ts'),
       file('apps/server/test/codex-session-folder.test.ts'),
       file('apps/server/test/other.test.ts'),
     ];
@@ -471,6 +472,7 @@ describe('selection rules', () => {
     expect(files).toEqual(
       expect.arrayContaining([
         'apps/server/test/member-workspaces.test.ts',
+        'apps/server/test/member-workspaces-review.test.ts',
         'apps/server/test/codex-session-folder.test.ts',
       ]),
     );

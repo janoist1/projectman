@@ -920,7 +920,7 @@ retries, shutdown waits) is an Effect program behind a plain TypeScript facade, 
 module sees an Effect type. A plain timer is plain TypeScript, and a hub module's periodic work is a
 kernel sweep (PM-1388). Modules with an Effect program: `kernel`, `runtime/sessions`,
 `runtime/delivery`, `runtime/watchers`, `runtime/usage`, `services/merges`, `services/full-tests`,
-`services/github`, `services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
+`services/github`, `services/project-docs`, `services/schedules`, `runner`, `full-test`.
 The boundary, the programs, their files and facades, the pinned version and the rules are in
 [EFFECT.md](EFFECT.md); read it before touching or writing Effect code.
 

@@ -3,7 +3,6 @@ import os from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PlanUsage } from '@projectman/shared';
 import type { PlanUsageProvider } from '../../../contracts';
-import { runPromise } from '../../../kernel';
 import { probeWithin, type ProbeProcess } from './plan-usage-probe';
 import { resolveCommand } from '../../cli';
 import { buildChildEnv } from '../../env';
@@ -137,7 +136,7 @@ function probeUsage(claudeBin: string, env: Record<string, string>, timeoutMs: n
         child.kill('SIGKILL');
       },
     };
-    return runPromise(probeWithin(process, timeoutMs, KILL_AFTER_MS));
+    return probeWithin(process, timeoutMs, KILL_AFTER_MS);
   } catch (error) {
     return Promise.reject(error);
   }

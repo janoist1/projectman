@@ -825,7 +825,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   on recovery. The existing `provider.status` RPC carries the engine's cached status;
   the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
-  (Effect, PM-617).
+  (plain TypeScript, PM-1393).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
   For NanoGPT the cloud's key store decides whether the key is there (PM-736).

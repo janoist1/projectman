@@ -1092,7 +1092,9 @@ function describeEventBody(event: TimelineEvent, ctx: TimelineContext): Describe
         t(
           d.reason === 'member_removed'
             ? 'timeline.events.message_dropped_member_removed'
-            : 'timeline.events.message_dropped_place_closed',
+            : d.reason === 'expired'
+              ? 'timeline.events.message_dropped_expired'
+              : 'timeline.events.message_dropped_place_closed',
           { recipient: nameOf(str(d.recipient), ctx.members, ctx.myHandle) },
         ),
       );

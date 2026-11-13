@@ -12,6 +12,7 @@ import {
 } from '@projectman/shared';
 import { messageDroppedNotice } from '../../agent-text';
 import type { StoredMemberQueueItem } from '../../db';
+import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { MessageService, Messaging } from '../../core/messages';
 import { wakeFactsFor, wakesFor } from '../../core/messages';
@@ -25,6 +26,9 @@ import type { MemberQueueLane } from './lane';
 
 /** The hold code of a message the fix round limit held for an assignee who has been replaced meanwhile. */
 const STAYS_WITH_FORMER_ASSIGNEE = MEMBER_QUEUE_HOLD_CODES.fix_limit_reassigned;
+
+/** How long a message about no card that wakes nobody waits for its recipient's next session (PM-1446). */
+const CARDLESS_MESSAGE_WAIT_MS = 14 * 24 * 3_600_000;
 
 /** What the message lane needs of the rest of the server. */
 interface MessageLaneDeps {
@@ -89,6 +93,18 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
   const wakesDespiteStale = (message: TeamMessage, config: ProjectConfig, member: string): boolean =>
     messageWakes(message, wakeFactsFor(ctx, config, message, member), null);
 
+  /**
+   * Why a message that wakes nobody waits for a session in vain (PM-1446): its card is closed (or gone), or it is
+   * about no card and has waited `CARDLESS_MESSAGE_WAIT_MS`. Null: it may still be taken.
+   */
+  const staleCauseOf = (item: StoredMemberQueueItem, at: string): 'card_closed' | 'expired' | null => {
+    if (item.taskKey) {
+      const task = deps.tasks.find(item.projectKey, item.taskKey);
+      return task && isOpenTask(task) ? null : 'card_closed';
+    }
+    return Date.parse(at) - Date.parse(item.queuedAt) >= CARDLESS_MESSAGE_WAIT_MS ? 'expired' : null;
+  };
+
   return {
     kinds: ['message'],
     completion: 'delivery',
@@ -139,18 +155,26 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
     moved: (item, place) => {
       deps.messages.rerouteRecipient(item.source.id, item.member, place);
     },
+    expired: (item, at) => staleCauseOf(item, at) !== null,
     // The message ends here undelivered (PM-1248): the timeline says so, and an AI sender of an action hears it
-    // through an info message, which wakes nobody (decision 44).
+    // through an info message, which wakes nobody (decision 44). A stale one woke nobody and is only recorded:
+    // the notice would be a stale message itself (PM-1446). The system's own notices (that very one) going stale
+    // keep only their closed item, so a dropped message is not followed by a row about its notice.
     dropped: async (item, reason) => {
       const message = messageOf(item);
-      if (!message) return;
+      if (!message || (reason === 'stale' && message.from === SYSTEM_SENDER)) return;
       deps.timeline.append({
         projectKey: item.projectKey,
         taskKey: item.taskKey,
         actor: SYSTEM_ACTOR,
         type: 'message_dropped',
-        data: { messageId: message.id, recipient: item.member, reason },
+        data: {
+          messageId: message.id,
+          recipient: item.member,
+          reason: reason === 'stale' ? (staleCauseOf(item, isoNow(ctx)) ?? reason) : reason,
+        },
       });
+      if (reason === 'stale') return;
       const config = deps.projects.cachedConfig(item.projectKey);
       // A message of the system (or of a person) is not reported back: only the timeline knows.
       if (!config || memberOf(config, message.from)?.kind !== 'ai' || (message.kind ?? 'action') !== 'action')

@@ -190,8 +190,9 @@ describe('the member queue driver', () => {
 
     describe('a message dropped undelivered (PM-1248)', () => {
       const dropped = () => h.repos.timeline.ofProjectType('AR', 'message_dropped', 10);
+      // A notice about a closed card goes stale at once at the sender's desk (PM-1446): the sent message is read.
       const noticesTo = (member: string) =>
-        h.repos.messages.pending('AR', member).filter((m) => m.from === 'system');
+        h.repos.messages.sentSince('AR', ['system'], '').filter((m) => m.to.includes(member));
 
       it('writes message_dropped on the card and tells an AI sender of an action, waking nobody', async () => {
         const message = record('dev-2', 'AR-1', { from: 'dev-1' });
@@ -243,6 +244,85 @@ describe('the member queue driver', () => {
         expect(noticesTo('dev-1')).toHaveLength(1);
         expect(h.runner.started).toEqual([]);
       });
+    });
+  });
+
+  describe('a message no session will take (PM-1446)', () => {
+    const start = Date.parse('2026-11-01T10:00:00.000Z');
+    const day = 24 * 3_600_000;
+    let at = start;
+    beforeEach(async () => {
+      at = start;
+      h = await createDomainHarness({ now: () => new Date(at) });
+    });
+    const dropped = () => h.repos.timeline.ofProjectType('AR', 'message_dropped', 10);
+    /** An info message from an AI member to dev-2's desk: it wakes nobody and waits for dev-2's next desk session. */
+    const atDesk = (taskKey: string | null) =>
+      h.domain.messages.record({
+        projectKey: 'AR',
+        from: 'dev-1',
+        to: ['dev-2'],
+        taskKey,
+        body: 'Fictional news.',
+        kind: 'info',
+        routes: { 'dev-2': general },
+        actor: { kind: 'ai', handle: 'dev-1' },
+      });
+    const stateOf = (messageId: string) =>
+      h.repos.db
+        .prepare('SELECT state, close_reason AS reason FROM member_queue_items WHERE source_id = ?')
+        .get(messageId) as { state: string; reason: string | null };
+
+    it('ends the waiting messages about a card once it closes, and leaves those about an open card', async () => {
+      await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
+      await h.domain.tasks.create('AR', { title: 'Another fictional card' }, OWNER_ACTOR);
+      const closing = atDesk('AR-1');
+      const open = atDesk('AR-2');
+      await driver().sweep();
+      expect(items('dev-2')).toHaveLength(2);
+
+      await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
+      await driver().sweep();
+
+      expect(stateOf(closing.id)).toEqual({ state: 'cancelled', reason: 'stale' });
+      expect(stateOf(open.id)).toEqual({ state: 'queued', reason: null });
+      // The trace stays: the message, its open receipt and the timeline row; the sender is not told.
+      expect(h.repos.messages.get(closing.id)).not.toBeNull();
+      expect(dropped()).toEqual([
+        expect.objectContaining({
+          taskKey: 'AR-1',
+          data: { messageId: closing.id, recipient: 'dev-2', reason: 'card_closed' },
+        }),
+      ]);
+      expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
+      expect(h.runner.started).toEqual([]);
+    });
+
+    it('ends a message about no card after 14 days of waiting', async () => {
+      const message = atDesk(null);
+      at = start + 14 * day - 1;
+      await driver().sweep();
+      expect(stateOf(message.id)).toEqual({ state: 'queued', reason: null });
+
+      at = start + 14 * day;
+      await driver().sweep();
+      expect(stateOf(message.id)).toEqual({ state: 'cancelled', reason: 'stale' });
+      expect(dropped()).toEqual([
+        expect.objectContaining({
+          taskKey: null,
+          data: { messageId: message.id, recipient: 'dev-2', reason: 'expired' },
+        }),
+      ]);
+    });
+
+    it('leaves a message whose place has a live session, which takes it at its next turn', async () => {
+      const message = atDesk(null);
+      await h.domain.sessions.ensureSession('AR', 'dev-2', general);
+      at = start + 15 * day;
+      await driver().ensure('AR', 'dev-2', { deliver: false });
+
+      expect(stateOf(message.id)).toEqual({ state: 'queued', reason: null });
+      expect(dropped()).toEqual([]);
     });
   });
 

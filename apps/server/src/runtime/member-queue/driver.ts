@@ -459,6 +459,30 @@ export class MemberQueueWorker implements MemberQueueDriver {
         this.deps.sessions.findRunning(projectKey, member, sessionWorkItemOf(memberConfig, group[0]!.place)),
       );
 
+    // What wakes nobody, is held by nothing and has no live session at its place waits for the place's next
+    // session; when its lane says that one will not come (PM-1446), it ends here as stale.
+    const expired = entries.filter(
+      (e) =>
+        !e.wakes &&
+        !e.held &&
+        !running.get(placeKeyOf(memberConfig, e.place)) &&
+        e.lane.expired?.(e.item, at) === true,
+    );
+    if (expired.length > 0) {
+      for (const { item } of expired) this.close(item, 'cancelled', 'stale', at);
+      entries = entries.filter((e) => !expired.includes(e));
+      for (const [key, group] of places) {
+        const left = group.filter((e) => !expired.includes(e));
+        if (left.length > 0) places.set(key, left);
+        else places.delete(key);
+      }
+      changed = true;
+      await this.tellDropped(
+        expired.map(({ item }) => ({ item, reason: 'stale' })),
+        config,
+      );
+    }
+
     const memberKey = `${projectKey}\n${member}`;
     const { boundary: atBoundary, net } = run;
     for (const [key, group] of places) {

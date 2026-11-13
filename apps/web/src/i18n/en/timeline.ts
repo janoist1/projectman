@@ -350,6 +350,8 @@ export const timeline = {
       'A message did not reach its recipient ({recipient}): the card closed before it could be delivered.',
     message_dropped_member_removed:
       'A message did not reach its recipient ({recipient}): they left the team.',
+    message_dropped_expired:
+      'A message did not reach its recipient ({recipient}): it waited 14 days for their next session, so it was closed as stale.',
     obligation_handed_over:
       'The {step} ({responsible}) made no progress even after the reminder, so it became a to-do ({minutes|# minute|# minutes}).',
     obligation_handed_over_refused:

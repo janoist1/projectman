@@ -414,6 +414,13 @@ describe('a dropped team message on the timeline (PM-1248)', () => {
       t('timeline.events.message_dropped_member_removed', { recipient: 'dev-1' }),
     );
   });
+
+  it('says a message about no card went stale after its wait, and a stale one about a closed card like a closed card (PM-1446)', () => {
+    expect(row('expired')).toBe(t('timeline.events.message_dropped_expired', { recipient: 'dev-1' }));
+    expect(row('card_closed')).toBe(
+      t('timeline.events.message_dropped_place_closed', { recipient: 'dev-1' }),
+    );
+  });
 });
 
 describe('open-step reminders on the timeline (PM-806)', () => {

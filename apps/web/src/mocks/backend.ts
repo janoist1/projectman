@@ -10,6 +10,7 @@ import {
   ACCEPTANCE_OPEN_LABEL,
   ACCEPTANCE_UNCONFIRMED_LABEL,
   acceptanceLabels,
+  boardCard,
   acceptanceRefusal,
   pageCommentThreads,
   replyParentOf,
@@ -22,12 +23,10 @@ import {
   applyMemberEmailChange,
   emailMailboxTaken,
   superAccessVerdict,
-  superDecisionRefusal,
-  externalQuestionAnswerRefusal,
+  inboxResolveRefusal,
   isRelayableQuestionItem,
   isCoordinatorOnlySignal,
   humanInboxAssignment,
-  isIntegratorTodo,
   connectedActorOf,
   ownerReservedEffect,
   canonical,
@@ -115,12 +114,10 @@ import {
   aiLabelSetters,
   applyConfigPatch,
   unknownPatchRepo,
-  approvalRefusal,
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
   canSetTaskCover,
-  canResolveInboxItem,
   canSeeInboxItem,
   visibleQuestionItem,
   isPendingQuestion,
@@ -169,15 +166,19 @@ import {
   holdersAllow,
   isArchivedTheme,
   isBuiltInRole,
+  isBusySession,
   isLiveSession,
+  isWorkingSession,
   isOnLeave,
   isRequiredProjectManager,
   isOpenTask,
   isProjectManager,
   RETIRED_OPERATOR_HANDLE,
   cardBusyGroups,
+  cardStageOwners,
   cardWorkerSessions,
   openPrerequisites,
+  pickStageOwners,
   projectRefines,
   isWorkingOnTask,
   isSessionAtWork,
@@ -198,7 +199,6 @@ import {
   modelForProvider,
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
-  operatorApprovalOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -224,6 +224,7 @@ import {
   startBlock,
   subtaskParentRefusal,
   isTheme,
+  isCollectingTask,
   themeRefusal,
   taskSeq,
   taskWorkOf,
@@ -239,6 +240,9 @@ import {
   moveMerge,
   mergeRequestOf,
   ALERT_SEEN_OPTION,
+  TODO_DONE_OPTION,
+  TODO_CANNOT_OPTION,
+  systemNoticeOf,
   WorkOutageAlert,
   limitTokens,
   LOOP_LET_RUN_OPTION,
@@ -252,6 +256,7 @@ import {
   loopWatchOf,
   usageTotal,
   closedCardsSince,
+  cardReviewer,
   countCardRounds,
   countFixRounds,
   fixLimitDecisionOf,
@@ -354,7 +359,6 @@ import type {
   GateRequestPayload,
   InboxItem,
   MentionPayload,
-  OperatorApprovalPayload,
   OperatorRequestView,
   OperatorSignal,
   InvitationView as Invitation,
@@ -1903,9 +1907,8 @@ export class MockBackend {
   }
 
   /**
-   * An outage (PM-468): the open `work_outage` alert for the owners, `outage` on the AI members and
-   * on the cards that stand on it. Returns the alert. `endOutage` / a check that finds it healed
-   * (`outageRecovers`) closes it the way the server does.
+   * An outage on the members and cards. A pm affected by it gets an integrator todo through the shared rule.
+   * Other routes retain the legacy owner alert fixture so tests can exercise alerts left by older versions.
    */
   startOutage(outage: WorkOutage, members: readonly string[], tasks: readonly string[]): InboxItem {
     for (const handle of members) {
@@ -1921,23 +1924,78 @@ export class MockBackend {
       tasks: [...tasks],
       checkedAt: nowIso(),
     };
+    const pm = coordinationMemberOf(this.config);
+    const input = {
+      kind: 'alert:work_outage' as const,
+      topic: null,
+      requested: null,
+      issuerMachineAccess: true,
+      pm: pm ? ('available' as const) : ('none' as const),
+      outageAffectsPm: !!pm && members.includes(pm.handle),
+      integrator: false,
+      decider: false,
+    };
+    const route = routeItem(input);
+    const integrator = route.to === 'integrator_queue';
+    if (integrator) {
+      const existing = this.inbox.find((item) => {
+        const parsed = WorkOutageAlert.safeParse(item.payload.workOutage);
+        return item.state === 'open' && parsed.success && parsed.data.outage.id === outage.id;
+      });
+      if (existing) return existing;
+    }
     const item: InboxItem = {
       id: mockId('inb'),
       projectKey: fixtures.PROJECT_KEY,
-      kind: 'alert',
+      kind: integrator ? 'question' : 'alert',
       assignees: boundaryOwners(this.config),
       source: 'system',
       sessionId: null,
       taskKey: null,
       title: 'Work is stopped by an outage',
       body: null,
-      payload,
-      options: [ALERT_SEEN_OPTION],
+      payload: integrator
+        ? {
+            question: 'Restore the provider login or setup, or reconnect the engine.',
+            recipient: 'integrator',
+            requestedRecipient: 'integrator',
+            integratorOpenedAt: nowIso(),
+            screening: {
+              at: nowIso(),
+              by: 'system',
+              outcome: 'todo',
+              todo: {
+                recipient: 'integrator',
+                what: 'Restore the provider login or setup, or reconnect the engine.',
+                where: outage.engine?.name ?? 'Engine machine',
+                expected: 'Waiting work resumes.',
+              },
+            },
+            systemAlert: { alert: 'work_outage', key: outage.id },
+            workOutage: payload,
+          }
+        : payload,
+      options: integrator ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : [ALERT_SEEN_OPTION],
+      route: itemRouteRecord(input, route),
       state: 'open',
       resolution: null,
       createdAt: nowIso(),
     };
     this.upsertInbox(item);
+    if (integrator) {
+      const notice = systemNoticeOf(payload)!;
+      this.sendTeamMessage(
+        'system',
+        boundaryOwners(this.config),
+        null,
+        notice.text,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'system_notice', notice: notice.notice, params: notice.params } },
+      );
+    }
     return item;
   }
 
@@ -2062,7 +2120,9 @@ export class MockBackend {
   endOutage(itemId: string): InboxItem | undefined {
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!item || item.state !== 'open') return undefined;
-    const alert = WorkOutageAlert.safeParse(item.payload);
+    const alert = WorkOutageAlert.safeParse(
+      item.kind === 'question' ? item.payload.workOutage : item.payload,
+    );
     if (alert.success) {
       for (const handle of alert.data.members) {
         const member = this.findMember(handle);
@@ -2075,7 +2135,7 @@ export class MockBackend {
       ...item,
       state: 'resolved',
       resolution: {
-        optionId: ALERT_SEEN_OPTION.id,
+        optionId: item.kind === 'question' ? TODO_DONE_OPTION.id : ALERT_SEEN_OPTION.id,
         by: 'system',
         at: nowIso(),
         note: null,
@@ -2158,7 +2218,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: clone(this.tasks),
+      tasks: clone(this.tasks).map(boardCard),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) =>
@@ -2814,8 +2874,7 @@ export class MockBackend {
         swapUsedBytes: 0,
         swapTotalBytes: 0,
         sessionsRunning: live.length,
-        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
-          .length,
+        sessionsWorking: live.filter(isWorkingSession).length,
       },
       sessions: live.map((session, index) => ({
         sessionId: session.id,
@@ -3398,8 +3457,7 @@ export class MockBackend {
               (item) =>
                 inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
-                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
-                (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+                (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)),
             )
             .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
@@ -4330,6 +4388,7 @@ export class MockBackend {
     });
     return taskWait({
       task,
+      subtasks: this.tasks,
       config: this.config,
       openItems: this.inbox.filter((item) => item.taskKey === task.key && item.state === 'open'),
       workers: waitWorkers(task, this.config, roster),
@@ -4707,7 +4766,17 @@ export class MockBackend {
     const cards = this.tasks
       .filter((task) => isClosedSince(task, since))
       .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1))
-      .map((task) => measureClosedCard(task, this.taskSessions(task.key), this.cardRounds(task.key)));
+      .map((task) =>
+        measureClosedCard(
+          task,
+          this.taskSessions(task.key),
+          this.cardRounds(task.key),
+          cardReviewer(
+            this.timeline.filter((event) => event.taskKey === task.key),
+            this.config,
+          ),
+        ),
+      );
     return { since, days, cards: clone(cards) };
   }
 
@@ -5705,7 +5774,9 @@ export class MockBackend {
     placement?: BoardPlacement,
   ): void {
     const from = task.stageId;
-    const patch: Partial<Task> = { stageId: target.id };
+    // The mock reads no branch: a rule with central paths cannot tell what changed (`no_branch`).
+    const pick = pickStageOwners(this.config, target, task);
+    const patch: Partial<Task> = { stageId: target.id, stageOwnerPick: pick };
     if (from !== target.id) patch.stageEnteredAt = nowIso();
     if (target.kind === 'done') Object.assign(patch, { status: 'done', closedAt: nowIso() });
     else if (task.status === 'done' || task.status === 'waiting')
@@ -5714,7 +5785,20 @@ export class MockBackend {
     // Into another column the card takes a place (the top unless the drop said where).
     if (boardColumnOf(stageOf(this.config, from)) !== boardColumnOf(target))
       this.enterColumn(task, placement);
-    this.addTimeline(task.key, actor.handle, 'task_stage_changed', { from, to: target.id, ...extra });
+    this.addTimeline(task.key, actor.handle, 'task_stage_changed', {
+      from,
+      to: target.id,
+      ...extra,
+      ...(pick
+        ? {
+            ownerPick: {
+              small: pick.small,
+              reason: pick.reason,
+              owners: cardStageOwners(this.config, target, { ...task, stageOwnerPick: pick }),
+            },
+          }
+        : {}),
+    });
     if (stageIndex(this.config.pipeline, target.id) < stageIndex(this.config.pipeline, from))
       this.expireLabels(task, 'moved_back');
     // Requests made from the previous stage are stale now.
@@ -6041,6 +6125,8 @@ export class MockBackend {
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    if (isCollectingTask(task, this.tasks))
+      return error(409, 'collecting_task_not_startable', 'The work happens on the open sub-cards');
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     // Like the server: a person's Start of a card that is not ready to start is refused first (PM-291).
     const block = workStage ? startBlock(task, this.config) : null;
@@ -6718,13 +6804,7 @@ export class MockBackend {
     if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
       return 'previous_run_live';
     if (this.memberLoad(member.handle) >= member.capacity) return 'member_at_capacity';
-    if (
-      aiLimitReached(
-        this.config,
-        live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length,
-      )
-    )
-      return 'ai_limit_reached';
+    if (aiLimitReached(this.config, live.filter(isBusySession).length)) return 'ai_limit_reached';
     // Like the server: after the AI limit, before the plan usage (PM-324).
     if (provider === 'nanogpt') {
       const status = this.providerStatus.nanogpt;
@@ -6756,7 +6836,7 @@ export class MockBackend {
     if (!task || !isOpenTask(task) || isTheme(task)) return null;
     const stage = stageOf(this.config, task.stageId);
     const workers = cardWorkerSessions(
-      stage && { kind: stage.kind, owners: stageOwners(this.config, stage) },
+      stage && { kind: stage.kind, owners: cardStageOwners(this.config, stage, task) },
       task,
       this.sessions,
     );
@@ -6852,7 +6932,8 @@ export class MockBackend {
   }
 
   private flushTeamMessages(session: Session): void {
-    if (!['idle', 'waiting_input'].includes(session.state)) return;
+    // Not one of the shared groups (busy, engaged, live, working): the states that take a queued message.
+    if (session.state !== 'idle' && session.state !== 'waiting_input') return;
     // Held while the team is paused; the resume flushes them.
     if (this.pauses.isPaused()) return;
     for (const message of this.messages) {
@@ -7095,53 +7176,6 @@ export class MockBackend {
     return ok(clone(signal));
   }
 
-  /**
-   * An Operator proposal decided in the inbox. Approving after the configuration moved on makes the item stale
-   * (the server's 409 `operator_approval_stale`, the card then offers only "Rendben"); "dismiss" closes a stale one.
-   */
-  private resolveOperatorApproval(
-    item: InboxItem,
-    payload: OperatorApprovalPayload,
-    optionId: string,
-    by: string,
-  ): MockResponse {
-    const step = this.operatorRequests
-      .flatMap((request) => request.steps)
-      .find((candidate) => candidate.id === payload.stepId);
-    if (step && step.status !== 'awaiting_approval' && !payload.stale)
-      return error(409, 'operator_approval_used', 'The proposal has already been consumed');
-    const expired = !!payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now();
-    if (
-      optionId === 'approve' &&
-      (payload.stale ||
-        expired ||
-        (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
-    ) {
-      this.upsertInbox({
-        ...item,
-        options: [OPERATOR_DISMISS_OPTION],
-        payload: {
-          ...item.payload,
-          operator: {
-            ...payload,
-            stale: payload.stale ?? { reason: expired ? 'expired' : 'config_changed', at: nowIso() },
-          },
-        },
-      });
-      if (step) step.status = 'stale';
-      return error(409, 'operator_approval_stale', 'The proposal is out of date');
-    }
-    if (step)
-      step.status = optionId === 'approve' ? 'approved' : optionId === 'reject' ? 'rejected' : 'stale';
-    const resolved: InboxItem = {
-      ...item,
-      state: 'resolved',
-      resolution: { optionId, by, at: nowIso(), note: null },
-    };
-    this.upsertInbox(resolved);
-    return ok(clone(resolved));
-  }
-
   private startConversation(handle: string): MockResponse {
     if (!['owner', 'admin', 'developer'].includes(this.findMember(this.viewerHandle)?.role ?? ''))
       return error(403, 'insufficient_access', 'Developer access required');
@@ -7369,7 +7403,7 @@ export class MockBackend {
       const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
       this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
       this.machine.summary.sessionsRunning--;
-      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      if (isWorkingSession(row)) this.machine.summary.sessionsWorking--;
       this.machine.closedSessions++;
     }
     return ok();
@@ -7451,52 +7485,37 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
-    const pending = this.inbox.find((item) => item.id === itemId);
-    if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
-      return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');
-    if (this.integratorMode && pending && !['question', 'alert'].includes(pending.kind)) {
-      const verdict = superAccessVerdict(this.config, {
-        mode: this.integratorMode,
-        operation: 'approval',
-        ownerMembership: this.viewerAccess() === 'owner',
-      });
-      if (!verdict.allowed) return error(403, verdict.code, 'A human decision is required');
-    }
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
     if (!item || !canSeeInboxItem(this.taskViewer(), item))
       return error(404, 'not_found', 'Unknown inbox item');
-    if (input.attachmentIds !== undefined && item.kind !== 'question')
-      return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
-    if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
-    let relayed = false;
-    if (this.integratorMode === 'super') {
-      const group = questionPayloadOf(item)?.group;
-      const members = [
-        item,
-        ...(group?.itemIds ?? []).flatMap((id) => {
-          const row = this.inbox.find((entry) => entry.id === id);
-          return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
-        }),
-      ];
-      for (const member of members) {
-        const refusal = superDecisionRefusal(member, {
-          operatorHandle: RETIRED_OPERATOR_HANDLE,
-          sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
-        });
-        const question = member.kind === 'question' ? member.payload : null;
-        if (refusal || (question && externalQuestionAnswerRefusal(question, { via: 'integrator' })))
-          return error(403, 'owner_approval_required', 'A person must decide this item');
-      }
-      relayed = members.every(isRelayableQuestionItem);
-    }
-    if (!item.options.some((option) => option.id === input.optionId)) {
-      return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
-    }
-    const viewer = memberOf(this.config, this.viewerHandle);
-    if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
-    const operatorApproval = operatorApprovalOf(item);
+    const groupMembers = (questionPayloadOf(item)?.group?.itemIds ?? []).flatMap((id) => {
+      const row = this.inbox.find((entry) => entry.id === id);
+      return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
+    });
+    const refusal = inboxResolveRefusal(
+      item,
+      input,
+      {
+        handle: this.viewerHandle,
+        access: this.viewerAccess(),
+        ...(this.integratorMode ? { via: 'integrator' as const } : {}),
+        ...(this.integratorMode === 'super' ? { superActor: this.viewerActor() } : {}),
+      },
+      {
+        config: this.config,
+        credential: this.integratorMode
+          ? { mode: this.integratorMode, boundOrigin: this.integratorMode === 'super' }
+          : null,
+        groupMembers,
+        sessionMemberOf: (row) => this.sessions.find((session) => session.id === row.sessionId)?.member,
+        task: item.taskKey ? (this.findTask(item.taskKey) ?? null) : null,
+      },
+    );
+    if (refusal) return error(refusal.status, refusal.code, refusal.message, refusal.details);
+    const relayed = this.integratorMode === 'super' && [item, ...groupMembers].every(isRelayableQuestionItem);
+    const viewer = memberOf(this.config, this.viewerHandle)!;
     const knowledge = operatorKnowledgeApprovalOf(item);
     if (knowledge) {
       if (this.viewerAccess() !== 'owner')
@@ -7551,19 +7570,6 @@ export class MockBackend {
       this.upsertInbox(resolved);
       return ok(clone(resolved));
     }
-    if (operatorApproval) {
-      if (!canResolveInboxItem(viewer, item))
-        return error(403, 'not_an_assignee', 'Only assignees may decide');
-      return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
-    }
-    const gate = item.kind === 'decision' && input.optionId === 'approve' ? gateRequestOf(item) : null;
-    if (gate?.label) {
-      // Approving puts the label on in the approver's name: the label rules apply up front.
-      const task = item.taskKey ? (this.findTask(item.taskKey) ?? null) : null;
-      const refusal = approvalRefusal(this.config, gate.label, viewer.handle, task);
-      if (refusal) return error(403, refusal, 'The approval is not allowed');
-    }
-    if (!canResolveInboxItem(viewer, item)) return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
     const attached = (input.attachmentIds ?? []).map((id) =>
       this.messageAttachments.find((file) => file.id === id),
@@ -7579,16 +7585,6 @@ export class MockBackend {
       )
     )
       return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
-    if (attached.length && memberOf(this.config, item.source)?.kind !== 'ai')
-      return error(400, 'invalid_request', 'Only AI questions accept attachments', {
-        field: 'attachmentIds',
-      });
-    if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
-      return error(400, 'answer_required', 'A free-text answer needs a note');
-    }
-    if (item.kind === 'question' && input.optionId === 'todo_cannot' && !note) {
-      return error(400, 'todo_reason_required', 'A todo that cannot be done needs a reason');
-    }
     if (item.kind === 'hand_on') {
       // Taking the card on is a move under the gates: refused, the item stays open.
       const request = handOnRequestOf(item);
@@ -7606,8 +7602,6 @@ export class MockBackend {
       const started = this.startMerge(request.taskKey);
       if (started.status >= 400) return started;
     }
-    if (item.kind === 'release')
-      return error(409, 'inbox_item_closed', 'Release approvals have been retired');
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',

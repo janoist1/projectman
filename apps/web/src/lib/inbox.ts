@@ -10,7 +10,6 @@ import {
   QuestionCloseRule,
   questionPayloadOf,
   isLinkedQuestion,
-  releaseApprovalOf,
   seniorWaitDecisionOf,
   emailApprovalOf,
 } from '@projectman/shared';
@@ -90,7 +89,6 @@ export function inboxHeading(item: InboxItem): string {
     return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
       key: merge.taskKey,
     });
-  if (releaseApprovalOf(item)) return t('inbox.release.title');
   if (emailApprovalOf(item)) return t('inbox.email.title');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');

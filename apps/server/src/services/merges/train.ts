@@ -38,6 +38,7 @@ import {
   checkRetryNote,
   checkInfraMessage,
   checkFallbackNote,
+  holdsRepoQueue,
 } from './check-retry';
 import type { MergeCheckRetry } from './check-retry';
 import type { MergeSteps } from './steps';
@@ -112,10 +113,15 @@ export class MergeTrains {
         return;
       }
     }
-    const leader = this.rows(train)[0]!;
-    if (this.deps.ctx.repos.mergeTrains.get(train.id)?.state === 'merged' || leader.state === 'merged')
-      return;
-    this.steps.save(leader, { state: 'queued' });
+    if (this.deps.ctx.repos.mergeTrains.get(train.id)?.state === 'merged') return;
+    // A member that left the train (blamed alone, merged, cancelled) cannot lead it: the first one still in it does.
+    const open: MergeRecord['state'][] =
+      train.state === 'blocked' ? ['running', 'queued', 'blocked'] : ['running', 'queued'];
+    const leader = this.rows(train).find((row) => row.trainId === train.id && open.includes(row.state));
+    if (leader) this.steps.save(leader, { state: 'queued' });
+    // No member is left in a running manifest: it retires, or it would hold the repository's single train slot.
+    else if (train.state === 'running')
+      this.save(train, { state: 'cancelled', finishedAt: isoNow(this.deps.ctx) });
   }
 
   resume(run: MergeRun): boolean {
@@ -232,6 +238,8 @@ export class MergeTrains {
       }
       if (eligible && !solo) {
         const base = await merger!.prepare(this.steps.ref(row), { base: row.base, commit: row.commit! });
+        // The remote answered: the row no longer holds the repository's queue.
+        if (holdsRepoQueue(row)) this.steps.save(row, { retry: undefined });
         // Reconcile existing work individually before attributing any new train work.
         solo = base.contains.local || base.contains.remote === true;
       }
@@ -387,13 +395,20 @@ export class MergeTrains {
    */
   private async requeue(
     train: MergeTrainRecord,
-    options: { maxCards?: number | null; note?: (taskKey: string) => string; retry?: MergeCheckRetry } = {},
+    options: {
+      maxCards?: number | null;
+      note?: (taskKey: string) => string;
+      retry?: MergeCheckRetry;
+      /** Runs in the same unit of work, before the survivors are requeued (the rows it settles are not). */
+      settle?: () => void;
+    } = {},
   ): Promise<void> {
     const { ctx } = this.deps;
     const maxCards = options.maxCards === undefined ? Math.ceil(train.members.length / 2) : options.maxCards;
     await this.lock(this.rows(train), async () => {
       ctx.unitOfWork(() => {
         if (ctx.repos.mergeTrains.get(train.id)?.state !== 'running') return;
+        options.settle?.();
         this.save(train, { state: 'failed', finishedAt: isoNow(ctx) });
         for (const row of this.rows(train)) {
           const member = train.members.find((m) => m.mergeId === row.id)!;
@@ -460,12 +475,71 @@ export class MergeTrains {
     const command = mergeTestFilesCommand(filesCommand, group.failedFiles);
     const ref = { projectKey: train.projectKey, repo: train.repo };
     const paths = engine.paths();
+    const onto = train.onto;
     // The group's own checkout is not needed again; the lone checkouts take its place.
     await merger
       .releaseCheck(ref, { mergeId: train.id })
       .catch((err: unknown) =>
         ctx.logger.warn({ err, trainId: train.id }, 'could not release a merge train checkout'),
       );
+    // One files-only run of a commit in its own checkout. `undefined`: it could not be tried (unknown, not
+    // guilty); `'stopped'`: the train was stopped meanwhile.
+    const loneRun = async (
+      mergeCommit: string,
+      taskKeys: string[],
+      what: string,
+    ): Promise<{ runId: string; result: FullTestResult } | 'stopped' | undefined> => {
+      const mergeId = newId('mrg');
+      const runId = newId('mergecheck');
+      try {
+        const prepared = await prepareMergeCheck(merger, {
+          ref,
+          mergeId,
+          mergeCommit,
+          base: train.base,
+          depsFrom: null,
+          runner,
+          github,
+          files: group.failedFiles,
+          checkSandbox: this.deps.checkSandbox,
+          paths,
+        });
+        if (!(await this.checkpoint(run))) return 'stopped';
+        const result = await recordMergeCheck(
+          ctx,
+          {
+            id: runId,
+            projectKey: train.projectKey,
+            repo: train.repo,
+            kind: 'diagnose',
+            trainId: train.id,
+            taskKeys,
+            commit: mergeCommit,
+            base: onto,
+            maxWorkers: train.reviewTest.maxWorkers,
+            runner,
+          },
+          (markStarted) =>
+            executor.run(
+              prepared.spec({ runId, command, reviewTest: train.reviewTest }),
+              run.signal ?? new AbortController().signal,
+              markStarted,
+              { linkWaitMs: MERGE_ENGINE_WAIT_MS },
+            ),
+        );
+        return { runId, result };
+      } catch (err) {
+        if (isEngineLinkLost(err)) throw err;
+        ctx.logger.warn({ err, trainId: train.id }, `could not run the lone check of ${what}`);
+        return undefined;
+      } finally {
+        await merger
+          .releaseCheck(ref, { mergeId })
+          .catch((err: unknown) =>
+            ctx.logger.warn({ err, mergeId }, 'could not release a lone train member checkout'),
+          );
+      }
+    };
     const blamed: {
       member: MergeTrainRecord['members'][number];
       failure: MergeFailure;
@@ -489,57 +563,11 @@ export class MergeTrains {
       }
       if (!(await this.checkpoint(run))) return true;
       if (!built.ok) continue;
-      const mergeId = newId('mrg');
-      const runId = newId('mergecheck');
-      let result: FullTestResult;
-      try {
-        const prepared = await prepareMergeCheck(merger, {
-          ref,
-          mergeId,
-          mergeCommit: built.mergeCommit,
-          base: train.base,
-          depsFrom: null,
-          runner,
-          github,
-          files: group.failedFiles,
-          checkSandbox: this.deps.checkSandbox,
-          paths,
-        });
-        if (!(await this.checkpoint(run))) return true;
-        result = await recordMergeCheck(
-          ctx,
-          {
-            id: runId,
-            projectKey: train.projectKey,
-            repo: train.repo,
-            kind: 'diagnose',
-            trainId: train.id,
-            taskKeys: [member.taskKey],
-            commit: built.mergeCommit,
-            base: train.onto,
-            maxWorkers: train.reviewTest.maxWorkers,
-            runner,
-          },
-          (markStarted) =>
-            executor.run(
-              prepared.spec({ runId, command, reviewTest: train.reviewTest }),
-              run.signal ?? new AbortController().signal,
-              markStarted,
-              { linkWaitMs: MERGE_ENGINE_WAIT_MS },
-            ),
-        );
-      } catch (err) {
-        if (isEngineLinkLost(err)) throw err;
-        // A member that cannot be tried alone stays unknown, not guilty.
-        ctx.logger.warn({ err, mergeId: member.mergeId }, 'could not run the lone check of a train member');
-        continue;
-      } finally {
-        await merger
-          .releaseCheck(ref, { mergeId })
-          .catch((err: unknown) =>
-            ctx.logger.warn({ err, mergeId }, 'could not release a lone train member checkout'),
-          );
-      }
+      // A member that cannot be tried alone stays unknown, not guilty.
+      const lone = await loneRun(built.mergeCommit, [member.taskKey], `train member ${member.taskKey}`);
+      if (lone === 'stopped') return true;
+      if (!lone) continue;
+      const { runId, result } = lone;
       if (!(await this.checkpoint(run))) return true;
       if (result.outcome === 'error' && result.reason === 'engine_offline')
         throw new EngineLinkLostError('the merge check lost the card engine', true);
@@ -567,24 +595,63 @@ export class MergeTrains {
       );
     }
     if (blamed.length === 0) return false;
-    const names = blamed.map(({ member }) => member.taskKey).join(', ');
-    for (const { member, failure, url } of blamed) {
-      const row = ctx.repos.taskMerges.get(member.mergeId);
-      if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
-      // The failure is the card's own now: leave the train so the merger gets the individual instruction.
-      this.steps.save(row, {
-        trainId: undefined,
-        check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
-      });
-      await this.steps.fail(row, config, failure);
+    // Every member (or several with the same files) failing the same files may mean the default branch fails
+    // them itself: run them on it alone before any card is failed for a break that is not its own.
+    const fileSets = blamed.map(({ failure }) => [...(failure.files ?? [])].sort().join('\n'));
+    if (
+      blamed.length === train.members.length ||
+      fileSets.some((set, index) => fileSets.indexOf(set) !== index)
+    ) {
+      const base = await loneRun(train.onto, [], `the default branch ${train.base}`);
+      if (base === 'stopped') return true;
+      if (base) {
+        if (!(await this.checkpoint(run))) return true;
+        if (base.result.outcome === 'error' && base.result.reason === 'engine_offline')
+          throw new EngineLinkLostError('the merge check lost the card engine', true);
+        const baseFailed = new Set(base.result.failedFiles);
+        if (
+          base.result.outcome === 'failed' &&
+          blamed.every(({ failure }) => (failure.files ?? []).every((file) => baseFailed.has(file)))
+        ) {
+          ctx.logger.info(
+            { trainId: train.id, runId: base.runId, files: [...baseFailed] },
+            'merge train diagnose: the default branch fails the files alone',
+          );
+          await this.terminal(
+            run,
+            'check_error',
+            `The group check failed on ${group.failedFiles.join(', ')}, and the default branch ${train.base} (${train.onto}) fails them alone too; the cause is not in the cards of this train.`,
+            base.result.outputTail.slice(-8000),
+          );
+          return true;
+        }
+      }
     }
+    const names = blamed.map(({ member }) => member.taskKey).join(', ');
+    // The blamed rows and the requeue of the others are one unit of work: a crash between them would leave the
+    // manifest `running` without a run. The notifications follow it.
+    const failed: MergeRecord[] = [];
     await this.requeue(train, {
       maxCards: null,
+      settle: () => {
+        for (const { member, failure, url } of blamed) {
+          const row = ctx.repos.taskMerges.get(member.mergeId);
+          if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
+          // The failure is the card's own now: leave the train so the merger gets the individual instruction.
+          this.steps.save(row, {
+            trainId: undefined,
+            check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
+          });
+          this.steps.markFailed(row, failure);
+          failed.push(row);
+        }
+      },
       note: (taskKey) =>
         `Merge train ${train.id} failed on ${group.failedFiles.join(', ')}; ${names} failed them alone, this card ${
           passedAlone.includes(taskKey) ? 'passed them alone' : 'could not be told apart alone'
         } and keeps its place in the queue.`,
     });
+    for (const row of failed) await this.steps.notify(row, config);
     return true;
   }
 
@@ -861,6 +928,7 @@ export class MergeTrains {
         const previous = this.rows(train)
           .map((row) => row.retry)
           .filter((retry) => retry !== undefined)
+          .filter((retry) => retry.cause !== 'remote_unreachable')
           .sort((a, b) => b.attempt - a.attempt)[0];
         const latestGithub = ctx.repos.mergeCheckRuns.latestGithub(train.projectKey, train.repo);
         const available = await chooseMergeCheckRunner(engine, {

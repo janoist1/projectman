@@ -140,6 +140,10 @@ describe('commands that run without asking: the rules the section lists', () => 
     'git add /etc/passwd',
     'git -C /elsewhere status',
     'git -c core.pager=x log',
+    // `-O` runs a program, inside a short option cluster too.
+    'git grep -lOrm x',
+    "git grep -nO'sh x.sh' x",
+    'git grep -3Orm x',
     'git merge --ff-only feature',
     // A routine step allows only a first `cd` to the working directory itself.
     'cd backend && npx vitest run && git add -A',

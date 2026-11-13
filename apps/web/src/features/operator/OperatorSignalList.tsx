@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { OperatorSignal, TeamMessage } from '@projectman/shared';
@@ -20,11 +20,14 @@ export function OperatorSignalList({
   message,
   operatorHandle,
   readOnly,
+  unreadMark,
 }: {
   signals: OperatorSignal[];
   message: TeamMessage;
   operatorHandle: string;
   readOnly: boolean;
+  /** The unread label of the summary message, shown in the card's header. */
+  unreadMark?: ReactNode;
 }) {
   const titleId = useId();
   const card = useRef<HTMLElement>(null);
@@ -56,6 +59,7 @@ export function OperatorSignalList({
       <div className={styles.head}>
         <Icon name="bell" size={14} strokeWidth={2.2} />
         <span>{t('operator.signal.raised', { time: formatTime(message.createdAt) })}</span>
+        {unreadMark}
       </div>
       <div className={styles.body}>
         <Markdown text={message.body} />

@@ -1,7 +1,9 @@
 import {
   effectiveRepo,
   isTheme,
+  mergeGateLabels,
   needsRepoChoice,
+  teamSettingOf,
   TaskStatus as TaskStatusSchema,
   withoutCommentHistory,
 } from '@projectman/shared';
@@ -15,6 +17,7 @@ import type {
   AddRelationRef,
   ComplexityRequest,
   RelationsChange,
+  ReviewMergeOutcome,
 } from '@projectman/shared';
 import { taskWaitShort } from '../../agent-text';
 import { TeamToolError } from '../../contracts';
@@ -31,6 +34,7 @@ import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
 import { canSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
 import type { Viewer } from '../../core/projects';
+import type { Merges } from '../../services/merges';
 import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService, TaskWaits } from '../../core/tasks';
@@ -43,6 +47,8 @@ import type { TaskToolsHandler } from '../../contracts';
 const ATTACHMENTS_IN_TASK = 20;
 /** Merge checks get_task shows (PM-876); the rest are read with list_merge_checks. */
 const MERGE_CHECKS_IN_TASK = 3;
+/** How long update_task waits to tell the merger what their approval did to the merge (PM-1379). */
+const REVIEW_OUTCOME_WAIT_MS = 4000;
 export class TaskTools implements TaskToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
@@ -56,6 +62,7 @@ export class TaskTools implements TaskToolsHandler {
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly closer: Pick<SessionCloser, 'workReturned'>;
+  private readonly merges: Pick<Merges, 'reviewOutcome'>;
   constructor(deps: {
     calls: ToolCaller;
     ctx: DomainContext;
@@ -77,6 +84,7 @@ export class TaskTools implements TaskToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     closer: Pick<SessionCloser, 'workReturned'>;
+    merges: Pick<Merges, 'reviewOutcome'>;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -87,6 +95,7 @@ export class TaskTools implements TaskToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.taskWaits = deps.taskWaits;
     this.closer = deps.closer;
+    this.merges = deps.merges;
   }
   async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
     return this.calls.guard(async () => {
@@ -373,7 +382,8 @@ export class TaskTools implements TaskToolsHandler {
         { sessionId: ctx.sessionId },
       );
       await this.markWorkReturned(ctx, task, args.addLabels);
-      return { task };
+      const mergeAfterReview = await this.mergeAfterReview(ctx, config, task, args);
+      return { task, ...(mergeAfterReview ? { mergeAfterReview } : {}) };
     } catch (err) {
       if (err instanceof DomainError && err.code === 'approval_requested') {
         const { approvers } = err.details as { approvers: string[] };
@@ -388,6 +398,36 @@ export class TaskTools implements TaskToolsHandler {
         );
       }
       throw err;
+    }
+  }
+
+  /**
+   * What the approval just added did to the card's merge (PM-1379), for the merger's reply. Asked only when the
+   * setting is on and the call added a label the merge target's gate asks for; waits a few seconds, then says
+   * it is still being decided (`pending`). Never fails the call.
+   */
+  private async mergeAfterReview(
+    ctx: ToolContext,
+    config: ProjectConfig,
+    task: Task,
+    args: Parameters<TaskToolsHandler['updateTask']>[1],
+  ): Promise<ReviewMergeOutcome | 'pending' | null> {
+    if (args.stageId || !teamSettingOf(config, 'mergeAfterReview')) return null;
+    const approvals = mergeGateLabels(config);
+    if (!args.addLabels?.some((label) => approvals.includes(label))) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.merges.reviewOutcome(ctx.projectKey, task.key, aiActor(ctx.member)),
+        new Promise<'pending'>((resolve) => {
+          timer = setTimeout(() => resolve('pending'), REVIEW_OUTCOME_WAIT_MS);
+        }),
+      ]);
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read what the approval did to the merge');
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

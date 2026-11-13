@@ -17,6 +17,7 @@ import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_
 import {
   DEVELOPER_LEVEL_REFUSED,
   defineTool,
+  PM_ONLY,
   type TeamToolGroup,
   unique,
   taskKeyInput,
@@ -183,7 +184,10 @@ async function runUpdateTask<C>({
   C,
   UpdateTaskArgs,
   {
-    updateTask(ctx: C, args: Parameters<TaskToolsHandler['updateTask']>[1]): Promise<{ task: Task }>;
+    updateTask(
+      ctx: C,
+      args: Parameters<TaskToolsHandler['updateTask']>[1],
+    ): Promise<Awaited<ReturnType<TaskToolsHandler['updateTask']>>>;
     listMembers(ctx: C): Promise<MemberView[]>;
   }
 >) {
@@ -236,7 +240,7 @@ async function runUpdateTask<C>({
     add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
     remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
   };
-  const { task } = await handler.updateTask(ctx, {
+  const { task, mergeAfterReview } = await handler.updateTask(ctx, {
     taskKey,
     ...(stageId ? { stageId } : {}),
     ...(addLabels?.length ? { addLabels } : {}),
@@ -273,6 +277,7 @@ async function runUpdateTask<C>({
     description: !!description,
     repo,
     relations,
+    ...(mergeAfterReview ? { mergeAfterReview } : {}),
   });
 }
 
@@ -409,7 +414,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .max(500)
           .optional()
           .describe(
-            'Why the hand-over check could not run (e.g. the sandbox refused it).',
+            'Why the hand-over check could not run on your committed work (e.g. the sandbox refused it). ' +
+              'With stage_id the move into review goes on; alone it covers your current commit for the next ' +
+              'hand-over or review round. Not for a failing check.',
           ),
         reply_to: z.string().max(100).optional().describe('Comment event id: reply to it.'),
         title: z
@@ -475,6 +482,11 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               'project manager when team.prerequisiteOverride allows it; otherwise the start waits.',
           ),
         acceptance: z.array(acceptanceChangeInput).max(20).optional().describe(ACCEPTANCE_HELP),
+      },
+      // The reason for a hand-over check that could not run is the developer's (PM-1380).
+      fieldAudience: {
+        despite_prerequisites: PM_ONLY,
+        handover_check_exception: { duties: ['implementation'] },
       },
       external: { access: 'write', run: runUpdateTask },
       run: runUpdateTask,

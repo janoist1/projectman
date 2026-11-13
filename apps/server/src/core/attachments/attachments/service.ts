@@ -26,6 +26,7 @@ import type { AttachmentRecord } from '../../../db';
 import { isoNow } from '../../base';
 import type { DomainContext } from '../../base';
 import { DomainError, forbidden, notFound } from '../../../kernel';
+import type { Sweep } from '../../../kernel';
 import type { ProjectService } from '../../projects';
 import type { TaskService } from '../../tasks';
 import type { TimelineService } from '../../timeline';
@@ -368,15 +369,17 @@ export class AttachmentService implements AttachmentOperations {
     return swept;
   }
 
-  startSweeping(): () => void {
-    const run = () =>
-      void this.sweepUnsentComments().catch((err: unknown) =>
-        this.ctx.logger.warn({ err }, 'comment attachment sweep failed'),
-      );
-    run();
-    const timer = setInterval(run, 60 * 60_000);
-    timer.unref();
-    return () => clearInterval(timer);
+  /** The kernel sweep of the unsent uploads: now and then hourly (PM-1394). */
+  unsentSweep(): Sweep {
+    return {
+      name: 'comment-attachments',
+      everyMs: 60 * 60_000,
+      atStart: true,
+      run: async () => {
+        await this.sweepUnsentComments();
+      },
+      onError: (err) => this.ctx.logger.warn({ err }, 'comment attachment sweep failed'),
+    };
   }
 
   /** The acting member's current standing on the task; 404 for an unknown task. */

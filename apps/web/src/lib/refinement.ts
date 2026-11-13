@@ -7,7 +7,7 @@ import {
   REFINE_LABEL,
   stageIndex,
 } from '@projectman/shared';
-import type { ProjectConfig, Task } from '@projectman/shared';
+import type { BoardCard, ProjectConfig } from '@projectman/shared';
 import { viewerLabelRefusal } from './labels';
 
 type RefinementConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
@@ -17,7 +17,7 @@ type RefinementConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
  * `refine` label, the card is open and stands before the work stage, is not being refined yet, and
  * the viewer may put the label on it (the label's own rule, the server's).
  */
-export function canStartRefinement(task: Task, config: RefinementConfig, me: string): boolean {
+export function canStartRefinement(task: BoardCard, config: RefinementConfig, me: string): boolean {
   if (!isOpenTask(task) || isTheme(task) || task.labels.includes(REFINE_LABEL)) return false;
   if (!labelDefinition(config, REFINE_LABEL) || isRefining(task, config)) return false;
   const work = developmentStage(config);

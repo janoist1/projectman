@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { placeWorkers } from '@projectman/shared';
+import { mergeTestPlaces, placeWorkers } from '@projectman/shared';
 import {
   acquireHeavyLock,
   defaultHeavyLockDir,
@@ -33,7 +33,7 @@ const CHILD_GUARD = fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.
 const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
 
 const USAGE =
-  'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--places all|<n>|<min>-<max>] [--] <command> [args...]\n';
+  'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--places all|merge-test|<n>|<min>-<max>] [--] <command> [args...]\n';
 
 interface HeavyArgs {
   label?: string;
@@ -45,6 +45,10 @@ interface HeavyArgs {
 /** `all`, `3` (exactly 3) or `2-4`. */
 function parsePlaces(value: string): PlacesRequest | undefined {
   if (value === 'all') return 'all';
+  if (value === 'merge-test') {
+    const places = mergeTestPlaces(machineHost());
+    return { min: places, max: places };
+  }
   const match = /^(\d+)(?:-(\d+))?$/.exec(value);
   if (!match) return undefined;
   const min = Number(match[1]);
@@ -68,7 +72,7 @@ export function parseHeavyArgs(argv: readonly string[]): HeavyArgs | { error: st
       if (arg === '--label') args.label = value;
       else if (arg === '--places') {
         const places = parsePlaces(value);
-        if (!places) return { error: `--places needs all, a number or min-max, not "${value}"` };
+        if (!places) return { error: `--places needs all, merge-test, a number or min-max, not "${value}"` };
         args.places = places;
       } else {
         const seconds = Number(value);

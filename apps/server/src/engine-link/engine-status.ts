@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { writeSecretFile } from './engine-config';
 
@@ -106,12 +107,14 @@ export function createEngineStatusWriter(
     running: [],
   };
   let timer: NodeJS.Timeout | null = null;
+  let lastWrite = -Infinity;
   const write = () => {
     if (timer) clearTimeout(timer);
     timer = null;
     status = { ...status, updatedAt: now().toISOString() };
     try {
       writeSecretFile(file, `${JSON.stringify(status, null, 2)}\n`);
+      lastWrite = now().getTime();
     } catch {
       // The status file is a convenience; the engine goes on without it.
     }
@@ -119,7 +122,9 @@ export function createEngineStatusWriter(
   return {
     get: () => status,
     set(patch) {
-      status = { ...status, ...patch };
+      const next = { ...status, ...patch };
+      if (isDeepStrictEqual(status, next) && now().getTime() - lastWrite < 30_000) return;
+      status = next;
       if (!timer) {
         timer = setTimeout(write, options.delayMs ?? 200);
         timer.unref();

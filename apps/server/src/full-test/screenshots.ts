@@ -60,7 +60,7 @@ export function screenshotEnv(
     NO_COLOR: '1',
     FORCE_COLOR: '0',
     PROJECTMAN_SESSION_DIR: spec.sessionDir,
-    // The server holds the machine's heavy-run places for the run (its ticket): `npm run shots` does not
+    // The server holds the machine's heavy-run places for the run (its ticket): the screenshot command does not
     // queue again. A bare 1 is for a run without the queue, which nothing can vouch for.
     PROJECTMAN_HEAVY_LOCK_HELD: held?.ticket ?? '1',
     ...(held ? { PROJECTMAN_HEAVY_LOCK_DIR: held.dir } : {}),
@@ -73,9 +73,9 @@ export function screenshotEnv(
   return env;
 }
 
-/** `npm run shots -- <args>`: every argument one quoted word. */
-export function screenshotCommand(args: readonly string[]): string {
-  return ['npm run shots --', ...args.map(quoteShellWord)].join(' ');
+/** `<command> <args>`: the repository's screenshot command, then every argument as one quoted word. */
+export function screenshotCommand(command: string, args: readonly string[]): string {
+  return [command, ...args.map(quoteShellWord)].join(' ');
 }
 
 const ended = (partial: Partial<ScreenshotRunEnded>): ScreenshotRunEnded => ({
@@ -167,7 +167,7 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
         cwd: spec.cwd,
         env: screenshotEnv(spec, paths, baseEnv, held),
         settings: paths.settings,
-        command: screenshotCommand(spec.args),
+        command: screenshotCommand(spec.command, spec.args),
         timeoutMs: spec.timeoutMs,
         signal,
       });

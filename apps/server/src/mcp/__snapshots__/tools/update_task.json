@@ -1,0 +1,281 @@
+{
+  "name": "update_task",
+  "title": "Update a task",
+  "description": "Record progress on a task: labels, a note, title, description, repository, relations, theme, priority, complexity, acceptance items and/or a stage move. All or nothing: a refused label or a blocked gate records nothing. A move that needs a human approval records the rest and waits for it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "complexity": {
+        "description": "Complexity points: 1, 2, 3, 5, 8 or 13 (split larger cards); null removes them.",
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "complexity_reason": {
+        "description": "Reason for the complexity (1–300 characters); needs numeric points.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "stage_id": {
+        "description": "Id of the stage to move the task to (the pipeline is in your instructions).",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,31}$"
+      },
+      "add_labels": {
+        "description": "Label ids to add. A label of a group replaces the other labels of its group.",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "remove_labels": {
+        "description": "Label ids to remove.",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "note": {
+        "description": "Timeline note: findings, decisions, what changed; with labels, their comment.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50000
+      },
+      "follow_ups": {
+        "description": "Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.",
+        "minItems": 1,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "handover_check_exception": {
+        "description": "Why the hand-over check could not run on your committed work (e.g. the sandbox refused it). With stage_id the move into review goes on; alone it covers your current commit for the next hand-over or review round. Not for a failing check.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "reply_to": {
+        "description": "Comment event id: reply to it.",
+        "type": "string",
+        "maxLength": 100
+      },
+      "title": {
+        "description": "New title, short and specific.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "description": {
+        "description": "New description (markdown). It replaces the whole description: read the current one with get_task first, all of it if it says it is cut.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000
+      },
+      "repo": {
+        "description": "Project repository the task works in; null clears it. Refused while a session runs.",
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "add_relations": {
+        "description": "Relations of this card to other cards to add. part_of: this card is a one-level subtask of the other (same project); prerequisite: this card can only be done after the other (order cards with this, not with a \"Dependencies\" text); related: the cards belong together, nothing more; duplicate_of: this card duplicates the other and is closed pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise whoever may cancel it marks it: an admin, the owner, or the project manager when the project settings allow it). Point at the original, never at another duplicate. A refused relation (a prerequisite loop, itself, another project) refuses the whole call.",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "part_of",
+                "prerequisite",
+                "related",
+                "duplicate_of"
+              ]
+            },
+            "task_key": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+              "description": "The other card, in this project."
+            }
+          },
+          "required": [
+            "kind",
+            "task_key"
+          ]
+        }
+      },
+      "remove_relations": {
+        "description": "Relations of this card to other cards to remove; removals apply before additions.",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "part_of",
+                "has_part",
+                "prerequisite",
+                "prerequisite_of",
+                "related",
+                "duplicate_of",
+                "duplicated_by"
+              ],
+              "description": "The relation as this card sees it, also a reverse one."
+            },
+            "task_key": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+              "description": "The other card."
+            }
+          },
+          "required": [
+            "kind",
+            "task_key"
+          ]
+        }
+      },
+      "theme_key": {
+        "description": "The open theme this card belongs to; null removes it. Not for subtasks and themes.",
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+            "description": "Task key."
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "archived": {
+        "type": "boolean"
+      },
+      "priority": {
+        "description": "The card priority; null clears it. An AI member sets it only when the project's priority setting allows it.",
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "urgent",
+              "high",
+              "normal",
+              "low"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "despite_prerequisites": {
+        "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or the project manager when team.prerequisiteOverride allows it; otherwise the start waits.",
+        "type": "boolean"
+      },
+      "acceptance": {
+        "description": "Changes of the acceptance items (the conditions of \"done\") in order, all or nothing with the rest of the call. add (text); edit (item_id, text; an open item); remove (item_id); done (item_id, evidence) and not_needed (item_id, reason) and move (item_id, task_key: the item goes to that card as an open one): the assignee or a person marks them; reopen (item_id, note): the assignee or the owner of the current step sets an item open again; confirm (item_id): the owner of the current step, never the one who marked it nor the assignee. Item ids are in get_task.",
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "add",
+                "edit",
+                "remove",
+                "done",
+                "not_needed",
+                "move",
+                "reopen",
+                "confirm"
+              ]
+            },
+            "item_id": {
+              "description": "The acc_… id from get_task; not for add.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "text": {
+              "description": "add, edit: the condition.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "evidence": {
+              "description": "done: how it is met (the commit, the test, the file, the observed behavior).",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "reason": {
+              "description": "not_needed: why it does not apply.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "task_key": {
+              "description": "move: the open card that takes the item over.",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+            },
+            "note": {
+              "description": "reopen: what does not hold.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Update a task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

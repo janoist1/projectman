@@ -2,6 +2,7 @@ import {
   AttachmentId,
   MAX_QUESTION_ATTACHMENTS,
   MemberHandle,
+  coordinatorOnlySignalKindsText,
   questionChoices,
   QuestionResponsePurpose,
   QuestionRecipient,
@@ -9,7 +10,7 @@ import {
 } from '@projectman/shared';
 import { formatQuestionAsked } from '../format';
 import { z } from 'zod';
-import { defineTool, type TeamToolGroup, unique } from '../kit';
+import { defineTool, PM_ONLY, type TeamToolGroup, unique } from '../kit';
 const MAX_QUESTION_CHARS = 4_000;
 
 const MAX_OPTION_CHARS = 200;
@@ -140,7 +141,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. ' +
               "The question closes by itself when the signal's case ends; task_key defaults to the signal's card. " +
-              'Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.',
+              `Refused (signal_not_for_owner) for an unreleased, ${coordinatorOnlySignalKindsText()} signal: the owners are not asked about those.`,
           ),
         recipient: QuestionRecipient.optional().describe(
           'Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, `integrator` stays the recipient as a todo; any other question waits for the project manager.',
@@ -160,6 +161,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
               'it falls under (role guide); refused without one (owner_topic_required).',
           ),
       },
+      fieldAudience: { signal_id: PM_ONLY },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
           issue('reask_of', 'reask_of and reask_reason go together: give both or neither.');

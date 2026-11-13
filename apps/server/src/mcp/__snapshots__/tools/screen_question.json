@@ -1,0 +1,106 @@
+{
+  "name": "screen_question",
+  "title": "Screen an AI member’s question",
+  "description": "Settle a question an AI member asked a person that waits for you in screening (the notice lists them). When to choose which outcome: role guide. After the ten minutes the question belongs to the people (question_not_screening), except for moot.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "The question’s inbox item id from the notice."
+      },
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "answered",
+          "forwarded",
+          "moot",
+          "decision",
+          "todo"
+        ],
+        "description": "answered: a fact you found (needs answer; the member may ask a person again). forwarded: another AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: obsolete, also after it went to the people. decision: only an owner decision under an owner topic, as asked (needs owner_topic). todo: a machine or manual step, the integrator's when there is one (needs todo). Fields another outcome needs are refused (invalid_outcome_fields)."
+      },
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "Why, or the source of the answer; the owner and the timeline see it. Always required."
+      },
+      "answer": {
+        "description": "The answer; only with answered.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 10000
+      },
+      "forward_to": {
+        "description": "The AI member to pass the question to, not the asker or you; it is woken. Only with forwarded.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+      },
+      "feedback_id": {
+        "description": "The system feedback id returned by record_system_feedback; only with todo.",
+        "type": "string",
+        "minLength": 1
+      },
+      "todo": {
+        "description": "The exact step for a person; only with todo.",
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "What the person has to do."
+          },
+          "where": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Where: the place, screen or system."
+          },
+          "expected": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "What result is expected back."
+          },
+          "recipient": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "integrator"
+            ],
+            "description": "Optional and not decisive: a todo goes to the integrator whenever there is one (machine or manual step alike). Only when none can take it does it fall back to the technical decider or the owner."
+          }
+        },
+        "required": [
+          "what",
+          "where",
+          "expected"
+        ],
+        "additionalProperties": false
+      },
+      "owner_topic": {
+        "description": "The id of the project's owner topic (role guide) the decision falls under; an approval question needs none. Only with decision; with todo it is accepted but not recorded.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      }
+    },
+    "required": [
+      "item_id",
+      "outcome",
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Screen an AI member’s question",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

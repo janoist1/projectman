@@ -38,7 +38,7 @@ const teamToolTree = [
     "import { TeamToolInput } from '@projectman/shared';\nexport const tools = [TeamToolInput];",
   ),
   file(SNAPSHOT_TEST, "import { tools } from './tools';"),
-  file('apps/server/src/mcp/__snapshots__/tools.test.ts.snap'),
+  file('apps/server/src/mcp/__snapshots__/tools/get_task.json'),
   file(
     'apps/server/src/mcp/unrelated.ts',
     "import { Other } from '@projectman/shared';\nexport const unrelated = Other;",
@@ -47,6 +47,19 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('selects the tool definition test for a per-tool JSON snapshot change', () => {
+    const selection = select(teamToolTree, ['apps/server/src/mcp/__snapshots__/tools/get_task.json']);
+    expect(selection.tests).toEqual([{ workspace: 'apps/server', files: [SNAPSHOT_TEST] }]);
+    expect(selection.unmapped).toEqual([]);
+  });
+
+  it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.kind).toBe('cloud');
+    expect(selection.typecheck).toEqual(['apps/server']);
+    expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');
@@ -380,21 +393,24 @@ describe('selection rules', () => {
     expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
   });
 
-  it('selects every migration test and schema registry test when db/migrations.ts changes (PM-1324, PM-1325)', () => {
+  it('selects loader, baseline, retained migration and registry tests for migration data files (PM-1382)', () => {
     const tree = [
-      file('apps/server/src/db/migrations.ts', 'export const migrations = [];'),
-      file('apps/server/src/db/index.ts', "export { migrations } from './migrations';"),
-      file('apps/server/test/merge-trains-migration.test.ts', "import { migrations } from '../src/db';"),
+      file('apps/server/src/db/migrations/0153-example.sql', 'SELECT 1;'),
+      file('apps/server/test/db-migration-files.test.ts', ''),
+      file('apps/server/test/db-baseline.test.ts'),
       file('apps/server/test/a-new-migration.test.ts'),
       file('apps/server/test/db.test.ts'),
       file('apps/server/test/project-change-journal.test.ts'),
       file('apps/server/test/member-handles-columns.test.ts'),
       file('apps/server/test/other.test.ts'),
     ];
-    const files = select(tree, ['apps/server/src/db/migrations.ts']).tests.flatMap((entry) => entry.files);
+    const files = select(tree, ['apps/server/src/db/migrations/0153-example.sql']).tests.flatMap(
+      (entry) => entry.files,
+    );
     expect(files).toEqual(
       expect.arrayContaining([
-        'apps/server/test/merge-trains-migration.test.ts',
+        'apps/server/test/db-migration-files.test.ts',
+        'apps/server/test/db-baseline.test.ts',
         'apps/server/test/a-new-migration.test.ts',
         'apps/server/test/db.test.ts',
         'apps/server/test/project-change-journal.test.ts',
@@ -411,6 +427,135 @@ describe('selection rules', () => {
     const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
     expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX + 2);
     expect(selection.omittedByProximity.rule).toEqual([]);
+  });
+
+  it.each([
+    'apps/server/src/runtime/watchers/outages.ts',
+    'apps/server/src/core/inbox/inbox.ts',
+    'apps/server/src/core/inbox/alert-todo.ts',
+    'apps/server/src/core/inbox/apply-route.ts',
+    'packages/shared/src/domain/item-route.ts',
+  ])('selects the harness-driven alert tests when %s changes (PM-1399)', (changed) => {
+    const tree = [
+      file(changed, 'export const o = 1;'),
+      file('apps/server/test/operator-signals.test.ts', "import { createApp } from './helpers/app-harness';"),
+      file('apps/server/test/question-screening-offline.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
+  it('selects the harness-driven session launch tests when the session launch changes (PM-1407)', () => {
+    const changed = 'apps/server/src/runtime/sessions/launch.ts';
+    const tree = [
+      file(changed, 'export const l = 1;'),
+      file('apps/server/test/member-workspaces.test.ts'),
+      file('apps/server/test/codex-session-folder.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/member-workspaces.test.ts',
+        'apps/server/test/codex-session-folder.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
+  it('keeps the alert rule tests ahead of the many farther tests that fill the cap (PM-1399)', () => {
+    const outages = 'apps/server/src/runtime/watchers/outages.ts';
+    const tree = [
+      file(outages, 'export const o = 1;'),
+      file(
+        'apps/server/src/core/b.ts',
+        "import { o } from '../runtime/watchers/outages';\nexport const b = o;",
+      ),
+      ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+        file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+      ),
+      file('apps/server/test/operator-signals.test.ts'),
+      file('apps/server/test/question-screening-offline.test.ts'),
+    ];
+    const selection = select(tree, [outages]);
+    const files = selection.tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omitted).toBeGreaterThan(0);
+  });
+
+  it.each(['apps/server/src/runtime/admission/task-starts.ts', 'apps/server/src/core/tasks/task-wait.ts'])(
+    'selects the harness-driven start and wait tests when %s changes (PM-1345, PM-1402)',
+    (changed) => {
+      const tree = [
+        file(changed, 'export const t = 1;'),
+        file('apps/server/test/relation-notices.test.ts', "import { createDomain } from './helpers/domain';"),
+        file('apps/server/test/structural-history-reads.test.ts'),
+        file('apps/server/test/other.test.ts'),
+      ];
+      const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+      expect(files).toEqual(
+        expect.arrayContaining([
+          'apps/server/test/relation-notices.test.ts',
+          'apps/server/test/structural-history-reads.test.ts',
+        ]),
+      );
+      expect(files).not.toContain('apps/server/test/other.test.ts');
+    },
+  );
+
+  it('keeps the tests named after a changed module ahead of the many tests only the central files reach (PM-1402)', () => {
+    const admission = 'apps/server/src/runtime/admission/deferred-starts.ts';
+    const kernel = 'apps/server/src/kernel/events.ts';
+    const named = [
+      'apps/server/test/automatic-session-starts.test.ts',
+      'apps/server/test/admission.test.ts',
+      'apps/server/test/deferred-starts.test.ts',
+    ];
+    const tree = [
+      file(admission, 'export const a = 1;'),
+      file(kernel, 'export const k = 1;'),
+      file('apps/server/src/core/b.ts', "import { k } from '../kernel/events';\nexport const b = k;"),
+      ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+        file(`apps/server/src/core/a${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+      ),
+      ...named.map((path) => file(path)),
+      file('apps/server/test/unrelated-starter.test.ts'),
+    ];
+    const selection = select(tree, [admission, kernel]);
+    const files = selection.tests.flatMap((entry) => entry.files);
+    // The module tests lead the graph tests, which the alphabet would put before them; the cap cuts only the graph tests.
+    expect(files.slice(0, named.length).sort()).toEqual([...named].sort());
+    expect(selection.moduleTests.sort()).toEqual([...named].sort());
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omittedByProximity.module).toEqual([]);
+    expect(selection.omitted).toBeGreaterThan(0);
+    expect(files).not.toContain('apps/server/test/unrelated-starter.test.ts');
+  });
+
+  it('names a module after its folder, but not after a central file or a generic file name (PM-1402)', () => {
+    const kernel = 'apps/server/src/kernel/events.ts';
+    const tree = [
+      file(kernel, 'export const k = 1;'),
+      file('apps/server/src/core/tasks/index.ts', 'export const i = 1;'),
+      file('apps/server/test/events.test.ts'),
+      file('apps/server/test/tasks.test.ts'),
+    ];
+    expect(select(tree, [kernel, 'apps/server/src/core/tasks/index.ts']).moduleTests).toEqual([
+      'apps/server/test/tasks.test.ts',
+    ]);
   });
 
   it('selects the visibility test when the timeline visibility rule changes (PM-1331)', () => {
@@ -550,7 +695,7 @@ describe('handover-check command', () => {
     );
     expect(printed()).toContain('handover-check: the cap cut 5 test(s)');
     expect(printed().join('\n')).toMatch(
-      /left out by proximity: 0 direct[^,]*, 0 selection-rule[^,]*, 0 name[^,]*, 5 /,
+      /left out by proximity: 0 direct[^,]*, 0 selection-rule[^,]*, 0 module-name[^,]*, 0 name[^,]*, 5 /,
     );
     expect(npm).toHaveBeenCalled();
   });

@@ -136,7 +136,9 @@ describe('the full test before review', () => {
       timeoutMs: 15 * 60_000,
       cwd: '/fake/worktree',
     });
-    expect(runs()).toMatchObject([{ status: 'running', commit: 'c1', branch: 'task/AR-1' }]);
+    expect(runs()).toMatchObject([
+      { status: 'running', commit: 'c1', branch: 'task/AR-1', command: REVIEW_TEST.command },
+    ]);
     expect(task().reviewPin).toMatchObject({ commit: 'c1', fullTest: { status: 'running' } });
     await h.domain.reviewWatch.check();
     expect(reviewerStarted()).toBe(false);

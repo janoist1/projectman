@@ -1,8 +1,7 @@
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
-import { sourceImports } from '../../apps/server/test/architecture/check';
-import { importGraph, isCode, isServerTest } from './impact';
+import { importGraph, isCode, isServerTest, snapshotTest } from './impact';
 import type { MergeTestFile } from './impact';
-import { refineScope } from './refine';
+import { checkedBy, importersOf, refineScope } from './refine';
 import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope, TEST_READ_DOCS } from './scope';
 import type { MergeTestScope, MergeTestWorkspace } from './scope';
 import { sharedImpact } from './shared-impact';
@@ -65,10 +64,30 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason: 'the heavy CLI test reads the merge-test places option from the root package script (PM-1338)',
+    sources: ['package.json'],
+    tests: ['apps/server/test/heavy-cli.test.ts'],
+  },
+  {
+    reason: 'registry tests read both barrel folders and the error-code registry by path',
+    sources: [
+      'packages/shared/src/',
+      'apps/server/src/contracts/',
+      'apps/server/src/mcp/tools.ts',
+      'scripts/barrels/',
+    ],
+    tests: ['apps/server/test/architecture/registries.test.ts'],
+  },
+  {
     reason: 'the architecture tests read the server source folder, the module map and the structure map',
     sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
     broad: true,
     tests: ['apps/server/test/architecture/'],
+  },
+  {
+    reason: 'the session-state list test reads the web, widget and shared sources by path (PM-1357)',
+    sources: ['apps/web/src/', 'apps/feedback-widget/src/', 'packages/'],
+    tests: ['apps/server/test/architecture/session-state-lists.test.ts'],
   },
   {
     reason: 'the structure map test reads every tracked file of the repository',
@@ -104,10 +123,61 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
-      'the migration tests build an old schema from the migration list; some import it through the db facade, not db/migrations; the schema registry tests read the migrated schema (PM-1324, PM-1325)',
-    sources: ['apps/server/src/db/migrations.ts'],
+      'the alert path (provider outage signal, item route) is reached through the app harness: the tests use `outages.` or `work_outage` on the domain, and the screening tests through the operator signals, not by import (PM-1399)',
+    sources: [
+      'apps/server/src/runtime/watchers/outages.ts',
+      'apps/server/src/core/inbox/inbox.ts',
+      'apps/server/src/core/inbox/alert-todo.ts',
+      'apps/server/src/core/inbox/apply-route.ts',
+      'packages/shared/src/domain/item-route.ts',
+    ],
     tests: [
+      'apps/server/test/alert-routing.test.ts',
+      'apps/server/test/operator-signals.test.ts',
+      'apps/server/test/outages.test.ts',
+      'apps/server/test/outages-api.test.ts',
+      'apps/server/test/periodic-work-performance.test.ts',
+      'apps/server/test/provider-login-wait.test.ts',
+      'apps/server/test/question-screening-offline.test.ts',
+    ],
+  },
+  {
+    reason:
+      'the session launch (workspace and session-folder setup) is reached through the domain harness, not by import: the workspace and Codex session-folder tests exercise it (PM-1407)',
+    sources: ['apps/server/src/runtime/sessions/launch.ts'],
+    tests: ['apps/server/test/member-workspaces.test.ts', 'apps/server/test/codex-session-folder.test.ts'],
+  },
+  {
+    reason:
+      'card start admission and the TaskWaits queries are reached through the domain harness (`domain.taskStarts`, `domain.taskWaits`), not by import: the tests that read the waits or exercise the start itself, not the 65 files that only start a card to set up (PM-1345, PM-1402)',
+    sources: ['apps/server/src/runtime/admission/task-starts.ts', 'apps/server/src/core/tasks/task-wait.ts'],
+    tests: [
+      'apps/server/src/core/tasks/tests/merges.test.ts',
+      'apps/server/test/card-notices.test.ts',
+      'apps/server/test/label-start.test.ts',
+      'apps/server/test/operator-board-signals.test.ts',
+      'apps/server/test/prerequisite-start.test.ts',
+      'apps/server/test/prerequisite-wait.test.ts',
+      'apps/server/test/project-state.test.ts',
+      'apps/server/test/question-screening-foundations.test.ts',
+      'apps/server/test/relation-notices.test.ts',
+      'apps/server/test/senior-wait.test.ts',
+      'apps/server/test/start-entry-gate.test.ts',
+      'apps/server/test/start-offer.test.ts',
+      'apps/server/test/start-round.test.ts',
+      'apps/server/test/structural-history-reads.test.ts',
+      'apps/server/test/team-tools.test.ts',
+      'apps/server/test/work-starts.test.ts',
+    ],
+  },
+  {
+    reason:
+      'the baseline and schema registry tests inspect the resulting schema; retained migration tests guard current repository behavior (PM-1324, PM-1325, PM-1381)',
+    sources: ['apps/server/src/db/migrations/'],
+    tests: [
+      'apps/server/test/db-migration-files.test.ts',
       'apps/server/test/*-migration.test.ts',
+      'apps/server/test/db-baseline.test.ts',
       'apps/server/test/db.test.ts',
       'apps/server/test/history-index.test.ts',
       'apps/server/test/hot-read-indexes.test.ts',
@@ -241,12 +311,12 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
 ];
 
 export interface HandoverSelection {
-  /** `none`: only the dead-code check; `cloud`: the cloud filters; `targeted`: the chosen test files. */
+  /** `none`: only the dead-code check; `cloud`: the vitest filters of a path-owned scope (cloud, owned); `targeted`: the chosen test files. */
   kind: 'none' | 'cloud' | 'targeted';
   typecheck: MergeTestWorkspace[];
   /** The test files to run after the cap, by workspace in run order. */
   tests: { workspace: MergeTestWorkspace; files: string[] }[];
-  /** The vitest filters of the cloud scope. */
+  /** The vitest filters of the path-owned scope. */
   testFilters: string[];
   /** How many tests the change reaches (M), the cap, the nearest ones that run beyond it, and how many were left to the merge check. */
   reached: number;
@@ -257,16 +327,21 @@ export interface HandoverSelection {
   omittedByProximity: Record<Proximity, string[]>;
   /** Changed files no check of this command maps to a test. */
   unmapped: string[];
+  /** The `module` tests that run (named after a changed module), for the dry run to show. */
+  moduleTests: string[];
 }
 
 /**
  * How near a test is to the change, nearest first: `direct` (a changed test, or one that imports a
- * changed file), `rule` (chosen by a `SELECTION_RULES` entry), `name` (uses a changed name without
- * importing the file it is in), `graph` (reached through further imports).
+ * changed file), `rule` (chosen by a `SELECTION_RULES` entry), `module` (its file name is the name of a
+ * changed module, though no import leads there), `name` (uses a changed name without importing the file
+ * it is in), `graph` (reached through further imports).
  */
-export const PROXIMITIES = ['direct', 'rule', 'name', 'graph'] as const;
+export const PROXIMITIES = ['direct', 'rule', 'module', 'name', 'graph'] as const;
 /** How many of the `name` tests run whatever the cap says (the best-ranked ones). */
 export const NAME_TESTS_ALWAYS = 10;
+/** How many of the `module` tests run whatever the cap says (the best-ranked ones). */
+const MODULE_TESTS_ALWAYS = 10;
 export type Proximity = (typeof PROXIMITIES)[number];
 
 const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
@@ -278,8 +353,9 @@ const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   cap: TARGETED_TEST_FILES_MAX,
   nearest: 0,
   omitted: 0,
-  omittedByProximity: { direct: [], rule: [], name: [], graph: [] },
+  omittedByProximity: { direct: [], rule: [], module: [], name: [], graph: [] },
   unmapped: [],
+  moduleTests: [],
 });
 
 const EXPORTED_NAME =
@@ -412,10 +488,64 @@ function nameUsers(
   );
 }
 
-/** The workspace whose checks cover a path: the scripts belong to the server's. */
-const checkedBy = (path: string): MergeTestWorkspace | undefined =>
-  path.startsWith('scripts/') ? 'apps/server' : workspaceOf(path);
-const SNAPSHOT = /^(.*)\/__snapshots__\/([^/]+)\.snap$/;
+/** Files nearly every test reaches: their names say nothing about the change (the central files of CLAUDE.md). */
+const CENTRAL_FILES = [
+  'packages/shared/src/',
+  'apps/server/src/contracts/',
+  'apps/server/src/kernel/',
+  'apps/server/src/db/',
+  'apps/server/src/assembly.ts',
+  'apps/server/test/helpers/',
+  'apps/web/src/i18n/',
+  'apps/web/src/mocks/',
+];
+/** File and folder names that name no module. */
+const GENERIC_NAMES = new Set(['index', 'service', 'store', 'types', 'ports', 'utils', 'helpers', 'shared']);
+const MODULE_NAME_MIN = 5;
+
+/**
+ * The names of the modules a change touched: the folder (`admission`) and the file name (`task-starts`)
+ * of a changed non-central code file, and the last word of a hyphenated file name (`starts`).
+ */
+function moduleNames(changed: readonly string[]): string[] {
+  const names = new Set<string>();
+  for (const path of changed) {
+    const parts = /^apps\/[^/]+\/src\/(.+)\.(?:ts|tsx)$/.exec(path)?.[1]?.split('/');
+    if (!parts || isServerTest(path) || isTestSupport(path) || matchesPattern(path, CENTRAL_FILES)) continue;
+    const base = parts.at(-1)!;
+    const candidates = [base, base.split('-').at(-1)!];
+    if (parts.length > 2) candidates.push(parts.at(-2)!);
+    for (const name of candidates)
+      if (name.length >= MODULE_NAME_MIN && !GENERIC_NAMES.has(name)) names.add(name);
+  }
+  return [...names];
+}
+
+/** The candidate tests whose file name holds a changed module's name as whole hyphen-separated words, the most names first. */
+function moduleNameTests(
+  names: readonly string[],
+  candidates: readonly MergeTestFile[],
+  changedWorkspaces: ReadonlyMap<MergeTestWorkspace, number>,
+): string[] {
+  const hits = new Map<string, number>();
+  for (const { path } of candidates) {
+    const words = `-${path
+      .split('/')
+      .at(-1)!
+      .replace(/(?:\.integration)?\.test\.tsx?$/, '')}-`;
+    const count = names.filter((name) => words.includes(`-${name}-`)).length;
+    if (count) hits.set(path, count);
+  }
+  const here = (path: string) => changedWorkspaces.get(workspaceOf(path)!) ?? 0;
+  return [...hits.keys()].sort(
+    (a, b) =>
+      here(b) - here(a) ||
+      hits.get(b)! - hits.get(a)! ||
+      Number(isIntegration(a)) - Number(isIntegration(b)) ||
+      a.localeCompare(b),
+  );
+}
+
 const isTestSupport = (path: string): boolean => /\/(?:fixtures|test-fixtures)\//.test(path);
 const isConfig = (path: string): boolean =>
   /^(?:package(?:-lock)?\.json|tsconfig.*\.json|vitest\.config\..*)$/.test(path.split('/').at(-1)!);
@@ -436,21 +566,6 @@ function mergeRuns(scope: MergeTestScope, file: string): boolean {
   return false;
 }
 
-/** The files that import `pkg` (or a subpath of it), and those that do it other than by type. */
-function importersOf(files: readonly MergeTestFile[], pkg: string): { all: string[]; value: string[] } {
-  const all: string[] = [];
-  const value: string[] = [];
-  for (const file of files) {
-    if (!isCode(file.path) || !checkedBy(file.path)) continue;
-    const imports = sourceImports(file.source);
-    const own = (s: string) => s === pkg || s.startsWith(`${pkg}/`);
-    if (!imports.specifiers.some(own)) continue;
-    all.push(file.path);
-    if (imports.specifiers.some((s) => own(s) && !imports.typeOnly.includes(s))) value.push(file.path);
-  }
-  return { all, value };
-}
-
 /**
  * The tests a change affects, nearest first. The merge check's scope is the upper bound: the shared
  * export analysis and the server module analysis give the same answers, then the file-level value
@@ -465,6 +580,8 @@ export function handoverSelection(
   if (coarse.kind === 'none') return empty('none');
   if (coarse.kind === 'cloud')
     return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: CLOUD_TEST_FILTERS };
+  if (coarse.kind === 'owned')
+    return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: coarse.tests };
 
   const merge = refineScope(coarse, changed, input.before, input.after);
   const afterPaths = new Set(input.after.map((file) => file.path));
@@ -480,9 +597,8 @@ export function handoverSelection(
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
   for (const file of changed) {
-    const snapshot = SNAPSHOT.exec(file);
-    if (snapshot) {
-      const owner = `${snapshot[1]}/${snapshot[2]}`;
+    const owner = snapshotTest(file);
+    if (owner) {
       if (isServerTest(owner) && afterPaths.has(owner)) snapshotOwners.add(owner);
       else unmapped.push(file);
       continue;
@@ -537,8 +653,8 @@ export function handoverSelection(
   }
   const isTest = (path: string): boolean =>
     isServerTest(path) && afterPaths.has(path) && !isTestSupport(path) && workspaceOf(path) !== undefined;
-  const hasSnapshot = (path: string): boolean =>
-    afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
+  const testsWithSnapshots = new Set([...afterPaths].map(snapshotTest));
+  const hasSnapshot = (path: string): boolean => testsWithSnapshots.has(path);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };
   const ruleTests = [
@@ -567,6 +683,12 @@ export function handoverSelection(
     input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
     changedPerWorkspace,
   );
+  // The tests named after a changed module: no import need lead to them (the harness reaches the code).
+  const moduleTests = moduleNameTests(
+    moduleNames(changed),
+    input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
+    changedPerWorkspace,
+  );
   // The tests that import a changed file themselves; a consumer of a changed package export is not one.
   const importers = new Set(
     changedFiles
@@ -582,6 +704,7 @@ export function handoverSelection(
       ...[...importers].sort(bySnapshotThenDistance),
     ],
     rule: ruleTests,
+    module: moduleTests,
     name: nameTests,
     graph: reachedTests.sort(bySnapshotThenDistance),
   };
@@ -589,13 +712,15 @@ export function handoverSelection(
   for (const proximity of PROXIMITIES)
     for (const path of tiers[proximity]) if (!proximityOf.has(path)) proximityOf.set(path, proximity);
   const ordered = [...proximityOf.keys()];
-  // The cap cuts the farther tests only: the direct and the rule tests and the first name tests always run.
+  // The cap cuts the farther tests only: the direct and the rule tests and the first module and name tests always run.
+  let moduleSeen = 0;
   let nameSeen = 0;
   const nearest = ordered.filter((path) => {
     const proximity = proximityOf.get(path)!;
     return (
       proximity === 'direct' ||
       proximity === 'rule' ||
+      (proximity === 'module' && ++moduleSeen <= MODULE_TESTS_ALWAYS) ||
       (proximity === 'name' && ++nameSeen <= NAME_TESTS_ALWAYS)
     );
   });
@@ -619,5 +744,6 @@ export function handoverSelection(
       PROXIMITIES.map((proximity) => [proximity, left.filter((path) => proximityOf.get(path) === proximity)]),
     ) as Record<Proximity, string[]>,
     unmapped,
+    moduleTests: run.filter((path) => proximityOf.get(path) === 'module'),
   };
 }

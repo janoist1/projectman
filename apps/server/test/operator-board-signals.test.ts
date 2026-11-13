@@ -1,10 +1,8 @@
-import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RepoConfig } from '@projectman/shared';
 import type { OperatorSignalKind, ProjectConfig, Task } from '@projectman/shared';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
+
 import type { MergeRecord } from '../src/db';
-import { migrations } from '../src/db/migrations';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -121,11 +119,10 @@ describe('merge_blocked signal', () => {
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     later(24 * 60);
     await sweep();
-    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled', 'nobody'] as const)
-      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind)).toEqual([]);
+    expect(h.repos.operatorSignals.list('AR')).toEqual([]);
   });
 
-  it('resolves the open rows of the retired kinds an older build left, and keeps the closed one', async () => {
+  it('resolves the open row of the retired unreleased kind an older build left, and keeps the closed one', async () => {
     await setup();
     const row = (id: string, kind: OperatorSignalKind, state: 'pending' | 'open' | 'resolved') => ({
       id,
@@ -147,18 +144,15 @@ describe('merge_blocked signal', () => {
       decisionNote: null,
       deliveredTo: null,
     });
-    h.repos.operatorSignals.insert(row('ops_idle', 'idle', 'pending'));
-    h.repos.operatorSignals.insert(row('ops_ready', 'ready_waiting', 'open'));
-    h.repos.operatorSignals.insert(row('ops_stalled', 'refinement_stalled', 'open'));
-    h.repos.operatorSignals.insert(row('ops_nobody', 'nobody', 'open'));
     h.repos.operatorSignals.insert(row('ops_unreleased', 'unreleased', 'open'));
-    h.repos.operatorSignals.insert(row('ops_old', 'merge_waiting', 'resolved'));
+    h.repos.operatorSignals.insert({
+      ...row('ops_old', 'unreleased', 'resolved'),
+      caseKey: 'unreleased:AR-2',
+    });
     await sweep();
     const byId = (id: string) => h.repos.operatorSignals.get(id)!;
-    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled', 'ops_nobody', 'ops_unreleased']) {
-      expect(byId(id).state).toBe('resolved');
-      expect(byId(id).resolvedAt).not.toBeNull();
-    }
+    expect(byId('ops_unreleased').state).toBe('resolved');
+    expect(byId('ops_unreleased').resolvedAt).not.toBeNull();
     expect(byId('ops_old')).toMatchObject({ state: 'resolved', resolvedAt: '2026-10-10T11:00:00.000Z' });
   });
 });
@@ -193,11 +187,15 @@ describe('obligation_overdue signal: the dismissal', () => {
     expect(() => h.domain.operatorSignals.dismissByOperator('AR', 'unknown', 'pm', 'Note')).toThrow(
       'unknown signal',
     );
-    const other = h.domain.operatorSignals.raise({ projectKey: 'OTHER', kind: 'idle', caseKey: 'idle:x' });
+    const other = h.domain.operatorSignals.raise({
+      projectKey: 'OTHER',
+      kind: 'outage',
+      caseKey: 'outage:x',
+    });
     expect(() => h.domain.operatorSignals.dismissByOperator('AR', other.id, 'pm', 'Note')).toThrow(
       'unknown signal',
     );
-    const retired = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'idle', caseKey: 'idle:x' });
+    const retired = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'outage', caseKey: 'outage:x' });
     expect(() => h.domain.operatorSignals.dismissByOperator('AR', retired.id, 'pm', 'Note')).toThrow(
       'may not dismiss this signal kind',
     );
@@ -344,97 +342,5 @@ describe('the reads of a sweep (PM-1120)', () => {
     await flush();
     expect(waits.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(waits.mock.calls.length).toBeLessThanOrEqual(2);
-  });
-});
-
-describe('operator_signals migration', () => {
-  it('keeps the old rows and accepts the new kinds', () => {
-    const db = new Database(':memory:');
-    try {
-      const before = migrations.filter((item) => item.version < 56);
-      for (const migration of before) db.exec(migration.sql);
-      db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
-        INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
-          VALUES ('ops_1', 'AR', 'silent', 'silent:ses_1', 'open', '2026-01-01T00:00:00.000Z');`);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(repos.operatorSignals.get('ops_1')).toMatchObject({ kind: 'silent', caseKey: 'silent:ses_1' });
-      for (const kind of ['merge_blocked', 'unreleased', 'obligation_overdue'] as const)
-        db.prepare(
-          `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at) VALUES (?, 'AR', ?, ?, 'pending', '2026-01-02T00:00:00.000Z')`,
-        ).run(`ops_${kind}`, kind, `${kind}:x`);
-      expect(repos.operatorSignals.list('AR')).toHaveLength(4);
-      expect(() =>
-        db
-          .prepare(
-            `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at) VALUES ('ops_bad', 'AR', 'bogus', 'x', 'pending', '2026-01-02T00:00:00.000Z')`,
-          )
-          .run(),
-      ).toThrow();
-      // The open-case index survives the rebuild.
-      expect(() =>
-        db
-          .prepare(
-            `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at) VALUES ('ops_dup', 'AR', 'merge_blocked', 'merge_blocked:x', 'pending', '2026-01-02T00:00:00.000Z')`,
-          )
-          .run(),
-      ).toThrow();
-    } finally {
-      db.close();
-    }
-  });
-
-  it('carries every signal row over untouched, cancels the old stall alerts and leaves pm_told_at empty (PM-1152)', () => {
-    const db = new Database(':memory:');
-    try {
-      // Migration 132 (PM-1152) is the one under test: stop right before it, whatever comes later.
-      const before = migrations.filter((item) => item.version < 132);
-      for (const migration of before) db.exec(migration.sql);
-      db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
-      db.exec(
-        `INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');`,
-      );
-      const insert = db.prepare(
-        `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at, resolved_at) VALUES (?, 'AR', ?, ?, ?, '2026-01-01T00:00:00.000Z', ?)`,
-      );
-      insert.run('ops_idle', 'idle', 'idle:AR-1:development', 'pending', null);
-      insert.run('ops_ready', 'ready_waiting', 'ready_waiting:AR-2', 'open', null);
-      insert.run('ops_old', 'merge_waiting', 'merge_waiting:AR-3', 'resolved', '2026-01-02T00:00:00.000Z');
-      insert.run('ops_blocked', 'merge_blocked', 'merge_blocked:AR-4', 'pending', null);
-      db.exec(
-        `INSERT INTO obligations (id, project_key, task_key, kind, responsible, subject, opened_at, due_at, state, updated_at)
-         VALUES ('obl_old', 'AR', 'AR-1', 'work', 'dev-1', 'AR-1', '2026-01-01', '2026-01-01', 'open', '2026-01-01');`,
-      );
-      const alert = db.prepare(
-        `INSERT INTO inbox_items (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
-         VALUES (?, 'AR', 'alert', '["owner"]', 'system', 'Alert', ?, '[]', ?, '2026-01-01', '2026-01-01')`,
-      );
-      alert.run('inb_work', JSON.stringify({ alert: 'work_stalled' }), 'open');
-      alert.run('inb_refine', JSON.stringify({ alert: 'refinement', reason: 'stalled' }), 'open');
-      alert.run('inb_other', JSON.stringify({ alert: 'refinement', reason: 'failed' }), 'open');
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const state = (id: string) =>
-        (db.prepare('SELECT state FROM inbox_items WHERE id = ?').get(id) as { state: string }).state;
-      expect([state('inb_work'), state('inb_refine'), state('inb_other')]).toEqual([
-        'cancelled',
-        'cancelled',
-        'open',
-      ]);
-      const repos = createRepositories(db);
-      const byId = (id: string) => repos.operatorSignals.get(id)!;
-      // The open rows of the retired kinds are resolved by the signal sweep (it closes their questions too).
-      expect(byId('ops_idle')).toMatchObject({ kind: 'idle', state: 'pending', resolvedAt: null });
-      expect(byId('ops_ready')).toMatchObject({ kind: 'ready_waiting', state: 'open', resolvedAt: null });
-      expect(byId('ops_old')).toMatchObject({
-        kind: 'merge_waiting',
-        state: 'resolved',
-        resolvedAt: '2026-01-02T00:00:00.000Z',
-      });
-      expect(byId('ops_blocked')).toMatchObject({ state: 'pending', resolvedAt: null });
-      expect(repos.obligations.get('obl_old')).toMatchObject({ state: 'open', pmToldAt: null });
-    } finally {
-      db.close();
-    }
   });
 });

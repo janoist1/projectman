@@ -3,6 +3,61 @@
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
 and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and the connected Claude's access.
 
+## Operations moved from the working rules (PM-1342)
+
+The owner's live instance uses a cloud hub and a Mac engine. The manual update is
+`npm run cloud -- deploy --ref <commit>`, followed by rebuilding and reinstalling the
+engine at the same commit. Who may update it is defined in the project plan, chapter 4
+(Dokumentumok, "Projektterv"): until production use, the owner's connected Claude does;
+the team's AI members do not. An update still needs approval for that exact change.
+`publish_release` publishes a release through the release chain described below.
+`npm run live -- install|status|uninstall` is only for single-mode disaster recovery.
+
+The macOS operator command for a full check outside member sandboxes is:
+
+```sh
+npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all
+```
+
+Developers run the targeted checks and `npm run handover-check` from CLAUDE.md instead.
+The merger uses `merge_task`; the server runs `npm run merge-test` before moving main,
+on the card's engine or GitHub Actions as configured
+([services/merges](modules/services-merges.md)). Shared code/configuration changes get
+their full suite at merge.
+
+Development uses `npm run dev`, `~/.projectman-dev` (unless `PROJECTMAN_HOME` is set)
+and `http://127.0.0.1:5173`. Never run a development build against `~/.projectman`:
+newer migrations cause older builds to refuse the database.
+
+## A database from before the baseline (PM-1381)
+
+The schema baseline replaces migrations 1–152. A database at version 1–151 must
+first be opened once with **[v2026.11.12](https://github.com/janoist1/projectman/releases/tag/v2026.11.12)**
+(commit `9508a0f45a1e37436ccf707c040d5452f25bb6c2`), or a later release from before the baseline switch. Only then start
+the current release. The server refuses an older database before applying any migration
+and names the required release in its error.
+
+This includes a Litestream point-in-time restore from before schema 152, the pre-hybrid
+Mac database used by `instance activate --discard-cloud-data`, and an old development
+home (`~/.projectman-dev`). Keep the original backup and perform the upgrade on its
+restored copy. For the cloud, start the pre-baseline release image against that copy
+once, then deploy the current image. Build artifacts expire after seven days: if the
+old image is unavailable, rebuild at the pre-baseline release commit using
+`projectman-job.yml` or `image-build`. For Mac single mode, use that release's packaged
+server for the first start.
+
+The development home checked before this switch (`~/.projectman-dev/db.sqlite`, last
+used on 2026-10-01) is still at schema 11. This build refuses it: start v2026.11.12
+on it once before using the current build, or discard that disposable development
+home if its data is no longer needed. Its old schema does not block the hub update.
+
+The engine does not open the database. The regular release order remains hub first,
+then engines; before deploying the baseline build the hub must already be at schema
+152 or later. The baseline itself makes no schema change to an existing database at
+that version; later migrations still apply normally. A rollback
+to the preceding image is safe when the new release adds no further migrations.
+The release notes for the switch must also name the pre-baseline release above.
+
 ## Engine app build (PM-1104, PM-1122)
 
 Build on the release Mac with full Xcode, using the self-contained package produced by

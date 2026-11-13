@@ -1,11 +1,9 @@
-import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
-import { migrations } from '../src/db/migrations';
+
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
-/** PM-694: what a session's chat proves about its work, kept without text, and the migrations behind it. */
+/** PM-694: what a session's chat proves about its work, kept without text. */
 let h: DomainHarness;
 let now: Date;
 afterEach(async () => {
@@ -104,39 +102,5 @@ describe('session work metadata', () => {
     expect(metadata(session.id)).toEqual(first);
     chat(session.id, call('c2', -2));
     expect(metadata(session.id)).toMatchObject({ lastWorkAt: at(-2) });
-  });
-});
-
-describe('migrations 62 and 63', () => {
-  it('keep the signals with their columns, allow the new kind and keep the open-case rule', () => {
-    const db = new Database(':memory:');
-    try {
-      const before = migrations.filter((item) => item.version < 62);
-      for (const migration of before) db.exec(migration.sql);
-      db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
-        INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at, follow_up_at, decision_note, delivered_at)
-          VALUES ('sig_1', 'AR', 'idle', 'idle:AR-1:development', 'dismissed', '2026-01-01T00:00:00.000Z',
-          '2026-01-01T01:00:00.000Z', 'Not needed', '2026-01-01T00:00:05.000Z');`);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(repos.operatorSignals.get('sig_1')).toMatchObject({
-        kind: 'idle',
-        state: 'dismissed',
-        followUpAt: '2026-01-01T01:00:00.000Z',
-        decisionNote: 'Not needed',
-        deliveredAt: '2026-01-01T00:00:05.000Z',
-      });
-      const insert = db.prepare(
-        `INSERT INTO operator_signals (id, project_key, kind, case_key, state, raised_at)
-          VALUES (?, 'AR', ?, ?, 'open', '2026-01-02T00:00:00.000Z')`,
-      );
-      insert.run('sig_2', 'answer_stalled', 'answer_stalled:AR-1:dev-1:msg_1');
-      expect(() => insert.run('sig_3', 'answer_stalled', 'answer_stalled:AR-1:dev-1:msg_1')).toThrow();
-      expect(() => insert.run('sig_4', 'bogus', 'bogus:1')).toThrow();
-      expect(db.prepare('SELECT work_metadata FROM sessions LIMIT 1').all()).toEqual([]);
-    } finally {
-      db.close();
-    }
   });
 });

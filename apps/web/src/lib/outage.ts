@@ -24,11 +24,14 @@ export type OutageTodo =
   | { kind: 'settings' }
   /** NanoGPT's CLI is missing or old, or a ChatGPT login is in its Codex folder: the settings' fix sentence. */
   | { kind: 'fix'; problem: 'cli_missing' | 'cli_too_old' | 'chatgpt_login'; outage: ProviderOutage }
-  | { kind: 'engine' };
+  | { kind: 'engine' }
+  /** The member's sessions keep failing to start (PM-1335): look at the session, fix it, then check now. */
+  | { kind: 'startFailing' };
 
 export function outageTodo(outage: WorkOutage): OutageTodo {
   if (outage.kind === 'engine') return { kind: 'engine' };
   const { provider, problem } = outage;
+  if (problem === 'start_failing') return { kind: 'startFailing' };
   if (provider === 'nanogpt') {
     if (problem === 'cli_missing' || problem === 'cli_too_old' || problem === 'chatgpt_login')
       return { kind: 'fix', problem, outage };
@@ -112,6 +115,8 @@ export function outageStuckTitle(outage: WorkOutage): string {
       return t('taskStatus.stuckTodo.settings');
     case 'engine':
       return t('taskStatus.stuckTodo.engine');
+    case 'startFailing':
+      return t('taskStatus.stuckTodo.startFailing');
   }
 }
 

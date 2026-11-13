@@ -1,0 +1,17 @@
+{
+  "name": "get_release_status",
+  "title": "Read the version of the hub and the engines",
+  "description": "Which version the hub runs and, per engine, whether it is connected, which version it reports, whether that differs from the hub and when it was last seen. Reads only. Use it in a release to check that the hub is on the new version and that every engine has followed.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read the version of the hub and the engines",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

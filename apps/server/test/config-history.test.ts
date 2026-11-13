@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigHistoryView, routes } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { ConfigStoreError } from '../src/config';
 
 describe('configuration history page', () => {
   let h: AppHarness;
@@ -62,6 +63,20 @@ describe('configuration history page', () => {
     const { entries } = await read();
     expect(entries[0]!.restores).toMatchObject({ kind: 'revert', version: created.version.slice(0, 12) });
     expect(entries[1]!.restores).toBeUndefined();
+  });
+
+  it('returns the outdated-version error code through the restore endpoint', async () => {
+    vi.spyOn(h.app.projectman.configStore, 'loadVersion').mockRejectedValueOnce(
+      new ConfigStoreError('config_version_outdated', 'Unsupported version format'),
+    );
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.revertConfig('AR'),
+      headers: { cookie },
+      payload: { version: 'abcd1234' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('config_version_outdated');
   });
 
   it('recognises an undo: a save that brings back the configuration of two versions before', async () => {

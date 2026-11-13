@@ -84,14 +84,21 @@ export const PROJECT_CHECK_COMMANDS: readonly string[] = [
   ...NPX_CHECKS.map((words) => `npx ${words.join(' ')}`),
 ];
 
+/** Said only where the repository has a screenshot command (`screenshots`, PM-1353). */
+const SCREENSHOT_TOOL_LINE = `Make screenshots with the ${code('take_screenshots')} tool, not by running the repository's screenshot command in the shell: the browser does not start in your sandbox, so the server runs the scenario in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}.`;
+
 /**
  * The line about a member's own session folder (PM-268, PM-339), for its system prompt. Claude
  * looks at an image with the file tool, Codex with `view_image`; both attach with `attach_file`.
  */
-export function describeSessionFolder(sessionFolder: string, provider: AgentProvider): string {
+export function describeSessionFolder(
+  sessionFolder: string,
+  provider: AgentProvider,
+  { screenshots = false }: { screenshots?: boolean } = {},
+): string {
   const putThere =
     provider === 'codex'
-      ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images). Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}.`
+      ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images).${screenshots ? ` ${SCREENSHOT_TOOL_LINE}` : ''}`
       : provider === 'gemini'
         ? `write the files to attach there with your file tools (not in plan mode); ${code('attach_file')} takes their absolute path, and a file there opens with ${code('read_file')} (${code('view_file')} on older CLI versions). There is no screenshot tool for you.`
         : `put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path.`;
@@ -107,7 +114,7 @@ export function describeReadOnlySessionFolder(
   { screenshots = false }: { screenshots?: boolean } = {},
 ): string {
   const makes = screenshots
-    ? `Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}. Your sandbox itself does not write the folder.`
+    ? `${SCREENSHOT_TOOL_LINE} Your sandbox itself does not write the folder.`
     : 'Your sandbox does not write it, and you make no screenshots.';
   return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): the server puts files there for you, for example what ${code('read_message_attachment')} cannot show in its result (a PDF, a binary file, a long text, an image your tool results do not carry); the tool answers with the file's path. Read it with shell commands, and open an image with ${code('view_image')} (the shell does not show images). ${makes} The other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) are readable too. A folder is deleted when its session's process stops (a stop, a restart), and a resumed session gets a new folder: a path from earlier in this conversation no longer exists, so call ${code('read_message_attachment')} again.`;
 }

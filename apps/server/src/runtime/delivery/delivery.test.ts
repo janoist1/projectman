@@ -263,6 +263,49 @@ describe('message delivery under the TestClock', () => {
     );
   });
 
+  it('stores a notice the session did not take as a message for the session (R-03)', async () => {
+    const { deps, control } = setup();
+    control.typeInto = 'fail';
+    const store = vi.fn(async () => {});
+    const taken = await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.useNoticeStore(store);
+        return yield* delivery.notice(session, 'projectman', 'The fix round limit was lifted', 'AR-1', {
+          store: true,
+        });
+      }),
+    );
+    expect(taken).toBe(false);
+    expect(store).toHaveBeenCalledExactlyOnceWith(session, 'The fix round limit was lifted');
+  });
+
+  it('stores nothing for a notice whose caller retries it (the member queue)', async () => {
+    const { deps, control } = setup();
+    control.typeInto = 'fail';
+    const store = vi.fn(async () => {});
+    const taken = await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.useNoticeStore(store);
+        return yield* delivery.notice(session, 'projectman', 'A decision is waiting', 'AR-1');
+      }),
+    );
+    expect(taken).toBe(false);
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  it('stores no notice the session took', async () => {
+    const { deps, control } = setup();
+    control.typeInto = 'ok';
+    const store = vi.fn(async () => {});
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.useNoticeStore(store);
+        expect(yield* delivery.notice(session, 'projectman', 'FYI', null, { store: true })).toBe(true);
+      }),
+    );
+    expect(store).not.toHaveBeenCalled();
+  });
+
   it('starts the ladder over at 10 seconds after typing worked', async () => {
     const { deps, typeInto, control, add, markRecipientDelivered } = setup();
     add('m1');
@@ -306,15 +349,17 @@ describe('message delivery under the TestClock', () => {
   });
 
   it('types the messages again after 10 seconds when the first input was not taken', async () => {
-    const { deps, typeInto, control, add, markRecipientDelivered, logger } = setup();
+    const { deps, typeInto, control, add, markRecipientDelivered, logger, waiting } = setup();
     add('m1');
+    add('m2');
     await run(deps, (delivery) =>
       Effect.gen(function* () {
         control.typeInto = 'ok';
-        const messages = [messageOf('m1')];
+        const messages = [messageOf('m1'), messageOf('m2')];
         yield* delivery.deliverWithFirstInput('dev', messages, Promise.resolve(false), session);
         yield* settled;
         expect(markRecipientDelivered).not.toHaveBeenCalled();
+        expect([...waiting.keys()]).toEqual(['m1', 'm2']);
         expect(logger.warn).toHaveBeenCalledWith(
           { sessionId: 'ses_1', handle: 'dev' },
           'team messages in the first input not taken',
@@ -324,6 +369,8 @@ describe('message delivery under the TestClock', () => {
         yield* advance(1);
         expect(typeInto).toHaveBeenCalledTimes(1);
         expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev', 'ses_1');
+        expect(markRecipientDelivered).toHaveBeenCalledWith('m2', 'dev', 'ses_1');
+        expect(waiting.size).toBe(0);
       }),
     );
   });

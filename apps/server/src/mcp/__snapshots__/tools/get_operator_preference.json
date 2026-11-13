@@ -1,0 +1,17 @@
+{
+  "name": "get_operator_preference",
+  "title": "Read personal conversation preferences",
+  "description": "Read the current person’s five personal style fields and revision (the Operator in their conversation, or the PM on an open direct owner message or answer). The server chooses the person; no handle, project or path is accepted. The fields never authorize project changes.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read personal conversation preferences",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

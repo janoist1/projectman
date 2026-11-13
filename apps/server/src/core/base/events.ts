@@ -50,6 +50,10 @@ export interface DomainEventMap {
   /** A card's assignee requested a new round on the open card (PM-138). Emitted and awaited before
    * recording the message, so listeners queue the pinned commit's full test before recipients get it. */
   task_review_round: { projectKey: string; taskKey: string; from: string };
+  /** A new review commit requires the main owners; the former small owners must leave the card. */
+  task_owner_escalated: { projectKey: string; taskKey: string; stageId: string; from: string[] };
+  /** A member was involved on a card (PM-1267): its waiting messages may wake it now. */
+  member_involved: { projectKey: string; taskKey: string; member: string };
   /** An operation put relations on cards (PM-421), after it committed; both cards of each, from their own side. */
   task_relations_added: { projectKey: string; actor: Actor; added: AddedRelation[] };
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */
@@ -83,8 +87,11 @@ export interface DomainEventMap {
   session_started: Session;
   /** A task session started or resumed with `announce` (PM-249, not a restart): the card's other workers are told. */
   task_session_joined: { session: Session; resumed: boolean; cause: SessionStartCause | null };
-  /** A session ended; its previous state distinguishes interrupted turns from completed idle ones. */
-  session_ended: Session & { previousState?: SessionState };
+  /**
+   * A session ended; its previous state distinguishes interrupted turns from completed idle ones.
+   * `beforeFirstTurn` (PM-1335): it ended before it took its first input, so it never worked.
+   */
+  session_ended: Session & { previousState?: SessionState; beforeFirstTurn?: boolean };
   /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
   session_idle: Session;
   /** A live session's state changed (PM-1290): the messages typed into its open turns show it. */

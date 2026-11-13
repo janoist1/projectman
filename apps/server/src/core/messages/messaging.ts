@@ -25,7 +25,7 @@ import {
   sessionWorkItemOf,
   questionPayloadOf,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   teamMessageRecipientRefusal,
   uiPlaceKey,
   uiPlaceRefusal,
@@ -168,6 +168,20 @@ export class Messaging {
         text: `Work on ${task.key}: ${task.title}${startReason(config, cause ?? null)}. Read get_task task_key ${task.key} for the current requirements and act on this assignment.`,
       },
       { actor: SYSTEM_ACTOR, kind: 'action' },
+    );
+  }
+
+  /**
+   * A notice the session did not take (R-03) is kept as a `system` message for its member and work item,
+   * so the usual retry and wake-up carry it.
+   */
+  async storeNotice(session: Session, text: string): Promise<void> {
+    const { workItem } = session;
+    await this.send(
+      session.projectKey,
+      'system',
+      { to: [session.member], text, taskKey: workItem.type === 'task' ? workItem.taskKey : null },
+      { actor: SYSTEM_ACTOR, workItem },
     );
   }
 
@@ -329,7 +343,7 @@ export class Messaging {
     if (attachmentIds.length > 0 && !opts.questionGroupShare)
       this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
-    const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
+    let task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
     if (opts.workerCheck && task && isOpenTask(task) && !isTheme(task)) {
       const busy = this.cardBusyOf(config, task, from, recipients, opts);
@@ -361,20 +375,24 @@ export class Messaging {
       // It comes first: an offline engine (`engine_offline`) or a commit without a green hand-over check
       // (`handover_check_missing`, PM-1380) refuses the request before any round starts.
       const stage = stageOf(config, task.stageId);
-      if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
+      if (stage && cardStageOwners(config, stage, task).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
           if (
             err instanceof DomainError &&
             (err.code === 'engine_offline' || err.code === 'handover_check_missing')
           )
             throw err;
-          this.ctx.logger.warn(
-            { err, taskKey: task.key },
-            'could not pin the commit of the new review round',
-          );
+          this.ctx.logger.warn({ err, taskKey }, 'could not pin the commit of the new review round');
         });
+      const previousOwners = stage ? cardStageOwners(config, stage, task) : [];
+      task = this.tasks.get(projectKey, task.key);
+      const currentOwners = stage ? cardStageOwners(config, stage, task) : [];
       for (const handle of recipients)
-        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
+        if (
+          !humans.includes(handle) &&
+          (!previousOwners.includes(handle) || currentOwners.includes(handle)) &&
+          (!fromAi || recipientHasCardRole(this.ctx, config, task, handle))
+        )
           this.sessions.requestReviewRound(projectKey, task.key, handle);
       // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
       await this.ctx.events.emit('task_review_round', { projectKey, taskKey: task.key, from });

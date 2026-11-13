@@ -6,7 +6,7 @@ const GB = 1024 ** 3;
 /** The alert kinds that become a todo for the integrator (`ALERT_ROUTE_CLASS`: `integrator_queue`). */
 export type MachineAlert = Extract<
   AlertPayload,
-  { alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' | 'release_due' }
+  { alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' | 'release_due' | 'work_outage' }
 >;
 
 export function isMachineAlert(alert: AlertPayload): alert is MachineAlert {
@@ -15,7 +15,8 @@ export function isMachineAlert(alert: AlertPayload): alert is MachineAlert {
     alert.alert === 'machine_busy' ||
     alert.alert === 'worktree_kept' ||
     alert.alert === 'session_input' ||
-    alert.alert === 'release_due'
+    alert.alert === 'release_due' ||
+    alert.alert === 'work_outage'
   );
 }
 
@@ -38,6 +39,7 @@ export function alertMarkerOf(
   scope: { taskKey: string | null; sessionId: string | null },
 ): AlertMarker {
   if (alert.alert === 'release_due') return { alert: alert.alert, key: `${alert.repo}@${alert.base}` };
+  if (alert.alert === 'work_outage') return { alert: alert.alert, key: alert.outage.id };
   return {
     alert: alert.alert,
     key: isProjectAlert(alert.alert) ? '' : (scope.taskKey ?? scope.sessionId ?? ''),
@@ -64,6 +66,15 @@ export function alertTodoOf(
   scope: { member: string; sessionId: string | null },
 ): QuestionTodo {
   switch (alert.alert) {
+    case 'work_outage':
+      return {
+        what: `Work is blocked since ${alert.outage.since}: ${alert.outage.kind === 'provider' ? `${alert.outage.provider} (${alert.outage.problem})` : 'engine disconnected'}. Restore the provider's subscription login or setup, or reconnect the engine, then recheck the outage. Affected members: ${cut(alert.members.join(', '), 400)}; cards: ${cut(alert.tasks.join(', ') || 'none', 600)}.`,
+        where: alert.outage.engine
+          ? `Engine ${alert.outage.engine.name} (${alert.outage.engine.id}).`
+          : 'The machine the engine runs on.',
+        expected:
+          'The engine and provider are usable again; the outage closes automatically and waiting work resumes.',
+      };
     case 'disk_low':
       return {
         what: `The free disk space is ${Math.floor(alert.freeBytes / GB)} GB, below the limit of ${alert.thresholdBytes / GB} GB, so no new AI session starts. Free space: remove what is not needed (caches, old worktrees, build output).`,

@@ -1,0 +1,117 @@
+{
+  "name": "create_task",
+  "title": "Create a task",
+  "description": "Create a task (a bug you found, a part of a split request, follow-up work). It starts unassigned in the first stage and starts no work. Make the description self-contained; if it came from another task, note the new key there with update_task. kind \"theme\" creates a theme (an epic).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "description": "task (default) or theme: a card that groups other cards; no stage, no work.",
+        "type": "string",
+        "enum": [
+          "task",
+          "theme"
+        ]
+      },
+      "theme_key": {
+        "description": "The theme the new card belongs to: an open card of kind theme in this project.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "parent_key": {
+        "description": "Parent task in this project; must not itself be a subtask.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "Short, specific title."
+      },
+      "description": {
+        "description": "Markdown: what and why, and what done means (for a bug: steps to reproduce, expected and actual behaviour, environment). Mention the task it came from, if any.",
+        "type": "string",
+        "maxLength": 20000
+      },
+      "labels": {
+        "description": "Labels, e.g. [\"bug\"].",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "relations": {
+        "description": "Relations of the new card to other cards, as add_relations of update_task. One refused relation refuses the creation.",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "part_of",
+                "prerequisite",
+                "related",
+                "duplicate_of"
+              ]
+            },
+            "task_key": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+              "description": "The other card, in this project."
+            }
+          },
+          "required": [
+            "kind",
+            "task_key"
+          ]
+        }
+      },
+      "acceptance": {
+        "description": "The acceptance conditions of the card, one per item: each checkable on its own, so the assignee can mark it done with evidence and the reviewer confirm it.",
+        "maxItems": 40,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "complexity": {
+        "description": "Complexity points: 1, 2, 3, 5, 8 or 13 (split larger cards); null removes them.",
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "complexity_reason": {
+        "description": "Reason for the complexity (1–300 characters); needs numeric points.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Create a task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

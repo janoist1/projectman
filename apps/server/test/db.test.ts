@@ -8,304 +8,13 @@ import {
   createRepositories,
   decodeWorkItem,
   encodeWorkItem,
-  LATEST_SCHEMA_VERSION,
+  latestSchemaVersion,
   migrate,
   openDatabase,
   schemaVersion,
 } from '../src/db';
-import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
-
-describe('legacy task check migration', () => {
-  function legacyTask(checks: string, labels: string[]) {
-    const db = new Database(':memory:');
-    for (const migration of migrations.filter((item) => item.version <= 114)) db.exec(migration.sql);
-    db.pragma('user_version = 114');
-    // The old rows go in as raw SQL: the repositories prepare statements for the current schema, so
-    // they are created only after migrating (see `reposAfterMigrating`).
-    db.prepare(
-      'INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run('AR', 'Acme', null, 'v1', now, now);
-    db.prepare(
-      `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, labels, checks,
-         visibility, created_by, created_at, updated_at)
-       VALUES ('tsk_1', 'AR', 'AR-1', 1, 'Login page', 'Build it', 'backlog', 'active', ?, ?, 'internal', 'owner', ?, ?)`,
-    ).run(JSON.stringify(labels), checks, now, now);
-    return db;
-  }
-
-  function reposAfterMigrating(db: Database.Database) {
-    migrate(db);
-    return createRepositories(db);
-  }
-
-  it.each([
-    ['passed', ['code-review-ok', 'security-ok', 'qa-ok', 'client-accepted']],
-    ['failed', ['code-review-changes', 'security-changes', 'qa-failed', 'client-changes']],
-    ['blocked', ['code-review-blocked', 'security-changes', 'qa-failed', 'client-changes']],
-    ['retest_needed', ['code-review-changes', 'security-changes', 'qa-retest', 'client-changes']],
-    ['pending', []],
-  ] as const)('folds %s checks into labels without losing or duplicating labels', (state, expected) => {
-    const checks = JSON.stringify({
-      code_review: state,
-      security_review: state,
-      qa: state,
-      client_test: state,
-    });
-    const repos = reposAfterMigrating(legacyTask(checks, ['frontend', 'frontend', ...expected.slice(0, 1)]));
-    try {
-      expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend', ...expected]);
-      expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
-        checks: '{}',
-      });
-    } finally {
-      repos.db.close();
-    }
-  });
-
-  it.each(['{"unknown":"passed","qa":"unknown"}', 'invalid json', '{}'])(
-    'preserves labels when checks have no known state: %s',
-    (checks) => {
-      const repos = reposAfterMigrating(legacyTask(checks, ['frontend']));
-      try {
-        expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
-        expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
-          checks: '{}',
-        });
-      } finally {
-        repos.db.close();
-      }
-    },
-  );
-});
-
-it('keeps legacy member activity with a null source card', () => {
-  const db = new Database(':memory:');
-  try {
-    for (const migration of migrations.filter((item) => item.version < 108)) db.exec(migration.sql);
-    db.pragma('user_version = 107');
-    db.prepare(
-      `INSERT INTO member_state (project_key, handle, status, activity, updated_at)
-      VALUES ('AR', 'dev-1', 'working', 'Read file', ?)`,
-    ).run(now);
-    migrate(db);
-    expect(createRepositories(db).memberState.get('AR', 'dev-1')).toMatchObject({
-      activity: 'Read file',
-      activityTaskKey: null,
-    });
-  } finally {
-    db.close();
-  }
-});
-
-it('preserves queue rows and indexes while adding checklist notices', () => {
-  const db = new Database(':memory:');
-  try {
-    for (const migration of migrations.filter((item) => item.version <= 106)) db.exec(migration.sql);
-    db.pragma('user_version = 106');
-    db.prepare(
-      `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at)
-      VALUES ('AR', 'Acme', NULL, 'v1', ?, ?)`,
-    ).run(now, now);
-    db.prepare(
-      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at, payload, wait_details)
-      VALUES ('old', 'AR', 'dev-1', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
-    ).run(now);
-    const before = db.prepare('SELECT * FROM member_queue_items').all();
-    migrate(db);
-    expect(db.prepare('SELECT * FROM member_queue_items').all()).toEqual(before);
-    db.prepare(
-      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
-      VALUES ('new', 'AR', 'dev-1', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
-    ).run(now);
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
-      .all();
-    expect(indexes).toEqual(
-      expect.arrayContaining([
-        { name: 'member_queue_items_member' },
-        { name: 'member_queue_items_place' },
-        { name: 'member_queue_items_closed' },
-      ]),
-    );
-  } finally {
-    db.close();
-  }
-});
-
-it('assigns a unique schema version to every migration', () => {
-  const versions = migrations.map(({ version }) => version);
-  expect(versions).toEqual([...new Set(versions)]);
-});
-
-it('adds question groups after the refinement stalled signals migration without changing existing questions', () => {
-  const db = new Database(':memory:');
-  try {
-    for (const migration of migrations.filter((item) => item.version <= 71)) db.exec(migration.sql);
-    db.pragma('user_version = 71');
-    const insert = db.prepare(`INSERT INTO inbox_items
-      (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
-      VALUES (?, 'AR', 'question', '["owner"]', 'dev-1', ?, '{}', '[]', 'screening', ?, ?)`);
-    insert.run('inb_first', 'First question?', now, now);
-    insert.run('inb_second', 'Second question?', now, now);
-    const before = db.prepare('SELECT * FROM inbox_items ORDER BY seq').all();
-    expect(
-      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'question_groups'").get(),
-    ).toBeUndefined();
-
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-    // The route column (migration 141, PM-1246) is new and empty on the stored rows; the rest is untouched.
-    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(
-      before.map((row) => ({ ...(row as object), route: null })),
-    );
-    expect(db.prepare('SELECT * FROM operator_execution_intents').all()).toEqual([]);
-    const inbox = createRepositories(db).inbox;
-    inbox.createGroup({
-      primaryItemId: 'inb_first',
-      projectKey: 'AR',
-      question: 'Combined question?',
-      by: 'pm',
-      note: 'Both need the same decision.',
-      itemIds: ['inb_first', 'inb_second'],
-      at: now,
-    });
-    expect(inbox.groupOf('inb_second')).toMatchObject({
-      primaryItemId: 'inb_first',
-      itemIds: ['inb_first', 'inb_second'],
-    });
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(inbox.groupOf('inb_first')?.question).toBe('Combined question?');
-  } finally {
-    db.close();
-  }
-});
-
-it('preserves existing merge rows and failure diagnostics through migration 49', () => {
-  const db = new Database(':memory:');
-  try {
-    for (const migration of migrations.filter((m) => m.version <= 48)) db.exec(migration.sql);
-    db.pragma('user_version = 48');
-    const failure = { reason: 'conflict', base: 'onto', at: now, files: ['a.ts'] };
-    db.prepare(
-      `INSERT INTO task_merges (id, project_key, task_key, repo, base, "commit", from_stage_id, to_stage_id, merger, requested_at, state, landed, failure_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      'm',
-      'AR',
-      'AR-1',
-      'web',
-      'main',
-      'approved',
-      'review',
-      'done',
-      'owner',
-      now,
-      'failed',
-      'nowhere',
-      JSON.stringify(failure),
-      now,
-      now,
-    );
-    migrate(db);
-    const repository = createRepositories(db).taskMerges;
-    const row = repository.get('m')!;
-    expect(row).toMatchObject({ state: 'failed', commit: 'approved', failure });
-    repository.save({
-      ...row,
-      state: 'fixing',
-      fix: { by: 'owner', base: 'onto', branch: 'merge-fix/AR-1', startedAt: now },
-    });
-    expect(repository.open('AR', 'AR-1')?.state).toBe('fixing');
-    repository.save({
-      ...row,
-      state: 'merged',
-      commit: 'resolved',
-      resolution: { note: 'Resolve imports in a.ts', commit: 'resolved' },
-    });
-    expect(repository.latestMerged('AR', 'AR-1')?.resolution).toEqual({
-      note: 'Resolve imports in a.ts',
-      commit: 'resolved',
-    });
-  } finally {
-    db.close();
-  }
-});
-
-describe('merge migration 48', () => {
-  it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
-    const db = new Database(':memory:');
-    try {
-      const prior = migrations.filter((item) => item.version < 48);
-      for (const migration of prior) db.exec(migration.sql);
-      db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
-      // Seed the historical schema directly: current repositories require later migrations.
-      db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)').run('AR', 'acme', null, 'v1', now, now);
-      const task = sampleTask();
-      db.prepare(
-        `INSERT INTO tasks
-        (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        task.id,
-        task.projectKey,
-        task.key,
-        1,
-        task.title,
-        task.stageId,
-        task.status,
-        'internal',
-        task.createdBy,
-        task.createdAt,
-        task.updatedAt,
-      );
-      db.prepare('INSERT INTO task_review_pins VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-        'AR',
-        'AR-1',
-        'review',
-        'approved',
-        'task/AR-1',
-        now,
-        'dev-1',
-      );
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(repos.taskHandovers.get('AR', 'AR-1')).toEqual({ commit: 'approved', branch: 'task/AR-1' });
-      repos.reviewPins.clear('AR-1');
-      expect(repos.taskHandovers.get('AR', 'AR-1')?.commit).toBe('approved');
-      const row = {
-        id: 'm1',
-        projectKey: 'AR',
-        taskKey: 'AR-1',
-        repo: 'web',
-        base: 'main',
-        commit: 'approved',
-        branch: 'task/AR-1',
-        fromStageId: 'review',
-        toStageId: 'done',
-        merger: 'owner',
-        requestedAt: now,
-        state: 'queued' as const,
-        step: 'queued' as const,
-        landed: 'nowhere' as const,
-        createdAt: now,
-        updatedAt: now,
-      };
-      repos.taskMerges.save(row);
-      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
-      repos.taskMerges.save({ ...row, state: 'blocked' });
-      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
-      const fix = { by: 'owner', branch: 'merge-fix/AR-1', base: 'onto', startedAt: now };
-      repos.taskMerges.save({ ...row, state: 'fixing', fix });
-      expect(repos.taskMerges.open('AR', 'AR-1')).toMatchObject({ state: 'fixing', fix });
-      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
-      repos.taskMerges.save({ ...row, state: 'cancelled' });
-      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).not.toThrow();
-    } finally {
-      db.close();
-    }
-  });
-});
 
 function sampleTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -415,12 +124,12 @@ describe('database', () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  it('applies migrations once and records the schema version', () => {
+  it('creates the baseline once and records the schema version', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pm-db-'));
     dirs.push(dir);
     const db = openDatabase(join(dir, 'db.sqlite'));
-    expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(schemaVersion(db)).toBe(latestSchemaVersion());
+    expect(migrate(db)).toBe(latestSchemaVersion());
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((r) => r.name);
@@ -567,54 +276,6 @@ describe('database', () => {
     expect(repos.tasks.children('AR', 'AR-2')).toEqual([]);
   });
 
-  it("records each earlier session's provider from its transcript file name", () => {
-    const db = new Database(':memory:');
-    try {
-      for (const migration of migrations.filter((item) => item.version <= 8)) db.exec(migration.sql);
-      db.pragma('user_version = 8');
-      const insert = db.prepare(
-        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd,
-           transcript_path, state, started_at, last_activity_at)
-         VALUES (?, 'AR', ?, 'general', '', '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11', '/w', ?, 'exited', ?, ?)`,
-      );
-      const transcripts: Array<[string, string | null, string]> = [
-        ['dev-1', '/home/anna/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-a.jsonl', 'codex'],
-        ['dev-2', '/home/anna/.codex/sessions/2025/12/01/rollout-2025-12-01T00-00-00-b.jsonl.zst', 'codex'],
-        ['dev-3', 'rollout-local.jsonl', 'codex'],
-        ['dev-4', '/home/anna/.claude/projects/-w/0b7c6a1e.jsonl', 'claude'],
-        ['dev-5', '/home/anna/rollout-notes/session.jsonl', 'claude'],
-        ['dev-6', '/home/anna/rollout-a.jsonl.bak', 'claude'],
-        ['dev-7', null, 'claude'],
-      ];
-      for (const [member, path] of transcripts) insert.run(`ses_${member}`, member, path, now, now);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(transcripts.map(([member]) => repos.sessions.get(`ses_${member}`)?.provider)).toEqual(
-        transcripts.map(([, , provider]) => provider),
-      );
-    } finally {
-      db.close();
-    }
-  });
-
-  it('repairs the provider of Codex sessions an older build recorded after the migration', () => {
-    const db = openDatabase(':memory:');
-    try {
-      // A build from before migration 9 knows nothing of the column and leaves it at its default.
-      db.prepare(
-        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd,
-           transcript_path, state, started_at, last_activity_at)
-         VALUES ('ses_cx', 'AR', 'cx-1', 'general', '', '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11', '/w',
-           '/home/anna/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-a.jsonl', 'exited', ?, ?)`,
-      ).run(now, now);
-      expect(createRepositories(db).sessions.get('ses_cx')?.provider).toBe('claude');
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(createRepositories(db).sessions.get('ses_cx')?.provider).toBe('codex');
-    } finally {
-      db.close();
-    }
-  });
-
   it('stores deferred starts one per key, oldest first, and reads a broken value as null', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const record = (key: string, reason: string) => ({
@@ -654,7 +315,7 @@ describe('database', () => {
 
   it('refuses a database written by a newer build', () => {
     const db = openDatabase(':memory:');
-    db.pragma(`user_version = ${LATEST_SCHEMA_VERSION + 1}`);
+    db.pragma(`user_version = ${latestSchemaVersion() + 1}`);
     expect(() => migrate(db)).toThrow(/schema version .* newer build/);
     db.close();
   });

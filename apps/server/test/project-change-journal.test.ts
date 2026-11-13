@@ -2,9 +2,15 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDomainContext, createEventBus } from '../src/core/base';
 import { createRepositories, migrate } from '../src/db';
-import { CHANGE_TRIGGER_TABLES, UNJOURNALED_TABLES, changeTriggerName } from '../src/db/change-triggers';
+import {
+  changeTriggerTables,
+  unjournaledTables,
+  changeTriggerName,
+  changeTriggerSql,
+} from '../src/db/change-triggers';
 import type { Repositories } from '../src/db';
 import { capturingLogger } from './helpers/fakes';
+import type { MigrationFile } from '../src/db/migration-files';
 
 const AT = '2026-10-14T10:00:00.000Z';
 
@@ -36,16 +42,26 @@ describe('project change journal (database)', () => {
   afterEach(() => db.close());
 
   it('has a trigger for every table and statement it announces (a table rebuild must create them again)', () => {
-    const names = new Set(
-      (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger'`).all() as { name: string }[]).map(
-        (row) => row.name,
-      ),
-    );
-    for (const entry of CHANGE_TRIGGER_TABLES)
-      for (const statement of entry.on)
-        expect(names.has(changeTriggerName(entry.table, statement)), `${entry.table} ${statement}`).toBe(
-          true,
-        );
+    const triggers = () =>
+      new Map(
+        (
+          db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").all() as {
+            name: string;
+            sql: string;
+          }[]
+        ).map((row) => [row.name, row.sql.replace(/\s+/g, ' ').trim()]),
+      );
+    const before = triggers();
+    for (const { table, entry } of changeTriggerTables()) {
+      for (const statement of entry.on ?? ['INSERT', 'UPDATE', 'DELETE']) {
+        const name = changeTriggerName(table, statement);
+        expect(before.has(name), `${table} ${statement}`).toBe(true);
+        db.exec(`DROP TRIGGER "${name}"`);
+      }
+      // Equality with the stored baseline SQL guards the declarative rendering.
+      db.exec(changeTriggerSql(table, entry));
+    }
+    expect(triggers()).toEqual(before);
   });
 
   it('keeps a stable generation and numbers the entries in commit order', () => {
@@ -135,8 +151,8 @@ describe('project change journal (database)', () => {
         )
         .all() as { name: string }[]
     ).map((row) => row.name);
-    const journaled = CHANGE_TRIGGER_TABLES.map((entry) => entry.table);
-    const excluded = Object.keys(UNJOURNALED_TABLES);
+    const journaled = changeTriggerTables().map((entry) => entry.table);
+    const excluded = Object.keys(unjournaledTables());
     expect(journaled.filter((name) => excluded.includes(name))).toEqual([]);
     const known = new Set([...journaled, ...excluded]);
     expect(tables.filter((name) => !known.has(name))).toEqual([]);
@@ -280,4 +296,43 @@ describe('project change journal (database)', () => {
         .map((row) => row.entityId),
     ).toEqual(['AR-2']);
   });
+});
+
+it('classifies exactly the baseline tables without later metadata', () => {
+  const db = new Database(':memory:');
+  try {
+    migrate(db, []);
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
+    )
+      .map((r) => r.name)
+      .sort();
+    expect(
+      [...changeTriggerTables([]).map((e) => e.table), ...Object.keys(unjournaledTables([]))].sort(),
+    ).toEqual(tables);
+  } finally {
+    db.close();
+  }
+});
+
+it('applies journal classification replacements and table drops in version order', () => {
+  const files: MigrationFile[] = [
+    {
+      version: 1,
+      name: 'add',
+      sql: '',
+      meta: { tables: { example: { journal: { kind: 'task', entity: 'id' } } } },
+    },
+    {
+      version: 2,
+      name: 'exclude',
+      sql: '',
+      meta: { tables: { example: { journal: { none: 'private bookkeeping' } } } },
+    },
+    { version: 3, name: 'drop', sql: '', meta: { tables: { example: { dropped: true } } } },
+  ];
+  expect(changeTriggerTables(files.slice(0, 1)).some((e) => e.table === 'example')).toBe(true);
+  expect(changeTriggerTables(files.slice(0, 2)).some((e) => e.table === 'example')).toBe(false);
+  expect(unjournaledTables(files.slice(0, 2)).example).toBe('private bookkeeping');
+  expect(unjournaledTables([...files].reverse()).example).toBeUndefined();
 });

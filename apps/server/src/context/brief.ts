@@ -27,6 +27,7 @@ import { cardQuestionsBlock, cardWorkersBlock } from './card-thread';
 import { handoffBlock, previousConversationBlock } from './handoff';
 import {
   cardBranchMergeRule,
+  mergeAfterReviewLine,
   code,
   codeList,
   fullTestLine,
@@ -101,7 +102,12 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const fixing = isMergeFixer(task.merge, input.member.handle);
   if (mergeRepo && requiresMerge(mergeRepo) && !fixing)
     sections.push(
-      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. ${cardBranchMergeRule(mergeRepo.defaultBranch)} The project manager must not request a manual git merge into ${code(mergeRepo.defaultBranch)}.`,
+      [
+        `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. ${cardBranchMergeRule(mergeRepo.defaultBranch)} The project manager must not request a manual git merge into ${code(mergeRepo.defaultBranch)}.`,
+        mergeAfterReviewLine(input.project),
+      ]
+        .filter((line) => line !== null)
+        .join(' '),
     );
 
   if (task.merge?.merger === input.member.handle) {
@@ -258,7 +264,7 @@ function attachmentsSection(
 
 /**
  * The parent card's files: the count, the first few by name, and the task_key that reads them. When the
- * card's description names some of them by file name ("PM-92: 06-rad-var-asztali.jpg"), those come first
+ * card's description names some of them by file name ("AR-7: checkout-mobile.png"), those come first
  * and marked, and the rest are only counted: opening an image costs tokens that stay in the context.
  */
 function parentAttachmentLines(

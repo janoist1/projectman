@@ -84,8 +84,11 @@ const LOCAL_TOOLS = new Set([
   'apply_patch',
 ]);
 
-/** Every file a Codex patch names (`*** Add|Update|Delete File:`, `*** Move to:`), in any string field. */
-function patchPaths(toolInput: unknown): string[] {
+/**
+ * Every file a Codex patch names (`*** Add|Update|Delete File:`, `*** Move to:`), in any string field.
+ * A header may be indented: Codex trims the line start before it reads one.
+ */
+export function patchPaths(toolInput: unknown): string[] {
   const texts =
     typeof toolInput === 'string'
       ? [toolInput]
@@ -95,8 +98,8 @@ function patchPaths(toolInput: unknown): string[] {
           )
         : [];
   return texts.flatMap((text) =>
-    [...text.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map((match) =>
-      match[1]!.trim(),
+    [...text.matchAll(/^(?:[^\S\r\n]|\u0085)*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map(
+      (match) => match[1]!.trim(),
     ),
   );
 }

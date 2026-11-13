@@ -1,6 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { refineScope } from '../../../scripts/merge-test/refine';
-import { mergeTestScope } from '../../../scripts/merge-test/scope';
+import { CLOUD_TEST_FILTERS, mergeTestScope, OWNED_PATH_RULES } from '../../../scripts/merge-test/scope';
 import { mergeTestSteps, scopeLine } from '../../../scripts/merge-test/run';
 import type { MergeTestScope } from '../../../scripts/merge-test/scope';
 
@@ -38,19 +41,19 @@ describe('merge test scope', () => {
     );
   });
   it.each([
-    'packages/templates/src/x.ts',
+    'packages/templates/package.json',
     'packages/shared/package.json',
     'packages/shared/src/vitest.config.ts',
     'scripts/a.sh',
     'scripts/readme.md',
-    'scripts/merge-test/impact.ts',
+    'scripts/merge-test/package.json',
     'scripts/full-test/cli.ts',
     'package-lock.json',
     'unknown/file',
     'apps/server/package.json',
     'apps/web/tsconfig.app.json',
     'apps/server/vitest.config.ts',
-    'apps/server/test/architecture/modules/core-base.ts',
+    'deploy/other/a.sh',
   ])('runs everything for %s', (file) => {
     expect(mergeTestScope(['docs/a.md', 'apps/server/src/a.ts', file])).toEqual({
       kind: 'all',
@@ -65,7 +68,7 @@ describe('merge test scope', () => {
   });
   it.each([
     'apps/server/src/contracts/tasks.ts',
-    'apps/server/src/config/migrations.ts',
+    'apps/server/src/config/layout.ts',
     'scripts/live/config-check.ts',
     'scripts/example.cjs',
     'scripts/example.mtsx',
@@ -161,7 +164,11 @@ describe('merge test scope', () => {
       if (first.kind === 'all') expect(second.kind).toBe('all');
     });
     it('does not treat the other deploy areas alone as cloud', () => {
-      expect(mergeTestScope(['deploy/mac/a.plist'])).toEqual({ kind: 'all', reason: 'deploy/mac/a.plist' });
+      expect(mergeTestScope(['deploy/mac/a.plist']).kind).toBe('owned');
+      expect(mergeTestScope(['deploy/other/a.plist'])).toEqual({
+        kind: 'all',
+        reason: 'deploy/other/a.plist',
+      });
     });
     it('prints the same filter line the commands use', () => {
       const commands = mergeTestCommands(cloud);
@@ -185,6 +192,111 @@ describe('merge test scope', () => {
       expect(scopeLine(cloud)).toBe(
         'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/memory-profile.test.ts, apps/server/test/history-semantic-profile.test.ts, apps/server/test/control-socket.integration.test.ts; fallback: none',
       );
+    });
+  });
+  describe('path-owned tests', () => {
+    const owned = (files: string[]) => {
+      const scope = mergeTestScope(files);
+      if (scope.kind !== 'owned') throw new Error(`not owned: ${JSON.stringify(scope)}`);
+      return scope;
+    };
+    it.each([
+      [
+        'deploy/mac/menubar/Sources/App.swift',
+        'deploy-mac-workflows',
+        'apps/server/test/engine-menubar.test.ts',
+      ],
+      [
+        'deploy/mac/com.projectman.engine.plist',
+        'deploy-mac-workflows',
+        'apps/server/test/engine-app-package.test.ts',
+      ],
+      [
+        '.github/workflows/merge-check.yml',
+        'deploy-mac-workflows',
+        'apps/server/test/merge-check-workflow.test.ts',
+      ],
+      ['projectman.structure.yaml', 'structure-map', 'apps/server/test/structure-api.test.ts'],
+      ['apps/server/test/architecture/module-map.ts', 'structure-map', 'apps/server/test/architecture/'],
+      ['scripts/merge-test/run.ts', 'merge-test-scripts', 'apps/server/test/merge-test-'],
+    ])('selects the rule tests, not the whole suite, for %s', (file, rule, test) => {
+      const scope = owned([file]);
+      expect(scope.rules).toEqual([rule]);
+      expect(scope.tests).toContain(test);
+    });
+    it('keeps the web, shared and widget workspaces out of a structure map change', () => {
+      expect(mergeTestCommands(owned(['projectman.structure.yaml']))).toEqual([
+        ['run', 'typecheck', '-w', 'apps/server'],
+        expect.arrayContaining(['test', '-w', 'apps/server', '--']),
+      ]);
+    });
+    it('joins the tests of several rules and ignores documentation', () => {
+      const scope = owned(['docs/a.md', 'deploy/mac/a.plist', 'projectman.structure.yaml']);
+      expect(scope.rules).toEqual(['deploy-mac-workflows', 'structure-map']);
+      expect(scope.tests).toEqual(
+        expect.arrayContaining([
+          'apps/server/test/engine-menubar.test.ts',
+          'apps/server/test/structure-api.test.ts',
+        ]),
+      );
+      expect(new Set(scope.tests).size).toBe(scope.tests.length);
+    });
+    it('adds the tests that read a changed document by path', () => {
+      const scope = owned(['deploy/mac/a.plist', 'docs/MACHINE-DEPENDENT.md']);
+      expect(scope.tests).toContain('apps/server/test/memory-profile.test.ts');
+    });
+    it('also runs a changed test file of another rule', () => {
+      const scope = owned(['deploy/mac/a.plist', 'apps/server/test/structure-api.test.ts']);
+      expect(scope.tests).toContain('apps/server/test/structure-api.test.ts');
+    });
+    it.each(['apps/server/src/a.ts', 'apps/web/src/a.ts', 'package.json', 'scripts/merge-test/package.json'])(
+      'does not narrow when %s is also changed',
+      (other) => {
+        expect(mergeTestScope(['deploy/mac/a.plist', other]).kind).not.toBe('owned');
+        expect(mergeTestScope([other, 'projectman.structure.yaml']).kind).not.toBe('owned');
+      },
+    );
+    it('prints the rules and the filters', () => {
+      const scope = owned(['.github/workflows/merge-check.yml']);
+      expect(scopeLine(scope)).toContain(
+        'merge-test scope: owned (deploy-mac-workflows); workspaces: apps/server;',
+      );
+    });
+    it('selects only the templates workspace for a templates change', () => {
+      expect(mergeTestScope(['packages/templates/src/x.ts'])).toEqual({
+        kind: 'workspaces',
+        workspaces: ['packages/templates'],
+      });
+      expect(mergeTestScope(['packages/templates/src/x.ts', 'apps/web/src/a.ts'])).toEqual({
+        kind: 'workspaces',
+        workspaces: ['apps/web', 'packages/templates'],
+      });
+    });
+    it('names every test that reads deploy/mac, .github or the structure map in a rule', () => {
+      const root = fileURLToPath(new URL('../../../', import.meta.url));
+      const reading = /deploy\/mac|\.github\/workflows|projectman\.structure\.yaml|STRUCTURE_MAP_PATH/;
+      const fsRead = /readFileSync|readdirSync|existsSync|statSync|readFile\(/;
+      const tracked = execFileSync('git', ['ls-files', 'apps/server'], { cwd: root, encoding: 'utf8' })
+        .split('\n')
+        .filter((path) => /\.test\.ts$/.test(path));
+      const named = [...OWNED_PATH_RULES.flatMap((rule) => rule.tests), ...CLOUD_TEST_FILTERS];
+      const unnamed = tracked.filter((path) => {
+        const source = readFileSync(`${root}${path}`, 'utf8');
+        return reading.test(source) && fsRead.test(source) && !named.some((entry) => path.startsWith(entry));
+      });
+      expect(unnamed, 'add the test to a rule of OWNED_PATH_RULES in scripts/merge-test/scope.ts').toEqual(
+        [],
+      );
+    });
+    it('names only tests that exist', () => {
+      const root = fileURLToPath(new URL('../../../', import.meta.url));
+      const tracked = execFileSync('git', ['ls-files', 'apps/server'], { cwd: root, encoding: 'utf8' }).split(
+        '\n',
+      );
+      const stale = OWNED_PATH_RULES.flatMap((rule) =>
+        rule.tests.filter((entry) => !tracked.some((path) => path.startsWith(entry))),
+      );
+      expect(stale).toEqual([]);
     });
   });
   it('builds checks in order and prints the scope', () => {

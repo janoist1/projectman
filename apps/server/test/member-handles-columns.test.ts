@@ -1,12 +1,9 @@
 import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createRepositories, migrate } from '../src/db';
-import {
-  REWRITTEN_HANDLE_COLUMNS,
-  REWRITTEN_HANDLE_JSON,
-  UNREWRITTEN_HANDLE_COLUMNS,
-} from '../src/db/member-handles';
+import { handleColumns } from '../src/db/member-handles';
 import type { Repositories } from '../src/db';
+import type { MigrationFile } from '../src/db/migration-files';
 
 const AT = '2026-10-27T10:00:00.000Z';
 /** Column names that hold, or look like they hold, a member's handle. */
@@ -26,16 +23,22 @@ describe('member handle columns (PM-1025)', () => {
     repos = createRepositories(db);
   });
 
-  it('classifies every handle-like column as rewritten or as a reasoned exception', () => {
+  it.each([false, true])('classifies every handle-like column (baseline only: %s)', (baselineOnly) => {
+    if (baselineOnly) {
+      db.close();
+      db = new Database(':memory:');
+      migrate(db, []);
+    }
     const tables = (
       db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]
     )
       .map((row) => row.name)
       .filter((name) => !name.startsWith('history_fts'));
+    const { rewritten, json, unrewritten } = baselineOnly ? handleColumns([]) : handleColumns();
     const classified = new Set([
-      ...REWRITTEN_HANDLE_COLUMNS.flatMap((entry) => entry.columns.map((column) => `${entry.table}.${column}`)),
-      ...REWRITTEN_HANDLE_JSON.map((entry) => `${entry.table}.${entry.column}`),
-      ...Object.keys(UNREWRITTEN_HANDLE_COLUMNS),
+      ...rewritten.flatMap((entry) => entry.columns.map((column) => `${entry.table}.${column}`)),
+      ...json.map((entry) => `${entry.table}.${entry.column}`),
+      ...Object.keys(unrewritten),
     ]);
     const columns = tables.flatMap((table) =>
       (db.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]).map(
@@ -48,7 +51,7 @@ describe('member handle columns (PM-1025)', () => {
     );
     expect(handleLike.filter((name) => !classified.has(name))).toEqual([]);
     expect([...classified].filter((name) => !existing.has(name))).toEqual([]);
-    expect(Object.values(UNREWRITTEN_HANDLE_COLUMNS).every((reason) => reason.length > 10)).toBe(true);
+    expect(Object.values(unrewritten).every((reason) => reason.length > 10)).toBe(true);
   });
 
   it('rewrites the handle in its own project only, plain columns and JSON lists alike', () => {
@@ -66,9 +69,9 @@ describe('member handle columns (PM-1025)', () => {
     ]);
     message.run('m-ar', 'AR', 'dev', JSON.stringify(['other', 'dev']), AT, receipts);
     message.run('m-br', 'BR', 'dev', JSON.stringify(['dev']), AT, receipts);
-    db.prepare(`INSERT INTO member_state (project_key, handle, status, updated_at) VALUES ('AR', 'dev', 'idle', ?)`).run(
-      AT,
-    );
+    db.prepare(
+      `INSERT INTO member_state (project_key, handle, status, updated_at) VALUES ('AR', 'dev', 'idle', ?)`,
+    ).run(AT);
 
     repos.memberHandles.rename('AR', 'dev', 'haini');
 
@@ -80,7 +83,10 @@ describe('member handle columns (PM-1025)', () => {
       };
     expect(row('m-ar').from_handle).toBe('haini');
     expect(JSON.parse(row('m-ar').to_handles)).toEqual(['other', 'haini']);
-    expect(JSON.parse(row('m-ar').receipts)).toMatchObject([{ handle: 'haini', handedOffTo: 'haini' }, { handle: 'other' }]);
+    expect(JSON.parse(row('m-ar').receipts)).toMatchObject([
+      { handle: 'haini', handedOffTo: 'haini' },
+      { handle: 'other' },
+    ]);
     expect(row('m-br')).toMatchObject({ from_handle: 'dev', to_handles: '["dev"]' });
     expect(db.prepare(`SELECT handle FROM member_state WHERE project_key = 'AR'`).all()).toEqual([
       { handle: 'haini' },
@@ -89,4 +95,45 @@ describe('member handle columns (PM-1025)', () => {
     repos.memberHandles.rename('AR', 'dev', 'haini');
     expect(JSON.parse(row('m-ar').to_handles)).toEqual(['other', 'haini']);
   });
+});
+
+it('applies handle additions, removals and table drops in version order', () => {
+  const files: MigrationFile[] = [
+    {
+      version: 1,
+      name: 'add',
+      sql: '',
+      meta: {
+        tables: {
+          example: {
+            handles: {
+              rewritten: ['author'],
+              json: { watchers: 'handles' },
+              unrewritten: { cwd: 'a stable storage path' },
+              scope: 'id = @project',
+            },
+          },
+        },
+      },
+    },
+    {
+      version: 2,
+      name: 'remove',
+      sql: '',
+      meta: {
+        tables: { example: { handles: { removed: ['author', 'watchers', 'cwd'], rewritten: ['member'] } } },
+      },
+    },
+    { version: 3, name: 'drop', sql: '', meta: { tables: { example: { dropped: true } } } },
+  ];
+  expect(handleColumns(files.slice(0, 1)).rewritten.find((e) => e.table === 'example')).toEqual({
+    table: 'example',
+    columns: ['author'],
+    scope: 'id = @project',
+  });
+  const removed = handleColumns(files.slice(0, 2));
+  expect(removed.rewritten.find((e) => e.table === 'example')?.columns).toEqual(['member']);
+  expect(removed.json.some((e) => e.table === 'example')).toBe(false);
+  expect(removed.unrewritten['example.cwd']).toBeUndefined();
+  expect(handleColumns([...files].reverse()).rewritten.some((e) => e.table === 'example')).toBe(false);
 });

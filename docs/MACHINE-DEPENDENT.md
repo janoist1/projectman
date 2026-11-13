@@ -797,7 +797,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   trees without a checkout and only prints the scope and commands. Cloud-only infrastructure diffs under `scripts/cloud/`,
   `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
   changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
-  prefixes. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
+  prefixes. Diffs of `deploy/mac/**`, workflows, the structure map, `apps/server/test/architecture/**`
+  and `scripts/merge-test/**` run their rule's test list (`OWNED_PATH_RULES`, PM-1354); the rules are
+  machine-independent path matches. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
   scripts retain full checks; test-only diffs select the changed tests. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
@@ -807,8 +809,23 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  PM-1349: the engine caches consecutive unsuccessful login checks for 3, 10, 30, then
+  60 seconds; a successful check resets this backoff. Periodic outage checks and refused
+  starts reuse the cached result; an explicit recheck still refreshes immediately.
+  PM-1368: the watch asks once per (engine, provider) in a round, not per member, and the hub
+  caches the answer per (engine, provider) too; the `member` field of `provider.status` stays
+  in the message but no longer partitions the cache. A failing pair is not asked again for
+  30 s, 1, 2, then 5 minutes (hub side); "check now", an auth error and a provider key change
+  ask at once and restart the steps. A refusal of an already known outage starts no check,
+  and the engine logs "agent CLI is not usable" only when the login state or its problem changes.
+  On the hub, an outage that blocks the project manager's own provider or engine goes
+  to the integrator's queue and sends one information message to the project owners per
+  episode, including the start time and recovery action. Other outages still signal the
+  project manager. The todo retains the episode facts across a hub restart and closes
+  on recovery. The existing `provider.status` RPC carries the engine's cached status;
+  the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
-  (Effect, PM-617).
+  (plain TypeScript, PM-1393).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
   For NanoGPT the cloud's key store decides whether the key is there (PM-736).
@@ -887,10 +904,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
   stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
-  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
-  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
-  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
-  link to an old cloud is left alone instead of reconnecting every few minutes).
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only for a
+  cloud that announced its heartbeat or was seen repeating one: PM-1346 adds the optional
+  `heartbeatMs` field to `welcome` (the cloud sends `ENGINE_HEARTBEAT_MS`, only to an engine whose
+  hello carries `welcomeHeartbeat: true`, as `deliveryIds` does), so the watchdog is armed
+  from the welcome and a link that goes half-dead right after it (no repeated ack ever arrives) is
+  dropped after `ENGINE_DEAD_AFTER_MS` instead of idling for an hour. Without the field (an older
+  cloud) the engine still waits for an `ack` equal to the highest sequence of the connection, the
+  welcome's included; a cloud that never repeats one is quiet when idle, so an idle link to an old
+  cloud is left alone instead of reconnecting every few minutes. The frames are strict, so an
+  engine older than PM-1346 would reject the new field (`bad_frame`); it never gets it, because its
+  hello lacks `welcomeHeartbeat`. The cloud-first release order therefore needs no engine update
+  first (an old engine keeps the old watchdog until it is updated).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
@@ -954,6 +979,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     (engine → hub) before it stops. The hub resumes it when the engine connects (after `reconcileEngine`); on a hub
     restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
     heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
+    A resume that finds the session's engine link down sends no `session.release` and keeps the session's pause row
+    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. A release that is lost while the
+    call is in flight (the link drops or times out after `session.release` went out, PM-1403) closes the row, so the
+    engine's hello says what it still holds: an additive optional `paused: true` on a `hello.running[]` entry (set only
+    when the session's input is held, `runner/session.ts` `info()`; an older engine sends none and an older hub never
+    sees it from a session that is not paused). `reconcileEngine` (`runtime/sessions/sessions.ts`, fed by
+    `engine-link/remote/index.ts`) calls `release` for a reported paused session that no pause of the hub holds
+    (`isPaused`); one a pause holds is left to the resume. When an engine is revoked (`endEnginePause`), every open
+    pause row of its sessions closes, not only its own pause's rows: no next connect will release them.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no
@@ -1236,6 +1270,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   The [hybrid recovery procedure](HYBRID.md) closes the public edge and stops the cloud
   before downloading final data for single-mode activation. Deployment and backup run
   on EC2; the recovery service manages only the single-mode server.
+  PM-1381: a restore point below schema 152 must first start with
+  **v2026.11.12**, then the current release. Rebuild that release image at
+  its commit if the seven-day build artifact has expired; see DEPLOY.md, "A database
+  from before the baseline". The database is on the hub; the remote engine does not
+  open it. The baseline is bundled TypeScript, with no new filesystem assumption.
   PM-1197 (part of PM-1193): `deploy/aws/host.sh` gains `prune-images` (after a healthy deploy only the current and the
   previous image stay on the host; the Mac `deploy` calls it too) and `env-check` (reports which required names are
   missing from `/etc/projectman/cloud.env`, never a value; a missing name stops the deploy as `env_missing` before
@@ -1627,7 +1666,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   acts only when that checkout's real path equals the bound repository path. A fresh checkout (hidden npm
   lockfile not older than `package-lock.json`, `worktree/dependencies.ts` `dependencyState`) runs nothing;
   otherwise the same sandboxed preparation as a member clone runs in the background (copy from the
-  `_merge-deps` store on an identical key, else sandboxed `npm ci`), with marker
+  `_merge-deps` store on an identical key, else sandboxed `npm ci`); reads/copies hold the sibling
+  `_merge-deps/<repoKey>.lock` (capacity 1, PM-1338).
+  Both writers and readers take machine places before this store lock; store holders never request places.
+  The store and lock remain on the executing engine, with no protocol change. The checkout marker is
   `<home>/workspace-deps/<sha256(JSON [project,repo])>/ready.json`, heavy-lock label
   `workspace-deps <project>/<repo> (checkout)` and a per-path single flight. It never throws or delays the
   merge: a failure is a log line and the next advance or start retries (10-minute memo). A newer advance
@@ -1653,7 +1695,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
 - **Machine places** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
   `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
-  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
+  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); merge checks reserve main + usable
+  workers up to `max(2, capacity - 2)` places (`mergeTestPlaces`, PM-1338), and cap workers to that grant.
+  The server also respects its configured worker limit. Other heavy runs take `all`, or 2 to 4
   for a workspace vitest and `handover-check`, 2 for the root typecheck and the members' `npm ci`, 3 for
   screenshots, 1 for a workspace typecheck or build (PM-1316, PM-1278 C; a run inside a holder asks for
   none), and its worker count comes from the places it was granted
@@ -1744,13 +1788,19 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
-  `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  `engine-link/engine-audit.ts` (PM-649). Since PM-1373, the engine copies pino's JSON lines to stdout
+  only when it is a TTY (`start.ts` passes `terminalOnly`), preventing launchd's unrotated stdout file
+  from duplicating the rotating log. The cloud and single-mode server always copy to stdout, including
+  without a TTY, so Docker/journald and `npm run cloud -- logs` keep collecting their logs.
+  File-write failures are reported once to the terminal or stderr. Every process logs, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
   rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in
   a 0700 folder. It holds exactly the lines the terminal gets, with the same serializers (request URLs
   have invitation, hook and MCP tokens redacted; no headers, bodies or keys). A failing file write is
-  reported once on the terminal and never stops logging there. The engine's per-request audit
+  reported once and never stops terminal logging. On engine startup, `engine-app.ts` calls
+  `removeRetiredEngineLogs` to remove `logs/live-server.log` and `logs/server.log[.N]` from its own home
+  (PM-1373); engine and service stderr logs are retained. The engine's per-request audit
   (`logs/engine-audit.jsonl`) uses the same rotation helper but is a separate file. Assumes a
   writable local home on the host that runs the process and one process per home.
   **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's
@@ -1912,7 +1962,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
   and writes images to local output storage. For a Codex member, whose sandbox cannot start
-  Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
+  Chromium, the server runs the repository's `screenshots.command` (the PM repository's is `npm run shots --`;
+  the hub names it in `ScreenshotRunSpec.command`, so a remote engine runs the command the hub sends and
+  the hub and the engine must be at the same commit; PM-1353) itself (`take_screenshots`, `get_screenshot_run`,
   PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed,run-sandboxed-core}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
@@ -2080,6 +2132,16 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
   the terminal and receives the CLI hooks.
+  **Command-line first input (PM-1363):** Codex/NanoGPT prompts passed as process arguments
+  count as delivered only after `UserPromptSubmit`. The engine's input queue fails the wait
+  after `argumentSubmitTimeoutMs`; startup or turn activity alone cannot confirm it.
+  The existing `first_input_sent`, `first_input_failed` and exit events carry the result to
+  the hub; no server/engine protocol change is needed.
+  **Pause nudge (PM-1369, R-04):** the nudge a pause's release types is awaited until the CLI
+  takes it. When it never does, the engine sends the additive `nudge_failed` event (the session
+  id and the nudge text); the hub stores the text as a `system` message for the member and work
+  item. The same hub-side store (`Messaging.storeNotice`) keeps a notice the hub typed
+  (`delivery.notice`) that the engine reported as not taken.
   **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
   loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
   unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise
@@ -2248,8 +2310,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
   PM-741 adds a read-only consumer of the engine's `_merge-deps/<sha256(JSON [project,repo])>/current`
-  store: member dependency preparation copies a complete matching generation under the same heavy
-  lock, replacing only validated package trees. Member installations never publish into this store.
+  store: member dependency preparation copies a complete matching generation under the same per-store
+  `_merge-deps/<repoKey>.lock` as merge writers (capacity 1, PM-1338), replacing only validated package trees.
+  Machine places are acquired before the store lock; store holders never request machine places.
+  Both locks and the copy stay on the engine; no server/engine protocol changes. Member installations never publish into this store.
   PM-797: the close of a collecting card with no code of its own reads no worktree or source commit; it decides on
   the hub's data (`TaskRepository.sourceEvidence`), so a missing or offline engine does not hold it back.
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
@@ -2485,6 +2549,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   remains serialized because capacity and workspace availability count running processes, not reservations.
   Slow lock rounds report their full duration and phase timings with the holder and member; slow queue
   sweeps report their five slowest members. No new server/engine message is introduced.
+  PM-1374: the monitor probes on demand, on the server: an account a live session uses every minute, the
+  others every quarter of an hour, none while the project is paused or its AI is off, with a longer wait
+  after a probe that gave no answer. The same `usage.plan` call runs on the engine, only less often.
+  The review watch calls `SessionOrchestrator.sourceHead` for the pins of tasks whose assignee has a live
+  session, once more when that session stops, and for every pin once in ten minutes; no new engine event.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key
@@ -2574,6 +2643,13 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `full-test/npm-dependency-key.ts` hashes complete lock/root/workspace manifest bytes and engine OS/arch/Node/npm.
   The full-test executor stores the latest installation at
   `<worktreesRoot>/_merge-deps/<sha256(JSON.stringify([projectKey,repo]))>/current/`, outside git worktrees.
+  `full-test/npm-ci.ts` shares the store identity and `withMergeDependencyStore` with workspace readers
+  (PM-1338). The sibling `<repoKey>.lock` uses the existing heavy-lock implementation with capacity 1,
+  separate from the machine's pool and its pressure meter. Machine places always precede the store lock;
+  a store holder never requests machine places. The complete preparation, including cache copies and
+  publication, holds this lock; readers hold it through metadata validation and copying. An unavailable
+  writer lock fails preparation; a reader unable to acquire it falls back to its own npm ci outside the lock.
+  The engine owns the local filesystem lock and store; nothing new crosses the server/engine boundary.
   A strict version-1 `ready.json` contains the key and copied relative package paths; every listed directory
   and the root hidden npm lock must be real. Invalid or missing metadata is a miss; linked store roots
   are refused. The installer cannot write the store. After a successful install, unchanged inputs and a
@@ -2909,6 +2985,12 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   child guard and use isolated temp homes. The migration CLI exposes `verify`,
   `instance status|standby|retire|engine|activate` and `hybrid back`.
   Inventory/package library functions remain test-fixture helpers, not CLI commands.
+  PM-1381: `verify` and inventory report a `schema_before_baseline` blocker for
+  schema 1–151, using the server's recovery instructions. Before `hybrid back` or
+  `instance activate --discard-cloud-data` can use an old restored or pre-hybrid
+  database, open its copy once with **v2026.11.12**, then the current
+  release (DEPLOY.md, "A database from before the baseline"). The same applies to old
+  development homes. These tools run on the recovery host; no engine RPC changes.
   **Machine assumptions:** local repositories and data directories, POSIX modes and
   process groups. Home copies restore source directory modes after `cpSync`;
   the permission walk uses `lstat` and never follows symlinks. The hybrid return

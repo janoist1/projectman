@@ -1,16 +1,59 @@
 # Effect in projectman
 
-Read this before you write or change Effect code. It is short on purpose; the reasons for the
-trial are on the card PM-590 (and the later cards of the refactor, "Refaktor 2").
+Read this before you write or change Effect code. The trial started on PM-590 (the owner's go on
+2026-10-13) and was closed on PM-1388 (decision 79: the architect sets the boundary).
+
+## The boundary (PM-1388)
+
+Effect stays only for long-running work with real concurrency, behind a plain TypeScript facade.
+A plain timer is plain TypeScript.
+
+**Effect fits** a module that owns long-running work with at least one of these:
+
+1. several operations in flight that must be serialized, keyed or kept from overlapping;
+2. a cancellation that must wait until the running step stops at its own checkpoint (`abortable`);
+3. a retry or backoff ladder;
+4. a shutdown that must wait for running work;
+
+and whose plain version would need its own bookkeeping of timers, in-flight promises and flags.
+
+**Effect does not fit** one delay, one interval, a timeout around a promise, a polling loop or a
+sequence of awaits. Write these with `setTimeout`, `setInterval` or `node:timers/promises`, clear
+them on stop, and `unref()` them when they must not keep the process alive. Effect is never used in a
+route handler, in `core`, in `packages/shared`, in `apps/server/src/contracts`, in the engine-link
+protocol, in `scripts`, in the web app or in the widget.
+
+The items of the list below belong to two groups (by their bold names):
+
+- **Kept; Effect may grow here:** the runner's input queue, the message delivery, the merge queue,
+  the full test queue, screenshot execution and polling, the document write queue, PM-619 session
+  lifecycle, PM-622 hooks and permission gate, PM-626 heavy-run lock and sandboxed run, and the
+  kernel's PM-600 shared Effect helper and PM-613 sweeps. A card may change and extend them in Effect.
+- **Frozen:** the GitHub pull request poller, the schedule timer, PM-615 plan usage, the machine
+  rounds of PM-617, PM-620 turn, input wait, compaction and cleanup, PM-621 runner session and CLI,
+  and the trust lock of PM-623. These are timers that work and are tested. Fix and change them in
+  place by the rules of this file; add no new Effect program to them. A card that replaces the
+  mechanism of one (for example, an interval becomes a deadline timer) writes the replacement in plain
+  TypeScript and removes its file from the item in the same change.
+
+**Periodic work** of a hub module is a kernel sweep (a `Sweep` for `startSweeps` in
+`kernel/sweeps.ts`): no module keeps its own `setInterval` or Effect loop for it. The sweep gives it
+the slow-round log (PM-1120) and the ordered stop. The timers of a process or a connection
+(heartbeats, watchdogs, the engine's poll, machine pressure, the memory log) and one-shot
+`setTimeout`s stay plain TypeScript, owned by that process or connection.
+
+**A new Effect program** needs a card whose technical plan names its file and the points above that
+it meets; that card adds its item to the list below. Upgrading `effect` is a card of its own.
+
+No Effect type crosses a facade, a contract or the engine-link: a caller of a facade sees methods,
+promises and the errors it always saw.
 
 ## Where Effect is allowed
 
-Only in a module that has been rewritten on purpose, behind a plain TypeScript facade. Today:
-
-Each card edits only its own item; the bold first line never changes.
-`apps/server/test/architecture/effect-allowlist.test.ts` reads the `File:`/`Files:` and `Facade:`
-paths of these items and fails when a file outside them imports `effect` or a listed file no
-longer does, so keep that form.
+The files that may import `effect` today. Each card edits only its own item; the bold first line
+never changes. `apps/server/test/architecture/effect-allowlist.test.ts` reads the `File:`/`Files:`
+and `Facade:` paths of these items and fails when a file outside them imports `effect` or a listed
+file no longer does, so keep that form.
 
 - **the runner's input queue**
 
@@ -61,15 +104,8 @@ longer does, so keep that form.
 
 - **PM-617 machine and outages**
 
-  Files: `apps/server/src/runtime/watchers/machine-rounds.ts` (facade: `MachineRounds`, same
-  file, used by `MachineMonitor`) and
-  `apps/server/src/runtime/watchers/provider-status-wait.ts` (facade: `waitForStatus`, same file,
-  used by `WorkOutages`). `MachineMonitor` and `WorkOutages` are exported by
-  `runtime/watchers/index.ts`.
-
-- **PM-618 pause**
-
-  File: `apps/server/src/runtime/sessions/shutdown-wait.ts`. Facade: `waitForShutdownStops` (same file), used by `PauseService.pauseForShutdown` (`runtime/sessions/pause.ts`); not exported by `runtime/sessions/index.ts`.
+  File: `apps/server/src/runtime/watchers/machine-rounds.ts`. Facade: `MachineRounds` (same
+  file), used by `MachineMonitor` (exported by `runtime/watchers/index.ts`).
 
 - **PM-619 session lifecycle**
 
@@ -87,14 +123,9 @@ longer does, so keep that form.
 
   File: `apps/server/src/runner/permission-wait.ts`. Facade: `PermissionGate` (`runner/permission-gate.ts`). Interrupting a wait aborts the broker's signal and does not wait for its promise (not `abortable`): the denial must reach the CLI before its hook timeout, and the broker withdraws on its own. The hooks route, the hook forwarder and the tool decision stay plain TypeScript (a route handler; a script the CLI runs; synchronous).
 
-- **PM-623 transcript tailer, plan usage and trust**
+- **PM-623 trust lock**
 
-  Files: `apps/server/src/runner/transcript/poll-ticker.ts`, `apps/server/src/runner/providers/claude/plan-usage-probe.ts`, `apps/server/src/runner/providers/claude/trust-lock.ts`. Facades: `TranscriptTailer` (`apps/server/src/runner/transcript/tailer.ts`), `probeUsage` (`apps/server/src/runner/providers/claude/plan-usage.ts`), `ensureWorkspaceTrusted` (`apps/server/src/runner/providers/claude/trust.ts`).
-  Effect sleep timers keep the process alive, unlike the former unref'd polling interval, so the tailer must be stopped (PM-623); the detached probe reaper ends on process closure or after at most five seconds.
-
-- **PM-624 worktree dependency copy**
-
-  File: `apps/server/src/worktree/copy-budget.ts`. Facade: `copyWithinBudget` (same file), used by `cloneDependencies` (`worktree/dependencies.ts`).
+  File: `apps/server/src/runner/providers/claude/trust-lock.ts`. Facade: `ensureWorkspaceTrusted` (`apps/server/src/runner/providers/claude/trust.ts`).
 
 - **PM-626 heavy-run lock and sandboxed run**
 
@@ -107,11 +138,6 @@ longer does, so keep that form.
 - **PM-600 shared Effect helper (kernel)**
 
   File: `apps/server/src/kernel/effect.ts`. Facade: `runFork`, `runPromise` and `abortable` (same file, exported by `kernel/index.ts`): the inline scheduler and the run functions every program above shares (see "Running on the caller's stack").
-
-Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
-handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses
-a facade, a contract or the engine-link**: a caller of a facade sees methods, promises and the errors
-it always saw.
 
 ## Version and bans
 

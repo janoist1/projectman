@@ -359,9 +359,38 @@ describe('pause of the team', () => {
       exit(session.id);
       h.runner.failNextStart = new Error('fictional start failure');
       await h.domain.pauses.resume(PROJECT, BY);
+      h.liftStartBackoff();
+      await h.domain.memberQueueDriver.sweep();
       await waitFor(() => h.runner.started.length === 2);
       expect(h.runner.started[1]!.initialMessage).toContain('Nudge before_tool restarted');
       expect(h.repos.messages.list('AR').map((m) => m.from)).toContain('system');
+    });
+
+    it('keeps the session’s pause row until it started again, so the next start finishes the resume (PM-1347)', async () => {
+      const session = await cutAndGone('before_tool');
+      exit(session.id);
+      // The hub stops while it starts the session again: the call never returns.
+      const holds = vi
+        .spyOn(h.domain.messageRouter, 'holdsMessagesOf')
+        .mockReturnValueOnce(new Promise(() => {}));
+      void h.domain.pauses.resume(PROJECT, BY);
+      await waitFor(() => holds.mock.calls.length > 0);
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.repos.pauses.openSession(session.id)).not.toBeNull();
+      await h.domain.pauses.resumeAfterStartup();
+      await waitFor(() => h.runner.started.length === 2);
+      expect(h.runner.started[1]!.initialMessage).toContain('Nudge before_tool restarted');
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
+    });
+
+    it('lets the session go on, not held, when the resume fails in this process (PM-1347)', async () => {
+      const session = await cutAndGone('before_tool');
+      exit(session.id);
+      vi.spyOn(h.domain.messageRouter, 'holdsMessagesOf').mockRejectedValueOnce(
+        new Error('fictional failure'),
+      );
+      await h.domain.pauses.resume(PROJECT, BY);
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
     });
 
     it('stores the nudge and starts nothing when the card holds the member’s messages back', async () => {

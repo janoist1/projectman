@@ -10,7 +10,7 @@ import { useLeaveGuard } from '../edit/useLeaveGuard';
 import { orderColumns } from './flow';
 import { PanelBands } from './PanelBands';
 import { StageForm } from './StageForm';
-import { NEW_COLUMN, sortIssues, stageOf } from './stageDraft';
+import { NEW_COLUMN, NO_SMALL_CARDS, sortIssues, stageOf } from './stageDraft';
 import type { StageDraft } from './stageDraft';
 import styles from './StagePanel.module.css';
 
@@ -51,6 +51,7 @@ function blank(config: ProjectConfig, requested: string | undefined): NewStageDr
     ownersMode: 'names',
     members: [],
     conditions: [],
+    ...NO_SMALL_CARDS,
     after,
     columnTouched: false,
   };

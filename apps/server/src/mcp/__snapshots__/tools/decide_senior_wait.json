@@ -1,0 +1,39 @@
+{
+  "name": "decide_senior_wait",
+  "title": "Decide how a card that waits for a Senior goes on",
+  "description": "Decide a card a senior_wait signal names: wait keeps waiting for the Senior, any lets a free developer take it. The reason goes to the card. Only the project manager may call it; if the choice costs money, ask the owners first (topic cost).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "decision": {
+        "type": "string",
+        "enum": [
+          "wait",
+          "any"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "task_key",
+      "decision",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Decide how a card that waits for a Senior goes on",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

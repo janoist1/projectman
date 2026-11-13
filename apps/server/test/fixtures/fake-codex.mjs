@@ -85,6 +85,9 @@
  *   sandbox of danger-full-access, an approval policy of never): a request that arrives where
  *   none is expected.
  *
+ * START FAILURE: FAKE_CODEX_EXIT_AT_START set, the process exits 1 after the trust and hook dialogs, before
+ *   it shows the prompt (a session that ends before its first turn, PM-1335).
+ *
  * DIAGNOSTICS: FAKE_CODEX_ARGS_FILE, when set, receives {argv, cwd, env, config} at start-up
  *   (`config` = the parsed -c overrides; env values of names containing KEY, TOKEN or SECRET
  *   are "<set>").
@@ -1091,6 +1094,11 @@ async function interactive() {
     line('› 1. Continue without them');
     await keys.wait();
     out('\x1b[3A\x1b[J');
+  }
+
+  if (process.env.FAKE_CODEX_EXIT_AT_START) {
+    line('Error: the session could not start');
+    process.exit(1);
   }
 
   await sleep(Number(process.env.FAKE_CODEX_STARTUP_DELAY_MS ?? 50));

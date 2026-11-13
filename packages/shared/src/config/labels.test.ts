@@ -33,7 +33,7 @@ it('denies integrator approvals including conditional gates, but permits removal
   c.pipeline.labels.push(approval);
   c.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'approval', when: 'ui' }] };
   const actor: Actor = { kind: 'human', handle: 'owner', via: 'integrator' };
-  const task = { labels: [] as string[], assignee: null, links: [] };
+  const task = { labels: [] as string[], assignee: null, links: [], stageId: 'ready' };
   expect(isOwnerApprovalLabel(c, approval)).toBe(true);
   expect(planLabelChange(c, task, { add: ['approval'] }, actor)).toMatchObject({
     ok: false,
@@ -117,7 +117,8 @@ function config(fourEyes = false) {
 }
 
 /** Assigned to dev-1; ann authored its pull request. A branch link names no author. */
-const task: Pick<Task, 'assignee' | 'links'> = {
+const task: Pick<Task, 'assignee' | 'links' | 'stageId'> = {
+  stageId: 'dev',
   assignee: 'dev-1',
   links: [
     { kind: 'pull_request', ref: '7', author: 'ann' },
@@ -128,6 +129,51 @@ const task: Pick<Task, 'assignee' | 'links'> = {
 const human = (handle: string): Actor => ({ kind: 'human', handle });
 const ai = (handle: string): Actor => ({ kind: 'ai', handle });
 const system: Actor = { kind: 'system', handle: null };
+
+describe('small-card result label guard', () => {
+  function smallConfig() {
+    const c = config();
+    c.pipeline.stages.splice(2, 0, {
+      id: 'review',
+      name: 'Review',
+      kind: 'step',
+      columnId: 'all',
+      owners: ['rev'],
+      smallCards: { maxPoints: 3, owners: ['dev-1', 'ann'], centralPaths: [] },
+    });
+    c.pipeline.stages[3]!.gate = { conditions: [{ type: 'has_label', label: 'review-ok' }] };
+    c.pipeline.labels.find((label) => label.id === 'review-ok')!.setBy = { members: ['rev', 'dev-1', 'ann'] };
+    return c;
+  }
+
+  describe.each(['add', 'remove'] as const)('%s result labels', (operation) => {
+    it.each([
+      ['review', { stageId: 'review', small: true, reason: { code: 'small', points: 2 } }, null],
+      ['dev', { stageId: 'review', small: true, reason: { code: 'small', points: 2 } }, 'small_cards_only'],
+      ['review', { stageId: 'review', small: false, reason: { code: 'unreadable' } }, 'small_cards_only'],
+      ['review', { stageId: 'other', small: true, reason: { code: 'small', points: 2 } }, 'small_cards_only'],
+      ['review', undefined, 'small_cards_only'],
+    ] as const)('guards changes in %s with pick %j', (stageId, stageOwnerPick, reason) => {
+      const c = smallConfig();
+      const card = { stageId, stageOwnerPick, assignee: null, links: [], labels: [] as string[] };
+      const remove = operation === 'remove';
+      const plan = planLabelChange(
+        c,
+        { ...card, labels: remove ? ['review-ok'] : [] },
+        remove ? { remove: ['review-ok'] } : { add: ['review-ok'] },
+        ai('dev-1'),
+      );
+      expect(plan).toMatchObject(reason ? { ok: false, refusal: { reason } } : { ok: true });
+    });
+  });
+
+  it.each([ai('rev'), human('ann')])('does not restrict a main owner or human: %j', (actor) => {
+    const c = smallConfig();
+    expect(
+      labelRefusal(c, labelDefinition(c, 'review-ok'), actor, { stageId: 'dev', assignee: null, links: [] }),
+    ).toBeNull();
+  });
+});
 
 describe('isReturnedWorkLabel (PM-570)', () => {
   const labels = [
@@ -438,7 +484,7 @@ describe('the key owner’s authority in super mode (PM-831)', () => {
     credential: { id: 'key_1', prefix: 'pmk_abc' },
   };
   const authority = { authorizedBy: 'owner' };
-  const empty = { labels: [] as string[], assignee: null, links: [] };
+  const empty = { labels: [] as string[], assignee: null, links: [], stageId: 'ready' };
   const code = (plan: LabelChangePlan) => (plan.ok ? 'ok' : plan.refusal.code);
 
   it('lets the key owner’s holding add and remove a label the Operator does not hold', () => {

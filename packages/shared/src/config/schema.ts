@@ -56,6 +56,10 @@ type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
 export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
 
+/** Who may involve an AI member on a card it has no role on (PM-1267); people always may, with their message. */
+export const MemberInvolvement = z.enum(['people', 'people_and_project_manager']);
+export type MemberInvolvement = z.infer<typeof MemberInvolvement>;
+
 /**
  * What the project manager may do on its own authority (PM-1284): `outside_owner_only` everything outside the
  * owner-only circle, `owner_request` only what an open owner request asks for.
@@ -370,6 +374,12 @@ export const ReviewTestConfig = z.object({
    */
   beforeReview: z.enum(['off', 'engine', 'github_actions']).optional(),
   /**
+   * Whether a passed engine run of the approved commit stands in for the merge check when the base has not
+   * moved (PM-1377). Absent or true: it does, but only when that run recorded this `command` and the commit has
+   * one parent; false: the merge always runs its own check.
+   */
+  reusePassedRun: z.boolean().optional(),
+  /**
    * Generated files a conflicting merge makes again instead of failing (PM-1050): when a merge conflicts
    * only on files matching `paths`, the engine runs `command` on the merge result and commits the files it
    * wrote there. Absent: every conflict fails as before.
@@ -406,8 +416,23 @@ export const HandoverCheckConfig = z.object({
 });
 export type HandoverCheckConfig = z.infer<typeof HandoverCheckConfig>;
 
+/**
+ * How a repository takes screenshots for the members whose own sandbox cannot start a browser (PM-1353).
+ * Absent: the repository has none, and the screenshot tools are not offered.
+ */
+export const ScreenshotsConfig = z.object({
+  /**
+   * Shell command prefix the server runs at the root of the member's checkout; it appends the arguments
+   * (`<scenario> --widths …`, `--full-page`, `--scale`, `--timeout`, `--seed`), each shell-quoted.
+   */
+  command: z.string().trim().min(1).max(500),
+});
+export type ScreenshotsConfig = z.infer<typeof ScreenshotsConfig>;
+
 export const RepoConfig = z.object({
   heavyChecks: HeavyChecks.optional(),
+  /** The screenshot command of the repository (PM-1353); absent: the repository takes none. */
+  screenshots: ScreenshotsConfig.optional(),
   /** Absent: no hand-over gate (the default). Set: the move into review needs the check's green result (PM-1380). */
   handoverCheck: HandoverCheckConfig.optional(),
   /** Short name used in task.repo, e.g. "locked". */
@@ -479,6 +504,8 @@ export const ProjectConfig = z.object({
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
     /** PM-1099; absent: its `TEAM_SETTING_POLICY` default. */
     prerequisiteOverride: PrerequisiteOverride.optional(),
+    /** PM-1267; absent: its `TEAM_SETTING_POLICY` default. */
+    memberInvolvement: MemberInvolvement.optional(),
     /** PM-1284; absent: its `TEAM_SETTING_POLICY` default. Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectManagerAuthority.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: its `TEAM_SETTING_POLICY` default. */
@@ -500,6 +527,13 @@ export const ProjectConfig = z.object({
     ownerDecisionTopics: OwnerDecisionTopics.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
+    /**
+     * Whether the merger's own code review approval puts the card's merge in the queue in their name
+     * (PM-1379). The merger still merges with `merge_task` (decisions 21 and 71); the setting only makes
+     * that call for a merger who approved the card themselves (decisions 77 and 78). Absent: its
+     * `TEAM_SETTING_POLICY` default, off.
+     */
+    mergeAfterReview: z.boolean().optional(),
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),

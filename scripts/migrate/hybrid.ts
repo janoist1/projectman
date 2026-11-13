@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import Database from 'better-sqlite3';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../../apps/server/src/db';
+import { createRepositories, latestSchemaVersion, migrate } from '../../apps/server/src/db';
 import {
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
@@ -365,7 +365,7 @@ export async function createHybridPackage(options: HybridPackageOptions): Promis
       sourceHome: home,
       sourcePlatform: process.platform,
       sourceSchemaVersion: inventory.database.schemaVersion ?? 0,
-      buildSchemaVersion: LATEST_SCHEMA_VERSION,
+      buildSchemaVersion: latestSchemaVersion(),
       repos: [],
       work: [],
       transcripts: [],

@@ -18,7 +18,7 @@ import type {
   TaskStateReport,
   TaskToolDetail,
 } from '../contracts';
-import { formatMessageAttachment, formatProjectState, recipientLine } from './format';
+import { formatInvolvement, formatMessageAttachment, formatProjectState, recipientLine } from './format';
 
 it('neutralizes forged headers in feedback text and thread entries', () => {
   const header = '[team message from qa about PM-1]';
@@ -99,46 +99,43 @@ describe('formatProjectState', () => {
     session: { id: 'ses_1', member: 'dev-1', state: 'idle', since: '2026-10-10' },
     holds: ['fix_limit', 'senior_wait', 'loop', 'paused'],
   };
-  it.each(['outage', 'nobody', 'stalled', 'silent'] as const)(
-    'prints the shared wait before a %s signal',
-    (kind) => {
-      const text = formatProjectState({
-        ...base,
-        wait: {
-          reason: 'nobody',
-          next: [],
-          toStageId: null,
-          labels: [],
+  it.each(['outage', 'stalled', 'silent'] as const)('prints the shared wait before a %s signal', (kind) => {
+    const text = formatProjectState({
+      ...base,
+      wait: {
+        reason: 'nobody',
+        next: [],
+        toStageId: null,
+        labels: [],
+        inboxItemId: null,
+        inboxKind: null,
+        startWaiting: null,
+        prerequisites: [],
+        since: '2026-10-10',
+      },
+      signals: [
+        {
+          id: 'ops_1',
+          kind,
+          state: 'pending',
+          actionable: false,
+          taskKey: 'AR-21',
+          subject: 'ses_1',
           inboxItemId: null,
-          inboxKind: null,
-          startWaiting: null,
-          prerequisites: [],
-          since: '2026-10-10',
+          messageId: null,
+          raisedAt: '2026-10-10',
+          decidedBy: null,
+          decidedAt: null,
+          resolvedAt: null,
         },
-        signals: [
-          {
-            id: 'ops_1',
-            kind,
-            state: 'pending',
-            actionable: false,
-            taskKey: 'AR-21',
-            subject: 'ses_1',
-            inboxItemId: null,
-            messageId: null,
-            raisedAt: '2026-10-10',
-            decidedBy: null,
-            decidedAt: null,
-            resolvedAt: null,
-          },
-        ],
-      }).split('\n');
-      expect(text[1]).toBe('- nobody: nobody can take it on: the set-up needs fixing.');
-      expect(text[2]).toMatch(new RegExp(`^- signal_${kind}: [A-Z]`));
-      expect(text[2]).toContain(
-        'ops_1, pending, task AR-21, subject ses_1, since 2026-10-10; actionable false.',
-      );
-    },
-  );
+      ],
+    }).split('\n');
+    expect(text[1]).toBe('- nobody: nobody can take it on: the set-up needs fixing.');
+    expect(text[2]).toMatch(new RegExp(`^- signal_${kind}: [A-Z]`));
+    expect(text[2]).toContain(
+      'ops_1, pending, task AR-21, subject ses_1, since 2026-10-10; actionable false.',
+    );
+  });
   it.each(TaskStartWaiting.shape.reason.options)('explains %s in English next to its code', (reason) => {
     const text = formatProjectState({ ...base, startWaiting: { reason, since: '2026-10-10', member: 'cr' } });
     expect(text).toMatch(new RegExp(`- ${reason}: [A-Z][^\\n]+`));
@@ -819,6 +816,41 @@ describe('formatTaskUpdate relations', () => {
   });
 });
 
+describe('formatTaskUpdate merge after review (PM-1379)', () => {
+  const task = sampleTaskDetail().task;
+  const merge = (mergeAfterReview: Parameters<typeof formatTaskUpdate>[1]['mergeAfterReview']) =>
+    formatTaskUpdate(task, { note: false, ...(mergeAfterReview ? { mergeAfterReview } : {}) })
+      .split('\n')
+      .find((line) => line.startsWith('Merge: '));
+
+  it('says the merge is queued and needs no merge_task', () => {
+    expect(merge({ state: 'queued', mergeId: 'merge_1' })).toContain('no merge_task call is needed');
+  });
+
+  it.each(['uncommitted', 'earlier_request', 'blocked'] as const)(
+    'names the reason and merge_task when the merge waits: %s',
+    (why) => {
+      const line = merge({ state: 'waiting', mergeId: 'merge_1', why })!;
+      expect(line).toContain('Call merge_task');
+      expect(line).toContain('merge_1');
+    },
+  );
+
+  it('names the unmet gate, and the acceptance confirm for an acceptance label', () => {
+    expect(merge({ state: 'not_ready', reason: 'gate', unmet: ['has_label:qa-ok'] })).not.toContain(
+      'acceptance confirm',
+    );
+    const line = merge({ state: 'not_ready', reason: 'gate', unmet: ['lacks_label:acceptance-unconfirmed'] });
+    expect(line).toContain('lacks_label:acceptance-unconfirmed');
+    expect(line).toContain('update_task acceptance confirm');
+  });
+
+  it('says it is still being decided on timeout, and adds no line without an outcome', () => {
+    expect(merge('pending')).toContain('still being decided');
+    expect(merge(undefined)).toBeUndefined();
+  });
+});
+
 describe('themes in the tool results (PM-192)', () => {
   it('shows a card its theme: key, title and state', () => {
     const detail = sampleTaskDetail();
@@ -1014,6 +1046,30 @@ describe('formatSentMessage', () => {
     const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
     expect(recipientLine(roleless, 'AR-1')).toContain('ask a person to bring them in');
     expect(recipientLine(roleless, 'AR-1', true)).not.toContain('ask a person');
+  });
+
+  it('names involve_member as the way forward for a member without a card role when the sender may involve (PM-1267)', () => {
+    const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
+    expect(recipientLine(roleless, 'AR-1', true)).toContain('involve_member');
+    expect(recipientLine(roleless, 'AR-1', false, true)).toContain('involve_member');
+    expect(recipientLine(roleless, 'AR-1')).not.toContain('involve_member');
+    expect(recipientLine(roleless, 'AR-1')).toContain('ask a person');
+  });
+
+  it('names involve_member in the refinement hold line only when the sender may involve (PM-1267)', () => {
+    const held = { handle: 'dev', delivery: 'held', hold: 'refinement_turn' } as const;
+    expect(recipientLine(held, 'AR-1', false, true)).toContain('involve_member');
+    expect(recipientLine(held, 'AR-1')).not.toContain('involve_member');
+  });
+
+  it('formatInvolvement says what changed and how many messages wait (PM-1267)', () => {
+    expect(formatInvolvement({ outcome: 'involved', waiting: 2 }, 'dev', 'AR-1')).toContain('2 message');
+    expect(formatInvolvement({ outcome: 'already_involved', waiting: 0 }, 'dev', 'AR-1')).toContain(
+      'already',
+    );
+    expect(formatInvolvement({ outcome: 'already_involved', waiting: 0 }, 'dev', 'AR-1')).not.toContain(
+      'wait for',
+    );
   });
 
   it('says where a message went when it did not go to its own card (PM-182)', () => {

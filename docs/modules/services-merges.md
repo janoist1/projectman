@@ -30,7 +30,13 @@ The check goes through two steps (PM-489): `check_waiting` while the full test w
 heavy-run queue (PM-332), then `checking` when the executor reports that the run holds the lock
 (`FullTestExecutor.run`'s `onStarted`; on a remote engine the `full_test_started` event, sent by the
 `full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
-`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
+`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A passed engine run of the
+approved commit is reused only when the approved commit contains the base, the run recorded the repository's
+current `reviewTest.command` (`full_test_runs.command`, set when the run starts; migration 153), the approved
+commit has one parent (`MergeBaseState.commitParents` from `prepare`; an older engine leaves it out, so nothing is
+reused; the hub is updated before the engine because the reply schema is strict) and
+`reviewTest.reusePassedRun` is not false (PM-1377, decisions 77 and 78: a way-of-working setting, absent means
+today's reuse; the PM project sets it false in its own configuration). A repository with
 `fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
 
 A lost engine link is waited for up to 15 minutes per loss, at most five losses per merge
@@ -75,6 +81,14 @@ signal names `check_infra` for the project manager. No card is blamed or split f
 Other operational errors still block with `check_error`; failed checks retain the existing
 failure/send-back path. Terminal states and non-infrastructure results clear retry state;
 an explicit retry of a blocked or failed merge starts a new series.
+An unreachable remote (the fetch fails: `MergeError` `remote_unreachable`) before anything landed is
+requeued the same way (`retry.cause = remote_unreachable`, same delays, M-02) instead of blocking; unlike
+a check retry, such a row holds its repository's queue (the pump starts no other row of it), and the
+last attempt's failure blocks as `remote_unreachable`. Every failed fetch counts (a permanent one, such
+as bad credentials or a missing ref, too), so it holds the queue for the whole series (5 + 15 + 30 minutes)
+before it blocks. The first successful prepare, in the train reservation or in the individual program,
+clears the retry and frees the queue. A holder with an open prerequisite also keeps the repository's other
+rows waiting.
 The slot finalizer blocks any individual merge still marked `running`, including when an
 interruption discarded a rejection from its error handler (PM-1210). Normal cancellation and
 shutdown requeueing are retained. If `merge_task` finds a `running` row with neither its slot
@@ -182,7 +196,11 @@ takes the individual `check_failed` path (`MergeSteps.fail`: `base` = the train'
 id and command, the intersecting files, its output tail, the `task_merge_failed` event and
 notification). The others (green or unknown) are requeued with no `diagnostic`, so they keep their
 queue place and may join any train, each with a timeline note. If no member is blamed (an interaction,
-or every lone run was unknown or red elsewhere), the train halves as before. Members keep the step
+or every lone run was unknown or red elsewhere), the train halves as before. When every member is
+blamed, or two or more are blamed with the same files, the same files first run once on `onto` alone
+(PM-1371): if that run fails all the blamed files too, the train is blocked with `check_error` (the
+message names the default branch) and no card is failed; a green or unknown base run changes nothing.
+Members keep the step
 `checking`; a restart during the lone runs finds the stored red group check and halves. All of it runs
 through the engine link's `build`, `checkoutForCheck`, `releaseCheck` and the full test executor, so
 nothing machine-dependent is new.
@@ -264,3 +282,29 @@ without a request and without an origin never runs (`authorization_revoked`), ex
 the selected project manager, repository/default branch and current lessons path at start, recovery and before publication;
 conflicting provenance or revoked configuration ends it as `authorization_revoked`. Its result still reaches
 the author through the existing system-message path.
+
+## Merger approval queues the merge (PM-1379)
+
+Decisions 21 and 71 say the card merger merges with `merge_task`; decisions 77 and 78 let a project skip
+the second step when the merger itself approved the card. The project setting `team.mergeAfterReview`
+(default `false`, written into old projects by the `addTeamDefaults` migration, settable through `PATCH /config`,
+not owner-only) turns it on.
+
+The pure rule `reviewMergeSkip(config, reviewer, merger)` (`packages/shared/src/config/merger.ts`) returns `null`
+only when the setting is on and the card's code reviewer (the last member who put the label on) is the card merger;
+otherwise it names the reason (`off`, `no_reviewer`, `not_merger`). `Merges.reconcileCard` uses it when it
+creates the card's merge row: with `null` and a clean, committed source the row is written as `queued` (the same
+fields `start()` writes through `queueFields`, `startedBy` the merger), the `task_merge_requested` event carries
+`startedBy`, no message asks the merger to call `merge_task`, and `pump()` runs it. In every other case, and always
+when the setting is off, it writes today's `requested` row and notifies the merger. A dirty or uncommitted source
+only requests. An already open row (`requested`, `failed`, `blocked`) is never started by this path, also not after
+the setting is turned on: the merger starts it with `merge_task`. The unmet gates of the card (an open or unconfirmed
+acceptance item) stop the row before it exists (`mergeReadiness`), as before.
+
+`Merges.reviewOutcome(project, task, actor)` tells the approving `update_task` call what happened: `queued`,
+`waiting` (`uncommitted`, `earlier_request` or `blocked`: call `merge_task`) or `not_ready` (the unmet gate conditions
+`mergeGateUnmet` names; acceptance labels add the hint to confirm the settled acceptance items). It is `null`
+for any caller who is not the merger, with the setting off, or when the call did not add a merge gate label
+(`mergeGateLabels`). The `TaskTools` handler waits for it at most four seconds and otherwise answers
+that the decision is still pending; `formatTaskUpdate` writes the `Merge:` line. No machine-dependent part is
+added: the merge runs on the engine as before.

@@ -17,6 +17,7 @@ import { isMergeId, isRepoFilePath } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestSpec } from '../contracts';
 import { copyDependencyTrees } from '../worktree';
+import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import { npmDependencyKey } from './npm-dependency-key';
 import type { SandboxedEnd } from './run-sandboxed';
 import { installerSettings, quoteShellWord } from './sandbox';
@@ -49,13 +50,60 @@ export async function directories(root: string, relative = '', create = false): 
     if (component) current = path.join(current, component);
     let known = await info(current);
     if (!known && create) {
-      await mkdir(current, { mode: 0o700 });
+      await mkdir(current, { mode: 0o700 }).catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== 'EEXIST') throw err;
+      });
       known = await lstat(current);
     }
     if (!known?.isDirectory() || known.isSymbolicLink())
       throw new DependencyPreparationError('dependency preparation needs real directories');
   }
   return current;
+}
+
+/** The shared store identity for merge writers and member dependency readers. */
+export function mergeDependencyStore(projectKey: string, repo: string): string {
+  const key = createHash('sha256')
+    .update(JSON.stringify([projectKey, repo]))
+    .digest('hex');
+  return `_merge-deps/${key}`;
+}
+
+/** Acquire machine places first; store holders must never request more machine places. */
+export async function withMergeDependencyStore<T>(
+  options: {
+    worktreesRoot: string;
+    projectKey: string;
+    repo: string;
+    signal: AbortSignal;
+    maxWaitMs: number;
+  },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const { worktreesRoot, projectKey, repo, signal, maxWaitMs } = options;
+  await directories(worktreesRoot, '_merge-deps', true);
+  const lock = await acquireHeavyLock({
+    dir: path.join(worktreesRoot, `${mergeDependencyStore(projectKey, repo)}.lock`),
+    capacity: 1,
+    places: 'all',
+    label: `merge dependency store ${projectKey}/${repo}`,
+    signal,
+    maxWaitMs,
+  }).catch((err: unknown) => {
+    if (signal.aborted) throw signal.reason;
+    if (err instanceof HeavyLockError && err.code === 'heavy_lock_unavailable')
+      throw new DependencyPreparationError(
+        'the merge dependency store lock is unavailable',
+        'heavy_lock_unavailable',
+      );
+    throw err;
+  });
+  try {
+    signal.throwIfAborted();
+    return await fn();
+  } finally {
+    await lock.release();
+  }
 }
 
 /** Used both by the engine limit and the local executor, before granting installer write access. */
@@ -283,10 +331,7 @@ export async function prepareNpmCi(input: {
       npmVersion,
     });
   const key = keyOf(before);
-  const repoKey = createHash('sha256')
-    .update(JSON.stringify([spec.npmCi!.ref.projectKey, spec.npmCi!.ref.repo]))
-    .digest('hex');
-  const relativeStore = `_merge-deps/${repoKey}`;
+  const relativeStore = mergeDependencyStore(spec.npmCi!.ref.projectKey, spec.npmCi!.ref.repo);
   const store = await directories(root, relativeStore, true);
   const current = path.join(store, 'current');
   const previous = path.join(store, 'previous');
@@ -368,7 +413,7 @@ export async function prepareNpmCi(input: {
       JSON.stringify({ version: 1, key, nodeModules: copied }),
       { mode: 0o600, flag: 'wx' },
     );
-    // Readers hold this same lock: only complete generations can be observed as current.
+    // Readers hold the same per-store lock, after machine places; no holder requests machine places.
     await directories(root, relativeStore);
     if (await info(current)) {
       await directories(root, `${relativeStore}/current`);

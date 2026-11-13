@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useId } from 'react';
-import type { InboxItem, LabelView, ProjectConfig, Task } from '@projectman/shared';
+import type { BoardCard, InboxItem, LabelView, ProjectConfig } from '@projectman/shared';
 import { useMoveTask, useResolveInbox } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -32,7 +32,7 @@ export function WhyBox({
   inboxItems,
   config,
 }: {
-  task: Task;
+  task: BoardCard;
   state: TaskState;
   pipeline: PipelineIndex;
   members: MemberIndex;
@@ -135,7 +135,7 @@ export function WhyBox({
         <div className={styles.row}>
           <dt>{t('task.whyBox.waiting')}</dt>
           <dd>
-            {next.long}
+            {wait.reason === 'collecting' ? <span title={next.long}>{next.waiting}</span> : next.long}
             {capacity ? (
               <CapacityList
                 capacity={capacity}

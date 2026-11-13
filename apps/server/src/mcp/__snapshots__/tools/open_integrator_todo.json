@@ -1,0 +1,49 @@
+{
+  "name": "open_integrator_todo",
+  "title": "Open a todo for the integrator",
+  "description": "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners do not get it, it waits for a connected integrator. Its answer comes back to you. An owner decision is not a todo: use ask_human.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "description": "A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman hands that step over itself.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "question": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "what": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "where": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "expected": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "required": [
+      "question",
+      "what",
+      "where",
+      "expected"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Open a todo for the integrator",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

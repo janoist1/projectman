@@ -1,8 +1,10 @@
 import {
   alertPayloadOf,
+  coordinationMemberOf,
   DEFAULT_AGENT_PROVIDER,
   isOnLeave,
   LOCAL_ENGINE_ID,
+  TODO_DONE_OPTION,
   outageIdOf,
   OUTAGE_REFUSALS,
   ownerHandles,
@@ -15,6 +17,7 @@ import type {
   AiMemberConfig,
   CheckOutageResponse,
   EngineId,
+  InboxItem,
   ProviderOutageProblem,
   Task,
   WorkOutage,
@@ -22,7 +25,7 @@ import type {
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../../contracts';
 import { ENGINE_OFFLINE_AFTER_MS } from '../../contracts';
 import type { ProjectAccess } from '../../core/members';
-import type { DeferredStarts } from '../admission';
+import type { DeferredStarts, StartFailures, StartHold } from '../admission';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, forbidden } from '../../kernel';
@@ -45,6 +48,8 @@ interface OutageDependencies {
   engines: EngineDirectory;
   runner: SessionRunner;
   deferred: DeferredStarts;
+  /** The places whose starts keep failing (PM-1335): the outage of a stopped place, and what releases it. */
+  startFailures: Pick<StartFailures, 'stoppedFor' | 'release'>;
   messageRouter: Pick<MessageRouter, 'releaseForEngine' | 'pendingTaskKeys'>;
   members: MemberService;
   tasks: TaskService;
@@ -54,14 +59,27 @@ interface OutageDependencies {
 const isOutageRefusal = (code: string): boolean => OUTAGE_REFUSALS.some((value) => value === code);
 const isSetupRefusal = (code: string): boolean =>
   code === 'codex_setup_incomplete' || code === 'nanogpt_setup_incomplete';
+/** The limit of a place's failed starts (PM-1335): hidden like a setup failure, but kept alive by the counter, not by a deferral. */
+const isStartFailing = (code: string): boolean => code === 'start_failing';
 const memberKey = (key: string, handle: string): string => `${key}:${handle}`;
 const PENDING_KEYS_TTL_MS = 2_000;
+/**
+ * How long a failing provider's answer is reused before the engine is asked again: 30 s, 1 min, 2 min,
+ * then 5 min. Logging in again needs a person, so a later detection costs nothing; "check now" and an
+ * auth error ask at once and start the steps over.
+ */
+const PROVIDER_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000] as const;
+/** The last failing answer of one (engine, provider) pair and when the engine may be asked again. */
+type ProviderBackoff = { status: ProviderStatus; failures: number; retryAt: number };
 
 /** Instance-wide observations, with one owner warning per project and outage episode. */
 export class WorkOutages {
   private readonly failures = new Map<string, Failure>();
   private readonly engineFailures = new Map<string, Failure>();
   private readonly since = new Map<string, string>();
+  private readonly backoffs = new Map<string, ProviderBackoff>();
+  /** Targeted checks waiting in the queue, by outage id: another refusal of the same outage joins it. */
+  private readonly queuedChecks = new Map<string, Promise<void>>();
   private readonly told = new Map<string, Set<string>>();
   private readonly views = new Map<string, WorkOutage>();
   private readonly projectOutages = new Map<string, Map<string, WorkOutageAlert>>();
@@ -89,12 +107,12 @@ export class WorkOutages {
   }
 
   /** Ticks are skipped while a previous round is queued or running. Targeted checks are serialized. */
-  async check(_opts?: { refresh?: boolean }): Promise<void> {
+  async check(opts?: { refresh?: boolean }): Promise<void> {
     if (this.checking || this.queued > 0 || this.stopped) return;
     this.checking = true;
     try {
       await this.enqueue(async () => {
-        await this.run();
+        await this.run(undefined, undefined, opts?.refresh ?? false);
       });
     } finally {
       this.checking = false;
@@ -107,14 +125,20 @@ export class WorkOutages {
     });
   }
 
+  /** The provider's key or setup changed (a NanoGPT key): the places that stopped get one more try (PM-1335). */
   recheckProvider(provider: AgentProvider): Promise<void> {
+    this.deps.startFailures.release({ provider });
     return this.enqueue(async () => {
       await this.run(provider);
     });
   }
 
   engineChanged(id: EngineId, online: boolean): Promise<void> {
-    if (online) this.connectedEngines.add(id);
+    if (online) {
+      this.connectedEngines.add(id);
+      // The counts of a place on an engine that was away are not the member's fault (PM-1335).
+      this.deps.startFailures.release({ engineId: id });
+    }
     return this.enqueue(async () => {
       let ended = false;
       try {
@@ -139,19 +163,35 @@ export class WorkOutages {
     details?: Record<string, unknown>,
   ): Promise<void> {
     if (!isOutageRefusal(code)) return Promise.resolve();
-    return this.enqueue(async () => {
+    const key = memberKey(projectKey, handle);
+    const setup = isSetupRefusal(code) || isStartFailing(code);
+    // Setup and start-failing refusals carry their own problem for the member, so they are never merged.
+    const joined = setup ? undefined : this.queuedChecks.get(`${key}:${code}`);
+    if (joined) return joined;
+    const queued = this.enqueue(async () => {
+      if (!setup) this.queuedChecks.delete(`${key}:${code}`);
       const entry = this.targets().find((t) => t.projectKey === projectKey && t.member.handle === handle);
       if (!entry) return;
-      const target = entry.target;
+      const known = code === 'engine_offline' ? this.engineFailures.get(key) : this.failures.get(key);
+      // The outage of this member is already known: a refusal it explains adds nothing to check.
+      if (known && (!setup || known.setup)) return;
       await this.run(
-        target,
-        isSetupRefusal(code)
-          ? {
-              key: memberKey(projectKey, handle),
-              problem: providerOutageProblemOf(code, details)!,
-            }
-          : undefined,
+        entry.target,
+        setup ? { key, problem: providerOutageProblemOf(code, details)! } : undefined,
+        false,
       );
+    });
+    if (!setup) this.queuedChecks.set(`${key}:${code}`, queued);
+    return queued;
+  }
+
+  /** A member's place stopped at the start failure limit (PM-1335): the provider outage that tells people. */
+  startFailureStopped(projectKey: string, handle: string, hold: StartHold): Promise<void> {
+    if (hold.code !== 'start_failing') return Promise.resolve();
+    return this.observeRefusal(projectKey, handle, 'start_failing', {
+      provider: hold.provider,
+      failures: hold.failures,
+      ...(hold.engineId ? { engine: hold.engineId } : {}),
     });
   }
 
@@ -237,6 +277,12 @@ export class WorkOutages {
     const config = await this.deps.projects.config(projectKey);
     if (!item.assignees.includes(access.handle) && !ownerHandles(config).includes(access.handle))
       throw forbidden('not_an_assignee', 'the item is not assigned to this member');
+    // A person asks for the check of failing starts: the stopped places get one more try, and the outage ends with it (PM-1335).
+    if (payload.outage.kind === 'provider' && payload.outage.problem === 'start_failing')
+      this.deps.startFailures.release({
+        provider: payload.outage.provider,
+        engineId: payload.outage.engine?.id ?? null,
+      });
     await this.recheck(this.targetOf(payload.outage));
     const checkedAt = isoNow(this.deps.ctx);
     let updated = this.deps.inbox.get(projectKey, itemId);
@@ -287,13 +333,30 @@ export class WorkOutages {
       : { kind: 'provider', provider: outage.provider, engineId: outage.engine?.id ?? null };
   }
 
+  /** Both legacy owner alerts and the integrator todos retain their episode facts across restarts. */
+  private openAlerts(projectKey: string): Array<{ item: InboxItem; payload: WorkOutageAlert }> {
+    return this.deps.inbox.list(projectKey, { state: 'open' }).flatMap((item) => {
+      if (item.kind === 'alert') {
+        const payload = alertPayloadOf(item);
+        return payload?.alert === 'work_outage' ? [{ item, payload }] : [];
+      }
+      const parsed = WorkOutageAlert.safeParse(item.payload.workOutage);
+      return item.kind === 'question' && parsed.success ? [{ item, payload: parsed.data }] : [];
+    });
+  }
+
+  private updateAlert(item: InboxItem, payload: WorkOutageAlert): void {
+    this.deps.inbox.updateOpenPayload(
+      item.id,
+      item.kind === 'question' ? { ...item.payload, workOutage: payload } : payload,
+    );
+  }
+
   private adopt(): void {
     if (this.adopted) return;
     this.adopted = true;
     for (const { key } of this.deps.projects.summaries()) {
-      for (const item of this.deps.inbox.list(key, { state: 'open', kind: 'alert' })) {
-        const payload = alertPayloadOf(item);
-        if (payload?.alert !== 'work_outage') continue;
+      for (const { payload } of this.openAlerts(key)) {
         const previous = this.since.get(payload.outage.id);
         if (!previous || payload.outage.since < previous)
           this.since.set(payload.outage.id, payload.outage.since);
@@ -308,7 +371,9 @@ export class WorkOutages {
               outage: payload.outage,
               setup:
                 payload.outage.kind === 'provider' &&
-                (payload.outage.problem === 'setup_incomplete' || (!!entry && this.hasSetupWait(entry)))
+                (payload.outage.problem === 'setup_incomplete' ||
+                  payload.outage.problem === 'start_failing' ||
+                  (!!entry && this.hasSetupWait(entry, payload.outage.problem)))
                   ? payload.outage.problem
                   : null,
             },
@@ -321,10 +386,12 @@ export class WorkOutages {
   private async run(
     target?: Target | AgentProvider,
     setup?: { key: string; problem: ProviderOutageProblem },
+    refresh = target !== undefined,
   ): Promise<boolean> {
     this.adopt();
     let targets = this.targets();
     let memberRecovered = false;
+    const asked = new Map<string, Promise<ProviderStatus | null>>();
     const selected = target
       ? targets.filter((entry) => {
           const current = this.failures.get(memberKey(entry.projectKey, entry.member.handle));
@@ -362,28 +429,48 @@ export class WorkOutages {
           this.failures.delete(key);
           old = undefined;
         }
-        const status = await this.status(entry);
+        // A routine tick reads the provider's cached state (no refresh), or the answer of a failing pair kept
+        // for its backoff: a new CLI version or a lost login shows as soon as that expires.
+        const status = await this.status(entry, refresh, asked);
+        // The provider changed since the places stopped (a new CLI version, or the login is gone): they get one more try.
+        if (old?.setup === 'start_failing' && status && this.providerChanged(old.outage, status))
+          this.deps.startFailures.release({
+            provider: entry.target.provider,
+            engineId: entry.target.engineId,
+          });
         if (status?.loggedIn === false) {
           this.failures.set(key, {
             outage: this.makeOutage(entry.target, status),
             setup: old?.setup ?? null,
           });
+        } else if (setup?.key === key && status?.loggedIn === true) {
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: setup.problem }),
+            setup: setup.problem,
+          });
+        } else if (
+          status?.loggedIn === true &&
+          old?.setup &&
+          old.setup !== 'start_failing' &&
+          this.hasSetupWait(entry, old.setup)
+        ) {
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: old.setup }),
+            setup: old.setup,
+          });
+        } else if (
+          (!old?.setup || old.setup === 'start_failing') &&
+          this.hasSetupWait(entry, 'start_failing')
+        ) {
+          // The places stopped at the limit of failed starts; the provider need not tell its state (PM-1335).
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: 'start_failing' }),
+            setup: 'start_failing',
+          });
         } else if (status?.loggedIn === true) {
-          if (setup?.key === key) {
-            this.failures.set(key, {
-              outage: this.makeOutage(entry.target, { ...status, problem: setup.problem }),
-              setup: setup.problem,
-            });
-          } else if (old?.setup && this.hasSetupWait(entry)) {
-            this.failures.set(key, {
-              outage: this.makeOutage(entry.target, { ...status, problem: old.setup }),
-              setup: old.setup,
-            });
-          } else {
-            this.failures.delete(key);
-            if (old) memberRecovered = true;
-          }
-        } else if (old?.setup && !this.hasSetupWait(entry)) {
+          this.failures.delete(key);
+          if (old) memberRecovered = true;
+        } else if (old?.setup && !this.hasSetupWait(entry, old.setup)) {
           // The deferral ending proves that this hidden setup failure no longer holds work.
           this.failures.delete(key);
           memberRecovered = true;
@@ -405,20 +492,68 @@ export class WorkOutages {
     return ended || memberRecovered;
   }
 
-  private async status(entry: MemberTarget): Promise<ProviderStatus | null> {
+  /**
+   * The login state of a member's provider on its engine. It is asked once per (engine, provider) in a
+   * round, for all its members; a failing pair is not asked again before its backoff ends, unless the
+   * round refreshes (which starts the steps over).
+   */
+  private status(
+    entry: MemberTarget,
+    refresh: boolean,
+    asked: Map<string, Promise<ProviderStatus | null>>,
+  ): Promise<ProviderStatus | null> {
     const target = entry.target;
-    if (target.kind !== 'provider') return null;
-    return waitForStatus(
+    if (target.kind !== 'provider') return Promise.resolve(null);
+    const pair = outageIdOf(target);
+    const known = asked.get(pair);
+    if (known) return known;
+    const backoff = this.backoffs.get(pair);
+    const startedAt = this.deps.ctx.now().getTime();
+    if (backoff && !refresh && startedAt < backoff.retryAt) {
+      const reused = Promise.resolve(backoff.status);
+      asked.set(pair, reused);
+      return reused;
+    }
+    const answer = waitForStatus(
       () =>
         this.deps.runner.providerStatus?.(target.provider, {
-          refresh: true,
-          member: entry.member.handle,
-          ...(entry.target.engineId ? { engineId: entry.target.engineId } : {}),
+          refresh,
+          ...(target.engineId ? { engineId: target.engineId } : {}),
         }) ?? Promise.resolve(null),
+    ).then((status) => {
+      if (status?.loggedIn === false) {
+        const failures = refresh ? 1 : (backoff?.failures ?? 0) + 1;
+        this.backoffs.set(pair, {
+          status,
+          failures,
+          retryAt: startedAt + PROVIDER_BACKOFF_MS[Math.min(failures, PROVIDER_BACKOFF_MS.length) - 1]!,
+        });
+      } else if (status?.loggedIn === true) this.backoffs.delete(pair);
+      return status;
+    });
+    asked.set(pair, answer);
+    return answer;
+  }
+
+  /** Whether the provider's state changed since the outage (PM-1335): another CLI version, or the login is gone. */
+  private providerChanged(outage: WorkOutage, status: ProviderStatus): boolean {
+    // A lost login is a change once: after it the outage reads as not logged in, and the stopped places wait.
+    if (status.loggedIn === false) return outage.kind === 'provider' && outage.problem === 'start_failing';
+    return (
+      outage.kind === 'provider' &&
+      !!status.cliVersion &&
+      !!outage.cliVersion &&
+      status.cliVersion !== outage.cliVersion
     );
   }
 
-  private hasSetupWait(entry: MemberTarget): boolean {
+  /**
+   * Whether the hidden setup failure of `problem` still holds work: a start waits for the setup, or (for
+   * `start_failing`) a place of the member stopped at the limit of failed starts.
+   */
+  private hasSetupWait(entry: MemberTarget, problem: ProviderOutageProblem): boolean {
+    if (problem === 'start_failing')
+      return this.deps.startFailures.stoppedFor(entry.projectKey, entry.member.handle);
     return (
       this.deps.deferred
         .list()
@@ -529,7 +664,8 @@ export class WorkOutages {
     let ended = false;
     const recoveredEngines = new Set<EngineId>();
     for (const { key } of this.deps.projects.summaries()) {
-      if (!this.deps.projects.cachedConfig(key)) continue;
+      const config = this.deps.projects.cachedConfig(key);
+      if (!config) continue;
       const groups = this.projectOutages.get(key) ?? new Map<string, WorkOutageAlert>();
       for (const payload of groups.values()) {
         payload.members.sort();
@@ -561,10 +697,7 @@ export class WorkOutages {
             for (const taskKey of this.deps.messageRouter.pendingTaskKeys(key, handle)) keys.add(taskKey);
         payload.tasks = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));
       }
-      const open = this.deps.inbox.list(key, { state: 'open', kind: 'alert' }).flatMap((item) => {
-        const payload = alertPayloadOf(item);
-        return payload?.alert === 'work_outage' ? [{ item, payload }] : [];
-      });
+      const open = this.openAlerts(key);
       const oldIds = new Set([
         ...this.toldFor(key),
         ...(previousProjects.get(key)?.keys() ?? []),
@@ -582,10 +715,14 @@ export class WorkOutages {
               old.members.includes(entry.member.handle) &&
               this.uses(entry, old.outage),
           );
-        for (const { item } of open.filter(({ payload }) => payload.outage.id === id)) {
+        for (const { item, payload } of open.filter(({ payload }) => payload.outage.id === id)) {
           if (used) {
-            this.deps.inbox.updateOpenPayload(item.id, { ...item.payload, checkedAt: isoNow(this.deps.ctx) });
-            this.deps.inbox.resolveByRule(item.id, 'seen', 'outage_ended');
+            this.updateAlert(item, { ...payload, checkedAt: isoNow(this.deps.ctx) });
+            this.deps.inbox.resolveByRule(
+              item.id,
+              item.kind === 'question' ? TODO_DONE_OPTION.id : 'seen',
+              'outage_ended',
+            );
           } else this.deps.inbox.cancel(item.id);
         }
         if (used && old.outage.kind === 'engine' && old.outage.engine)
@@ -607,11 +744,18 @@ export class WorkOutages {
         if (existing) {
           const { checkedAt: _, ...old } = existing.payload;
           const { checkedAt: __, ...current } = WorkOutageAlert.parse(payload);
-          if (JSON.stringify(old) !== JSON.stringify(current))
-            this.deps.inbox.updateOpenPayload(existing.item.id, payload);
+          if (JSON.stringify(old) !== JSON.stringify(current)) this.updateAlert(existing.item, payload);
         } else if (!this.toldFor(key).has(payload.outage.id)) {
-          // The route rule sends a new outage to the project manager as a signal; it opens no inbox item.
-          this.deps.inbox.raiseAlert({ projectKey: key, title: this.title(payload.outage), payload });
+          const pm = coordinationMemberOf(config);
+          const pmTarget = targets.find(
+            (entry) => entry.projectKey === key && entry.member.handle === pm?.handle,
+          );
+          this.deps.inbox.raiseAlert({
+            projectKey: key,
+            title: this.title(payload.outage),
+            payload,
+            outageAffectsPm: !!pmTarget && this.uses(pmTarget, payload.outage),
+          });
           this.toldFor(key).add(payload.outage.id);
         }
       }
@@ -674,6 +818,7 @@ export class WorkOutages {
       cli_missing: 'CLI is not installed',
       chatgpt_login: 'needs a ChatGPT login',
       setup_incomplete: 'setup is incomplete',
+      start_failing: 'sessions keep failing to start',
     }[outage.problem];
     return `${label} ${problem}`;
   }

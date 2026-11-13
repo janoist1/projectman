@@ -33,3 +33,9 @@ export function machinePlaces(host: { cpus: number; memoryBytes: number }): numb
 export function placeWorkers(granted: number, host: { cpus: number; memoryBytes: number }): number {
   return Math.max(1, Math.min(defaultTestWorkers(host), Math.floor(granted) - 1));
 }
+
+/** Merge checks leave two places for developers where possible, and never reserve unused workers (PM-1338). */
+export function mergeTestPlaces(host: { cpus: number; memoryBytes: number }, maxWorkers = Infinity): number {
+  const ceiling = Math.max(2, machinePlaces(host) - 2);
+  return 1 + Math.min(placeWorkers(ceiling, host), Math.max(1, Math.floor(maxWorkers)));
+}

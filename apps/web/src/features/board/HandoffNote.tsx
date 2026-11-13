@@ -1,4 +1,4 @@
-import type { Task, TaskHandoffRecord } from '@projectman/shared';
+import type { BoardCard, TaskHandoffRecord } from '@projectman/shared';
 import clsx from 'clsx';
 import { useRef, useState } from 'react';
 import type { RefObject } from 'react';
@@ -27,7 +27,7 @@ export function HandoffNoteButton({
   members,
   className,
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   className?: string;
 }) {
@@ -70,7 +70,7 @@ function HandoffNoteDialog({
   returnFocusRef,
 }: {
   projectKey: string;
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   open: boolean;
   onClose: () => void;

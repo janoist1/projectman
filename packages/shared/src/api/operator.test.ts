@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OperatorApprovalPayload,
   OperatorMemberChanges,
   OperatorOperation,
   OperatorPlan,
   operatorCriticalOp,
-  operatorApprovalOf,
   OperatorSignal,
   ProjectManagerCorner,
   RoleConfigurationRead,
@@ -133,26 +131,5 @@ describe('Operator operation contracts', () => {
       OperatorOperation.safeParse({ op: 'config_patch', patch: { baseVersion: 'v1', message: 'Spoofed' } })
         .success,
     ).toBe(false);
-  });
-
-  it('reads only validated Operator approval payloads of approval items', () => {
-    const payload = OperatorApprovalPayload.parse({
-      requestId: 'opr_1',
-      stepId: 'ops_1',
-      quote: 'Change it',
-      action: 'project_pause',
-      operation: { op: 'project_pause' },
-      changes: [],
-      consequence: 'project_pause',
-      baseVersion: null,
-      session: null,
-      stale: null,
-    });
-    expect(operatorApprovalOf({ kind: 'approval', payload: { operator: payload } })).toEqual(payload);
-    expect(operatorApprovalOf({ kind: 'question', payload: { operator: payload } })).toBeNull();
-    expect(
-      operatorApprovalOf({ kind: 'approval', payload: { operator: { requestId: 'opr_1' } } }),
-    ).toBeNull();
-    expect(operatorApprovalOf({ kind: 'approval', payload: {} })).toBeNull();
   });
 });

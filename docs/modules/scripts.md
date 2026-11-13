@@ -5,6 +5,23 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
+## Sorted registries and generated barrels (PM-1339)
+
+Run `npm run generate:barrels` from the repository root after adding, removing or renaming a
+source file in `packages/shared/src/` or `apps/server/src/contracts/`, and commit the generated
+`index.ts` files with the source change. Do not edit these barrels by hand. The generator
+(`scripts/barrels/generate.ts`) recursively exports TypeScript source files, excluding tests,
+declarations, snapshots and the root barrel itself. Its explicit shared-helper exclusions preserve
+the existing public API. A new private helper belongs in that exclusion list.
+
+Exports are sorted by extensionless relative module path using JavaScript's default string sort
+(case-sensitive, locale-independent). `ERROR_CODES` in `packages/shared/src/api/error-codes.ts`
+uses the same order by code: insert a new code at its alphabetical position, keeping any code-specific
+comment with it, and add its translations to both web locales. MCP imports in
+`apps/server/src/mcp/tools.ts` are sorted by module path; `TEAM_TOOL_GROUPS` is sorted by constant name.
+`apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
+committed barrels with the generator output; handover-check selects it for changes in these folders.
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -12,11 +29,20 @@ starts a worker per core, about 150 MB each. So **the machine has one pool of pl
 pattern; PM-1278, replacing the one-at-a-time lock of PM-332), and every heavy run takes its places from it.
 A place is one process's share of the machine: a run of `n` places has one main process and `n − 1` workers.
 
+Only Claude Code members may run checks in the background: they receive completion
+notifications. Codex, Gemini (agy) and NanoGPT members run in the foreground and follow
+running command ids until completion, as their provider context instructs. Gemini's native
+`command_status` follows a running command; bounded `schedule` wakeups are an optional
+provider-specific path. Never end a turn while a check still runs.
+
 - **Capacity.** `machinePlaces({ cpus, memoryBytes })` (`packages/shared/src/config/test-workers.ts`):
   `clamp(min(cpus, floor((GiB − 4) / 2)), 2, 16)`. Two GiB per place, four GiB for the machine itself.
-- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test`, the server's full test and
-  `npm run merge-test` (through the heavy CLI; the server's merge check runs it under its ticket and takes
-  none again) ask for `all`; the root `npm run typecheck` asks for 2, `npm run shots` and `take_screenshots`
+- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test` and the server's ordinary
+  full test ask for `all`. Merge checks use `mergeTestPlaces(host, maxWorkers)` (PM-1338): main + usable
+  workers, capped at `max(2, capacity - 2)` places; the server also respects its configured worker limit.
+  On a six-place machine the merge holds four places with three workers, leaving two for developers.
+  `npm run merge-test` selects this policy through `--places merge-test`; the server's merge check runs it
+  under its ticket and takes none again. The root `npm run typecheck` asks for 2, `npm run shots` and `take_screenshots`
   (`SCREENSHOT_PLACES`) for 3, the members' `npm ci` (`DEPENDENCY_PLACES`) for 2, and a workspace `typecheck`
   or `build` script for 1 (`--places 1`; under a holder's ticket it takes nothing). A workspace vitest asks for 2 to 4
   and gives back what it cannot use once it knows its files (`1 + min(workers, files)`); `npm run
@@ -59,7 +85,7 @@ handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run u
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
   even with a run present. Other closure reasons and meeting sessions are unchanged. Only queued
   commands are covered; grace is in memory and does not survive a server restart.
-- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|<n>|<min>-<max>] <command>`
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|merge-test|<n>|<min>-<max>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn (`--places` defaults to `all`); the root `npm test`,
   `npm run typecheck` (`--places 2`), `npm run shots` (`--places 3`), `npm run merge-test` and `npm run
 handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` script (`--places 1`) go through it. The
@@ -95,6 +121,10 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
+  These required-lock runs reserve `mergeTestPlaces` instead of `all`, and cap their workers to the grant.
+  Merge dependency writers and workspace readers additionally hold the per-repository store lock
+  (`_merge-deps/<repoKey>.lock`, capacity 1; PM-1338) while using a generation. Machine places come first;
+  store holders never request places. This lock is separate from the machine pool and pressure meter.
   A merge train (PM-660) submits one common candidate through that same executor and lock;
   its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
   Dependency preparation (`FullTestSpec.npmCi`, PM-710) requires that lock too: probes, sandboxed
@@ -141,7 +171,13 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   **Server and script impact (PM-864).** Server contracts and config use their source modules;
   script code uses the server workspace. Both server and script files are read from each git tree.
   Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
-  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  test (an unmapped snapshot falls back). Per-tool JSON snapshots in
+  `apps/server/src/mcp/__snapshots__/tools/` select `apps/server/src/mcp/tools.test.ts` in both
+  merge and hand-over checks. That test compares one JSON file per tool and checks the directory
+  against the registered tool names, so missing and orphaned files fail. Update with
+  `npx vitest run src/mcp/tools.test.ts --configLoader runner -u` in `apps/server`, remove files
+  for retired tools, then rerun without `-u` to verify the complete file set.
+  Changed helpers and scripts select tests reaching them in
   either tree; a script dependency also proves a source dependency. Server markdown is ignored.
   Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
   nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest
@@ -165,9 +201,17 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
-  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
-  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  Paths only a few server tests read by path run those tests (PM-1354): `deploy/mac/**` and
+  `.github/workflows/*.yml`, `projectman.structure.yaml` and `apps/server/test/architecture/**`, and
+  `scripts/merge-test/**` each have an `OWNED_PATH_RULES` entry (`scripts/merge-test/scope.ts`) with its
+  test list; a diff made only of such paths (and the rules' own tests) gets the `owned` scope: server
+  type check and those tests. A guard test fails when a server test that reads one of these paths is
+  not named by a rule. A `packages/templates/**` change runs the templates workspace and the
+  workspaces that import `@projectman/templates` (the server through the module/test graph seeded by
+  its importers); next to a shared source change it requires all workspaces.
+  Changes to `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, such paths next to other code or
+  unknown paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
   `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
@@ -188,10 +232,14 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
   test fails when a server or web test that reads a repository file by path (an
   `import.meta.glob`, or a path from `import.meta.url` read with `readFileSync`, `readdirSync`,
-  `existsSync`) is not named by a rule, or a rule names no existing test. The `CLAUDE.md` Commands
-  lines of the form "run this test after changing that" are rules too (`web-get-contracts`, the
-  merge-test watchdog, `start-offer` and the `golden-path-*` tests). The tool-definition snapshot and the
-  `*-migration` tests need no rule: the shared export analysis and the import graph reach them. A rule
+  `existsSync`) is not named by a rule, or a rule names no existing test. The former conditional
+  `CLAUDE.md` test commands are now rules (`i18n`, `web-get-contracts`, the merge-test watchdog,
+  `start-offer` and `golden-path-*`). App-harness consumers are selected as direct importers;
+  `merge-test-handover.test.ts` guards this, and the cap never cuts direct tests (PM-1337).
+  The tool-definition snapshot and the
+  migration folder (`apps/server/src/db/migrations/`) has a `SELECTION_RULES` path rule selecting
+  loader, baseline, database, journal, handle, history and retained migration tests: SQL and metadata
+  have no import edge. Merge impact treats these data files as changes to the `db` module. A rule
   with `broad: true` has sources so wide that matching one does not make a file "mapped" (the
   not-mapped list). **Documents a test reads (PM-1337).** `TEST_READ_DOCS`
   (`scripts/merge-test/scope.ts`) maps the documents tests read by path (`docs/HYBRID.md`,
@@ -202,15 +250,26 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   facts, never their wording. **Order by proximity (PM-1306).** The tests come
   nearest first and the alphabet only decides between tests of the same proximity. **The cap
   (PM-1337).** The cap, `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`),
-  cuts only the farther tests: every `direct` and `rule` test and the first `NAME_TESTS_ALWAYS` (10)
-  `name` tests always run, and the remaining room under the cap goes to the rest of the `name` tests
+  cuts only the farther tests: every `direct` and `rule` test, the first `MODULE_TESTS_ALWAYS` (10)
+  `module` tests and the first `NAME_TESTS_ALWAYS` (10)
+  `name` tests always run, and the remaining room under the cap goes to the rest of the `module` and `name` tests
   and the `graph` tests in order. A run can therefore be larger than 60 files (the nearest tests decide
   the merge); the last lines say how many tests the cap cut:
   1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
      file themselves (snapshot tests first). A test that only imports a changed `packages/shared`
      export through the package is not direct: it is `graph`, however many there are;
   2. `rule`: the tests a `SELECTION_RULES` entry chose;
-  3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
+  3. `module` (PM-1402): tests (inside the merge check's scope) whose file name holds, as whole
+     hyphen-separated words, the name of a changed module: the folder (`admission`), the file name
+     (`task-starts`) and the last word of a hyphenated file name (`starts`) of a changed
+     non-test file outside the central files (`packages/shared`, `contracts`, `kernel`, `db`,
+     `assembly.ts`, the test helpers, the web `i18n` and `mocks`; generic names such as `index` and
+     names under 5 characters left out). They rank ahead of the tests that the central files' imports
+     reach, so a changed `runtime/admission` keeps `*session-starts*`, `*admission*` and
+     `*deferred-starts*` inside the 60. The tests of the workspace the change touched most come first,
+     then the tests with more matching names, integration tests last. `--dry-run` names them in a
+     `module-name test(s) ... run ahead of the import graph` line;
+  4. `name`: tests (inside the merge check's scope) that use a changed name without importing the
      file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
      line that differs from the base in a changed non-test file (comments do not count). Using a
      compound name on a changed line is not enough: the code must also declare it (`name:`, a property,
@@ -223,12 +282,12 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
      (`name: true`, `name = 'x'`) rather than only read it or stub it (`name: () => []`), then those using more and rarer changed names, then by path. Integration tests
      (`*.integration.test.*`, skipped in a sandbox) go behind the others in the `direct`, `name` and
      `graph` tiers;
-  4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
+  5. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say
   `ran R of M (cap 60 cuts only the farther tests, the N nearest always run); the merge-test runs the other C`
   (exit 0), `the cap cut C test(s)` and
-  `left out by proximity: 0 direct, 0 selection-rule, <n> name-usage, <n> farther import-graph`
+  `left out by proximity: 0 direct, 0 selection-rule, <n> module-name, <n> name-usage, <n> farther import-graph`
   (the first two are always 0), and name the omitted tests of the `name` tier, at most 20 per line and then `(+N more)`
   (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output

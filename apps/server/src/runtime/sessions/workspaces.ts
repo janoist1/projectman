@@ -8,7 +8,7 @@ import {
   memberOf,
   memberStorageHandle,
   stageOf,
-  stageOwners,
+  allStageOwners,
 } from '@projectman/shared';
 import type { AiMemberConfig, HandoverCheckRead, ProjectConfig, Session, Task } from '@projectman/shared';
 import type {
@@ -115,7 +115,7 @@ export class MemberWorkspaces {
         task.assignee !== member.handle &&
         stage !== undefined &&
         (stage.kind === 'step' || stage.kind === 'release') &&
-        stageOwners(config, stage).includes(member.handle);
+        allStageOwners(config, stage).includes(member.handle);
       return reviewing ? 'review' : 'work';
     }
     return access.reviewCopy ? 'review' : null;

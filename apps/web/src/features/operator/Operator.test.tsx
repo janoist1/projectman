@@ -3,8 +3,6 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   ConfigChangeRow,
-  InboxItem,
-  OperatorApprovalPayload,
   OperatorRequestView,
   OperatorSignal,
   OperatorStep,
@@ -15,11 +13,10 @@ import { MeContext } from '../../app/contexts';
 import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
-import { formatStamp } from '../../i18n/format';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
-import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
+import { operatorSummaryFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
-import { InboxPage } from '../inbox/InboxPage';
 import { HistorySection } from '../settings/sections/HistorySection';
 import { TeamPage } from '../team/TeamPage';
 import { OperatorSignalCard } from './OperatorSignalCard';
@@ -128,47 +125,6 @@ const CHANGE: ConfigChangeRow = {
   level: 'approval',
 };
 
-function approvalItem(
-  stepId: string,
-  payload: Partial<OperatorApprovalPayload> = {},
-  state: InboxItem['state'] = 'open',
-): InboxItem {
-  const operator: OperatorApprovalPayload = {
-    requestId: 'req_1',
-    stepId,
-    quote: 'Adj a fejlesztőnek több jogot',
-    action: 'member_change',
-    operation: { op: 'member_update', handle: 'dev-1', changes: { permissionMode: 'bypassPermissions' } },
-    changes: [CHANGE],
-    consequence: 'permission_mode',
-    baseVersion: null,
-    session: null,
-    stale: null,
-    ...payload,
-  };
-  return {
-    id: `inb_${stepId}`,
-    projectKey: 'AC',
-    kind: 'approval',
-    assignees: ['owner'],
-    source: 'operator',
-    sessionId: null,
-    taskKey: null,
-    title: 'Tag módosítása: dev-1',
-    body: null,
-    payload: { operator },
-    options: operator.stale
-      ? [{ id: 'dismiss', label: 'dismiss', style: 'secondary' }]
-      : [
-          { id: 'approve', label: 'approve', style: 'primary' },
-          { id: 'reject', label: 'reject', style: 'secondary' },
-        ],
-    state,
-    resolution: null,
-    createdAt: '2026-10-10T09:00:00.000Z',
-  };
-}
-
 describe('the Operator button', () => {
   it('shows who can answer in its name, for an owner', async () => {
     const project = mockProject();
@@ -187,7 +143,7 @@ describe('the Operator button', () => {
     const project = mockProject();
     project.backend.operatorSignals = [
       signal({ id: 'sig_1', kind: 'outage', taskKey: null }),
-      signal({ id: 'sig_2', kind: 'nobody' }),
+      signal({ id: 'sig_2', kind: 'merge_blocked' }),
       signal({ id: 'sig_3', kind: 'silent', state: 'dismissed' }),
     ];
     renderLayout(project);
@@ -200,7 +156,7 @@ describe('the Operator button', () => {
 
   it('is there for a client, with no signal count and no signal cards', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
     renderLayout(project, '/p/AC', { viewer: 'kata' });
     const operator = await button();
     await waitFor(() =>
@@ -212,7 +168,7 @@ describe('the Operator button', () => {
     fireEvent.click(operator);
     const panel = await screen.findByRole('dialog');
     await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
-    expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
+    expect(within(panel).queryByRole('heading', { name: /elakadt a beolvasztás/ })).toBeNull();
   });
 
   it('is not there for a client while the Operator is not a contact (PM-985)', async () => {
@@ -269,6 +225,25 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(operator);
+  });
+
+  it('marks a reply read only when it has been on the screen, not when the panel opens (PM-1386)', async () => {
+    const project = mockProject();
+    project.backend.messages = [];
+    project.backend.sendTeamMessage('pm', ['owner'], null, 'Summary below the fold');
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog', { name: operatorName(project) });
+    await within(panel).findByText('Summary below the fold');
+    // The label sits at the start of the message, not in an empty strip before it.
+    const markOf = () => within(panel).queryByText(t('messages.thread.unread'));
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(markOf()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(markOf()).toBeNull());
   });
 
   it('has no call-back button: the Operator is never on leave', async () => {
@@ -599,58 +574,6 @@ describe('the steps of a request', () => {
       expect(link.getAttribute('href')).toBe(href);
     },
   );
-
-  it('decides a proposal inline for the owner, and shows the card as approved', async () => {
-    const project = mockProject();
-    const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Adj a fejlesztőnek több jogot');
-    project.backend.inbox.push(approvalItem('stp_1'));
-    project.backend.operatorRequests = [
-      request(
-        [
-          step({
-            id: 'stp_1',
-            action: 'member_change',
-            status: 'awaiting_approval',
-            member: 'dev-1',
-            inboxItemId: 'inb_stp_1',
-          }),
-        ],
-        asked.id,
-      ),
-    ];
-    renderLayout(project);
-    fireEvent.click(await button());
-    const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
-    fireEvent.click(await within(steps).findByRole('button', { name: t('operator.approval.approve') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
-    );
-  });
-
-  it('does not offer the decision to a person who may not decide', async () => {
-    const project = mockProject();
-    const asked = project.backend.sendTeamMessage('kata', ['pm'], null, 'Adj a fejlesztőnek több jogot');
-    project.backend.inbox.push(approvalItem('stp_1'));
-    project.backend.operatorRequests = [
-      request(
-        [
-          step({
-            id: 'stp_1',
-            action: 'member_change',
-            status: 'awaiting_approval',
-            member: 'dev-1',
-            inboxItemId: 'inb_stp_1',
-          }),
-        ],
-        asked.id,
-      ),
-    ];
-    renderLayout(project, '/p/AC', { viewer: 'kata' });
-    fireEvent.click(await button());
-    const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
-    expect(within(steps).getByText(t('operator.steps.actions.member_change'))).toBeTruthy();
-    expect(within(steps).queryByRole('button', { name: t('operator.approval.approve') })).toBeNull();
-  });
 });
 
 describe('unanchored Operator signals', () => {
@@ -659,7 +582,7 @@ describe('unanchored Operator signals', () => {
     project.backend.operatorSignals = Array.from({ length: count }, (_, index) =>
       signal({
         id: `sig_${index}`,
-        kind: 'nobody',
+        kind: 'merge_blocked',
         raisedAt: `2026-10-10T08:${String(index).padStart(2, '0')}:00.000Z`,
       }),
     );
@@ -712,9 +635,9 @@ describe('unanchored Operator signals', () => {
     project.backend.operatorSignals[0]!.raisedAt = '2026-10-10T09:01:00.000Z';
     renderLayout(project);
     fireEvent.click(await button());
-    await screen.findByRole('heading', { name: 'AC-20: senki nem viheti' });
+    await screen.findByRole('heading', { name: 'AC-20: elakadt a beolvasztás' });
     const log = screen.getByRole('log');
-    expect(log.lastElementChild?.querySelector('[data-signal="nobody"]')).toBeTruthy();
+    expect(log.lastElementChild?.querySelector('[data-signal="merge_blocked"]')).toBeTruthy();
     expect(log.lastElementChild?.previousElementSibling?.textContent).toContain('Latest reply');
   });
 
@@ -904,7 +827,7 @@ describe('a signal the Operator raised', () => {
       ...Array.from({ length: 5 }, (_, index) =>
         signal({ id: `hidden_${index}`, kind: index % 2 ? 'milestone_closed' : 'structural_pattern' }),
       ),
-      ...(['stalled', 'silent', 'nobody'] as const).map((kind) => signal({ id: kind, kind })),
+      ...(['stalled', 'silent', 'merge_blocked'] as const).map((kind) => signal({ id: kind, kind })),
     ];
     renderLayout(project);
     const operator = await button();
@@ -915,7 +838,7 @@ describe('a signal the Operator raised', () => {
     fireEvent.click(group);
     const rows = within(group.closest('section')!).getAllByRole('listitem');
     expect(rows.map((row) => row.getAttribute('data-signal-id')).sort()).toEqual([
-      'nobody',
+      'merge_blocked',
       'silent',
       'stalled',
     ]);
@@ -1002,10 +925,27 @@ describe('a signal the Operator raised', () => {
     ).toHaveProperty('disabled', false);
   });
 
+  it('reads the message of a signal card once the label in its header has been on the screen (PM-1386)', async () => {
+    const project = mockProject();
+    const message = presenting(project);
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id })];
+    renderLayout(project);
+    fireEvent.click(await button());
+    const card = (await screen.findByRole('button', { name: t('operator.signal.accept') })).closest(
+      'article',
+    )!;
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(within(card).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+  });
+
   it('says yes with a visible message that names the signal', async () => {
     const project = mockProject();
     const message = presenting(project);
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody', messageId: message.id })];
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked', messageId: message.id })];
     renderLayout(project);
     fireEvent.click(await button());
     fireEvent.click(await screen.findByRole('button', { name: t('operator.signal.accept') }));
@@ -1030,7 +970,7 @@ describe('a signal the Operator raised', () => {
       project.backend.operatorSignals = [
         signal({ id: 'sig_1', kind: 'silent', actionable: false, messageId: message?.id ?? null }),
         ...(presentation === 'summary'
-          ? [signal({ id: 'sig_2', kind: 'nobody', messageId: message!.id })]
+          ? [signal({ id: 'sig_2', kind: 'merge_blocked', messageId: message!.id })]
           : []),
       ];
       renderLayout(project);
@@ -1091,18 +1031,18 @@ describe('a signal the Operator raised', () => {
       signal({ id: 'sig_old', kind: 'silent', actionable: false, state: 'dismissed', decidedBy: 'owner' }),
       signal({
         id: 'sig_operator',
-        kind: 'ready_waiting',
+        kind: 'stalled',
         actionable: false,
         state: 'dismissed',
         decidedBy: 'operator',
       }),
-      signal({ id: 'sig_open', kind: 'nobody', actionable: false }),
+      signal({ id: 'sig_open', kind: 'merge_blocked', actionable: false }),
     ];
     renderLayout(project);
     fireEvent.click(await button());
-    await screen.findByRole('heading', { name: 'AC-20: senki nem viheti' });
+    await screen.findByRole('heading', { name: 'AC-20: elakadt a beolvasztás' });
     expect(screen.queryByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: t('operator.signal.kinds.ready_waiting') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'AC-20: válaszra vár a munkamenet' })).toBeNull();
     expect(screen.queryByText(new RegExp(t('operator.signal.dismissed')))).toBeNull();
   });
 
@@ -1111,7 +1051,7 @@ describe('a signal the Operator raised', () => {
     const message = presenting(project);
     const signals = [
       signal({ id: 'sig_1', kind: 'silent', actionable: false, messageId: message.id }),
-      signal({ id: 'sig_2', kind: 'nobody', messageId: message.id }),
+      signal({ id: 'sig_2', kind: 'merge_blocked', messageId: message.id }),
     ];
     project.render(
       presentation === 'summary' ? (
@@ -1131,7 +1071,7 @@ describe('a signal the Operator raised', () => {
       ),
     );
     expect(screen.getByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'AC-20: senki nem viheti' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: elakadt a beolvasztás' })).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -1139,17 +1079,13 @@ describe('a signal the Operator raised', () => {
     const project = mockProject();
     const kinds = [
       'outage',
-      'nobody',
       'stalled',
       'silent',
-      'idle',
-      'merge_waiting',
       'merge_blocked',
       'unreleased',
-      'ready_waiting',
       'obligation_overdue',
     ] as const;
-    const withoutCard = ['outage', 'unreleased', 'ready_waiting'];
+    const withoutCard = ['outage', 'unreleased'];
     project.backend.operatorSignals = kinds.map((kind) =>
       signal({ id: `sig_${kind}`, kind, taskKey: withoutCard.includes(kind) ? null : 'AC-20' }),
     );
@@ -1169,204 +1105,13 @@ describe('a signal the Operator raised', () => {
 
   it('says on the card that the signal is no longer open, without a toast', async () => {
     const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'merge_blocked' })];
     renderLayout(project);
     fireEvent.click(await button());
     const dismiss = await screen.findByRole('button', { name: t('operator.signal.dismiss') });
     project.backend.operatorSignals[0]!.state = 'resolved';
     fireEvent.click(dismiss);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('operator.signal.closed'));
-  });
-});
-
-describe('the approval in Rád vár', () => {
-  const rendered = (project: Project) => project.render(<InboxPage />, '/p/AC/inbox');
-
-  it('shows the plan, recipient and full exact message before sending, always as irreversible', async () => {
-    const project = mockProject();
-    const payload = operatorMessageApprovalFixture();
-    const text = 'First paragraph.\n\n' + 'A long exact message. '.repeat(250) + '\nFinal line.';
-    project.backend.inbox.push(
-      approvalItem('stp_message', {
-        ...payload,
-        operation: { op: 'message_send', to: ['kata'], text, taskKey: 'AC-1' },
-        plan: { ...payload.plan!, reversible: true },
-        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
-      }),
-    );
-    rendered(project);
-    const card = (await screen.findByRole('link', { name: 'AC-1' })).closest('article')!;
-    expect(within(card).getByRole('link', { name: 'AC-1' }).closest('p')?.textContent).toBe(
-      t('operator.approval.messageExactTask', { key: 'AC-1' }),
-    );
-    expect(within(card).queryAllByRole('region')).toHaveLength(0);
-    expect(within(card).getByText(payload.plan!.why)).toBeTruthy();
-    expect(within(card).getByText(payload.plan!.impact)).toBeTruthy();
-    expect(within(card).getByText(t('operator.approval.reversibleNo'))).toBeTruthy();
-    expect(within(card).getByText(t('operator.approval.guest'))).toBeTruthy();
-    expect(
-      within(card).getByText((_, node) => node?.textContent === text && node.children.length === 0),
-    ).toBeTruthy();
-    expect(within(card).getByText(t('operator.approval.expiresSoon', { minutes: 30 }))).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.send') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_message/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
-    );
-  });
-
-  it('uses the shared timestamp format and hides the deadline once it passed before the sweep', async () => {
-    const project = mockProject();
-    const future = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
-    const past = new Date(Date.now() - 60_000).toISOString();
-    project.backend.inbox.push(
-      approvalItem('stp_future', { ...operatorMessageApprovalFixture(), expiresAt: future }),
-      approvalItem('stp_past', { ...operatorMessageApprovalFixture(), expiresAt: past }),
-    );
-    rendered(project);
-    const expected = t('operator.approval.expires', { time: formatStamp(future) });
-    expect(
-      await screen.findByText((_, node) => node?.tagName === 'TIME' && node.textContent === expected),
-    ).toBeTruthy();
-    expect(screen.queryByText(t('operator.approval.expiresSoon', { minutes: 0 }))).toBeNull();
-    expect(document.querySelector(`time[datetime="${past}"]`)).toBeNull();
-  });
-
-  it('offers only dismissal for an expired message proposal, with no deadline', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(
-      approvalItem('stp_message', {
-        ...operatorMessageApprovalFixture(),
-        stale: { reason: 'expired', at: new Date().toISOString() },
-      }),
-    );
-    rendered(project);
-    const card = (await screen.findByText(t('operator.approval.staleReasons.expired'))).closest('article')!;
-    expect(within(card).getByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
-    expect(within(card).queryByRole('button', { name: t('operator.approval.send') })).toBeNull();
-    expect(
-      card.querySelector('time[datetime="' + operatorMessageApprovalFixture().expiresAt + '"]'),
-    ).toBeNull();
-  });
-
-  it('shows the request, what changes and the consequence, and approves', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(approvalItem('stp_1'));
-    rendered(project);
-    const card = (
-      await screen.findByText(t('operator.approval.asked', { quote: 'Adj a fejlesztőnek több jogot' }))
-    ).closest('article')!;
-    expect(within(card).getByText('bypassPermissions')).toBeTruthy();
-    expect(within(card).getByText(t('operator.approval.consequences.permission_mode'))).toBeTruthy();
-    expect(within(card).getByRole('button', { name: t('operator.approval.reject') })).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
-    );
-  });
-
-  it('names the stop and the pause in the button', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(
-      approvalItem('stp_1', {
-        action: 'session_stop',
-        operation: { op: 'session_stop', sessionId: 'ses_x' },
-        changes: [],
-        consequence: 'session_stop',
-      }),
-      approvalItem('stp_2', {
-        action: 'project_pause',
-        operation: { op: 'project_pause' },
-        changes: [],
-        consequence: 'project_pause',
-      }),
-    );
-    rendered(project);
-    expect(await screen.findByRole('button', { name: t('operator.approval.stop') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
-  });
-
-  it('rejects without changing anything', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(approvalItem('stp_1'));
-    rendered(project);
-    fireEvent.click(await screen.findByRole('button', { name: t('operator.approval.reject') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve')[0]?.body).toEqual({ optionId: 'reject' }),
-    );
-  });
-
-  it('folds the rows past the third behind a "+N" button', async () => {
-    const project = mockProject();
-    const rows = ['model', 'effort', 'capacity', 'onLeave', 'schedule'].map((field): ConfigChangeRow => ({
-      ...CHANGE,
-      field,
-    }));
-    project.backend.inbox.push(approvalItem('stp_1', { changes: rows }));
-    rendered(project);
-    const more = await screen.findByRole('button', { name: t('operator.approval.more', { count: 2 }) });
-    expect(screen.queryByText(t('operator.change.fields.onLeave'))).toBeNull();
-    fireEvent.click(more);
-    expect(screen.getByText(t('operator.change.fields.onLeave'))).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('operator.approval.less') })).toBeTruthy();
-  });
-
-  it('names the changes in Hungarian: the area, the member by name, yes/no, and JSON cut short in mono', async () => {
-    const project = mockProject();
-    const json = JSON.stringify({ aaaa: 'x'.repeat(80) });
-    project.backend.inbox.push(
-      approvalItem('stp_1', {
-        changes: [
-          { ...CHANGE, field: 'onLeave', before: 'false', after: 'true' },
-          { ...CHANGE, area: 'role', target: 'qa', field: 'override.*', before: null, after: 'qa' },
-          { ...CHANGE, area: 'project', target: null, field: 'mysteryKey', before: null, after: json },
-        ],
-      }),
-    );
-    rendered(project);
-    const changes = await screen.findByRole('region', { name: t('operator.approval.changes') });
-    const text = changes.textContent ?? '';
-    expect(text).toContain(t('operator.change.areas.member'));
-    expect(text).toContain('Általános fejlesztő');
-    expect(text).not.toContain('dev-1');
-    expect(text).toContain(t('operator.change.yes'));
-    expect(text).toContain(t('operator.change.no'));
-    expect(text).toContain(`${t('operator.change.prefixes.override')}`);
-    expect(text).not.toContain('*');
-    const cut = within(changes).getByTitle(json);
-    expect(cut.textContent?.endsWith('…')).toBe(true);
-    expect(cut.className).toMatch(/mono/);
-  });
-
-  it('turns stale when the configuration moved on: the reason on the card, only "Rendben" left, and no toast', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(approvalItem('stp_1', { baseVersion: 'old0001' }));
-    rendered(project);
-    const card = (
-      await screen.findByText(t('operator.approval.asked', { quote: 'Adj a fejlesztőnek több jogot' }))
-    ).closest('article')!;
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    const alert = await within(card).findByRole('alert');
-    expect(alert.textContent).toContain(t('operator.approval.staleReasons.config_changed'));
-    expect(await within(card).findByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
-    expect(within(card).queryByRole('button', { name: t('operator.approval.approve') })).toBeNull();
-    // "Rendben" closes it.
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.ok') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve').at(-1)?.body).toEqual({ optionId: 'dismiss' }),
-    );
-  });
-
-  it('shows a proposal that was stale already with its reason and "Rendben" only', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(
-      approvalItem('stp_1', { stale: { reason: 'session_changed', at: '2026-10-10T10:00:00.000Z' } }),
-    );
-    rendered(project);
-    expect(
-      await screen.findByText(t('operator.approval.staleReasons.session_changed'), { exact: false }),
-    ).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('operator.approval.reject') })).toBeNull();
   });
 });
 

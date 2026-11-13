@@ -14,6 +14,7 @@ const USAGE = 'usage: npm run handover-check -- [--base <revision>] [--dry-run]'
 const PROXIMITY_LABELS: Record<Proximity, string> = {
   direct: 'direct (changed or importing)',
   rule: 'selection-rule',
+  module: 'module-name',
   name: 'name-usage',
   graph: 'farther import-graph',
 };
@@ -103,6 +104,11 @@ const named = (paths: readonly string[]): string =>
 /** What the run left out, printed last so it is the end of the output. */
 function footer(selection: HandoverSelection): string[] {
   return [
+    ...(selection.moduleTests.length
+      ? [
+          `handover-check: ${selection.moduleTests.length} ${PROXIMITY_LABELS.module} test(s) named after a changed module run ahead of the import graph: ${named(selection.moduleTests)}`,
+        ]
+      : []),
     ...(selection.omitted
       ? [
           `handover-check: ran ${selection.reached - selection.omitted} of ${selection.reached} (cap ${selection.cap} cuts only the farther tests, the ${selection.nearest} nearest always run); the merge-test runs the other ${selection.omitted}`,

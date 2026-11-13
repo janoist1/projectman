@@ -58,6 +58,7 @@ import type { PressureMeter, PressureReading } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
+import { removeRetiredEngineLogs } from './logging';
 import { createMachineProbe } from './machine';
 import { createRunnerModule, DEPENDENCY_GATE_WAIT_S } from './runner';
 import { createGithubActionsClient, createGithubService } from './services/github';
@@ -79,7 +80,7 @@ import {
 export const ENGINE_DEFAULT_PORT = 4801;
 const MAX_BODY_BYTES = 1024 * 1024;
 const HELLO_PROVIDER_WAIT_MS = 2_500;
-const PENDING_INPUT_POLL_MS = 1000;
+const PENDING_INPUT_POLL_MS = 5000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
 const LOOPBACK = '127.0.0.1';
@@ -245,6 +246,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     bodyLimit: MAX_BODY_BYTES,
   });
   const log = app.log;
+  removeRetiredEngineLogs(home);
 
   const status = createEngineStatusWriter(
     files.status,
@@ -681,6 +683,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       bootId,
       ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
       deliveryIds: true as const,
+      welcomeHeartbeat: true as const,
     };
   }
 

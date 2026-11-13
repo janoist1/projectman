@@ -1,6 +1,9 @@
 export { Admission } from './admission';
 export { DeferredStarts, queueItemWaiting, StartSpec } from './deferred-starts';
 export { StartQueue } from './start-queue';
+export { StartFailures } from './start-failures';
+export type { StartHold } from './start-failures';
+export { wireStartFailures } from './start-failure-events';
 export { UsageWake } from './usage-wake';
 export type { AutomaticStart, QueueWait } from './deferred-starts';
 export { UrgentPull } from './urgent-pull';

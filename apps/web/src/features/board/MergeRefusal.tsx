@@ -1,4 +1,4 @@
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -20,7 +20,7 @@ export function MergeRefusal({
   onStarted,
 }: {
   error: unknown;
-  task: Task;
+  task: BoardCard;
   facts: RefusalFacts;
   /** The merge was started: the caller may close its panel and forget the refused move. */
   onStarted?: () => void;

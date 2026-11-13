@@ -1,6 +1,6 @@
 import { ProjectConfig, storedTeamDefaults } from '@projectman/shared';
 import type { ProjectConfigInput } from '@projectman/shared';
-import { migrateAcceptanceGates } from '@projectman/templates';
+import { getLocale, standardLabel } from '@projectman/templates';
 import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates';
 
 /**
@@ -9,15 +9,7 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
-/**
- * The test project as a current configuration: with the acceptance gates and labels the config migration
- * adds (PM-1135), so that a saved and loaded configuration equals it.
- */
 function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
-  return migrateAcceptanceGates(plainConfigInput(input));
-}
-
-function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
     schemaVersion: 1,
     project: {
@@ -29,10 +21,10 @@ function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       templateId: 'test',
     },
     team: {
-      // Stored explicitly, as the migration writes them.
+      // Store the current team policies explicitly.
       ...storedTeamDefaults(),
       ...(input.cardMover ? { cardMover: input.cardMover } : {}),
-      // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
+      // Use the developer so that tests may drop the review stage.
       merger: input.merger ?? { kind: 'developer' },
       members: [
         {
@@ -93,7 +85,14 @@ function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           owners: ['dev-1', 'dev-2'],
           columnId: 'doing',
         },
-        { id: 'code_review', name: 'Code review', kind: 'step', owners: ['cr'], columnId: 'review' },
+        {
+          id: 'code_review',
+          name: 'Code review',
+          kind: 'step',
+          owners: ['cr'],
+          columnId: 'review',
+          gate: { conditions: [{ type: 'lacks_label', label: 'acceptance-open' }] },
+        },
         {
           id: 'merge',
           name: 'Merge',
@@ -117,10 +116,18 @@ function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
             conditions: [
               { type: 'has_label', label: 'pr-merged' },
               { type: 'has_label', label: 'release-ok' },
+              { type: 'lacks_label', label: 'acceptance-unconfirmed' },
             ],
           },
         },
-        { id: 'done', name: 'Done', kind: 'done', owners: [], columnId: 'done' },
+        {
+          id: 'done',
+          name: 'Done',
+          kind: 'done',
+          owners: [],
+          columnId: 'done',
+          gate: { conditions: [{ type: 'lacks_label', label: 'acceptance-unconfirmed' }] },
+        },
       ],
       labels: [
         {
@@ -154,6 +161,8 @@ function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           clearedWhen: ['moved_back'],
         },
         { id: 'waiting', name: 'Waiting for an answer', blocks: true },
+        standardLabel('acceptance-open', getLocale(input.language)),
+        standardLabel('acceptance-unconfirmed', getLocale(input.language)),
       ],
     },
   };

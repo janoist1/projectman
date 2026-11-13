@@ -17,7 +17,7 @@ export function canSeeTimelineEvent(
 ): boolean {
   if (
     viewer.access === 'client' &&
-    (event.type === 'review_follow_ups' || event.type === 'handover_check_exception')
+    ['review_follow_ups', 'member_involved', 'handover_check_exception'].includes(event.type)
   )
     return false;
   if (viewer.access !== 'client' || !['team_message', 'message_dropped'].includes(event.type)) return true;

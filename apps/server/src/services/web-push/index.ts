@@ -378,7 +378,7 @@ export function createWebPushService(opts: WebPushOptions) {
             v: 1,
             kind: 'item',
             title: textFor(user.id).title[category],
-            body: item.kind === 'release' ? item.projectKey : (item.taskKey ?? item.projectKey),
+            body: item.taskKey ?? item.projectKey,
             tag: `inbox-${item.id}`,
             url: `/p/${encodeURIComponent(item.projectKey)}/inbox?via=push#inbox-item-${encodeURIComponent(item.id)}`,
             itemId: item.id,

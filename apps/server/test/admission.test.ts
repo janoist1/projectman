@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SESSION_IDLE_CLOSE_MINUTES } from '@projectman/shared';
+import { SESSION_IDLE_CLOSE_MINUTES, START_FAILURE_LIMIT, startRetryDelayMs } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -13,7 +13,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
-import { Admission, DeferredStarts } from '../src/runtime/admission';
+import { Admission, DeferredStarts, StartFailures } from '../src/runtime/admission';
 import { ADMISSION_LOCK_WARN_MS } from '../src/runtime/admission/admission';
 import { conflict, DomainError } from '../src/kernel';
 import { isDeferrable } from '../src/runtime/admission';
@@ -106,8 +106,11 @@ function admissionFor(world: World = {}) {
   const usageRequests: AgentProvider[] = [];
   const published: string[] = [];
   const log = capturingLogger();
+  const database = createRepositories(openDatabase(':memory:'));
+  const clock = { at: Date.parse(AT) };
   const ctx = {
     repos: {
+      startFailures: database.startFailures,
       pauses: {
         open: () => [],
         findOpenEngine: (id: EngineId) => (world.engines?.paused?.includes(id) ? { id: 'pau_engine' } : null),
@@ -119,7 +122,7 @@ function admissionFor(world: World = {}) {
       },
     },
     logger: log.logger,
-    now: () => new Date(AT),
+    now: () => new Date(clock.at),
   } as unknown as DomainContext;
   const sessionFake = {
     list: (_projectKey: string, filter: { member?: string } = {}) =>
@@ -157,10 +160,17 @@ function admissionFor(world: World = {}) {
   };
   const config = testConfig();
   world.adjust?.(config);
-  const store = createRepositories(openDatabase(':memory:')).deferredStarts;
+  const store = database.deferredStarts;
   const deferred = new DeferredStarts(world.persist ? store : undefined);
+  const startFailures = new StartFailures({
+    ctx,
+    engineOf: (_projectKey, handle) => world.engines?.of[handle] ?? null,
+    providerOnHold: () => false,
+    awaitsFirstTurn: () => false,
+  });
   const admission = new Admission({
     ctx,
+    startFailures,
     sessions: sessionFake as unknown as SessionOrchestrator,
     planUsage: {
       get: async (provider: AgentProvider = 'claude', engineId: EngineId | null = null) => {
@@ -195,7 +205,20 @@ function admissionFor(world: World = {}) {
     deferred,
   });
   const member = (handle: string) => config.team.members.find((m) => m.handle === handle) as AiMemberConfig;
-  return { admission, deferred, store, config, member, usageRequests, published, tasks, sessionFake, log };
+  return {
+    admission,
+    deferred,
+    store,
+    config,
+    member,
+    usageRequests,
+    published,
+    tasks,
+    sessionFake,
+    log,
+    startFailures,
+    advance: (ms: number) => void (clock.at += ms),
+  };
 }
 
 const refusal = async (promise: Promise<unknown>): Promise<string | null> =>
@@ -900,6 +923,82 @@ describe('deferred starts', () => {
     await admission.attempt(automatic);
     expect(deferred.list()).toEqual([]);
   });
+  describe('failed session starts (PM-1335)', () => {
+    /** An automatic start that runs the admission's own start of dev-1's session on the card. */
+    function sessionStart() {
+      const world = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review', assignee: 'dev-1' })] });
+      const { automatic } = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'dev-1' });
+      automatic.run = async () => {
+        await world.admission.start({
+          config: world.config,
+          member: world.member('dev-1'),
+          workItem: onTask('AR-1'),
+        });
+      };
+      return { ...world, automatic };
+    }
+
+    it('keeps the deferral after a transient failure and starts the session at the next attempt', async () => {
+      const { admission, deferred, sessionFake, automatic, advance } = sessionStart();
+      sessionFake.ensureSession.mockRejectedValueOnce(new Error('engine call timed out'));
+      const outcome = await admission.attempt(automatic);
+      expect(outcome).toMatchObject({ kind: 'deferred', waiting: { reason: 'start_backoff', failures: 1 } });
+      expect(deferred.list()).toHaveLength(1);
+      // The backoff has not run out: the session is not started again yet.
+      await admission.attempt(automatic);
+      expect(sessionFake.ensureSession).toHaveBeenCalledTimes(1);
+      advance(30_000);
+      expect(await admission.attempt(automatic)).toEqual({ kind: 'done' });
+      expect(sessionFake.ensureSession).toHaveBeenCalledTimes(2);
+      expect(deferred.list()).toEqual([]);
+    });
+
+    it('bounds the attempts of a start that keeps failing, with a growing backoff, and stops after the limit', async () => {
+      const { admission, deferred, sessionFake, automatic, advance } = sessionStart();
+      sessionFake.ensureSession.mockRejectedValue(
+        new DomainError('session_start_failed', 'the process exited', { status: 500 }),
+      );
+      const gaps: number[] = [];
+      let elapsed = 0;
+      let reason = '';
+      for (let i = 0; i < START_FAILURE_LIMIT; i++) {
+        const outcome = await admission.attempt(automatic);
+        if (outcome.kind !== 'deferred') throw new Error('the start should wait');
+        reason = outcome.waiting.reason;
+        if (outcome.waiting.until) gaps.push(Date.parse(outcome.waiting.until) - Date.parse(AT) - elapsed);
+        advance(startRetryDelayMs(i + 1));
+        elapsed += startRetryDelayMs(i + 1);
+      }
+      expect(sessionFake.ensureSession).toHaveBeenCalledTimes(START_FAILURE_LIMIT);
+      expect(reason).toBe('start_failing');
+      expect(gaps).toEqual([30_000, 60_000, 120_000, 240_000]);
+      // Stopped: more attempts, however late, start nothing, and the start waits.
+      advance(24 * 3_600_000);
+      await admission.attempt(automatic);
+      expect(sessionFake.ensureSession).toHaveBeenCalledTimes(START_FAILURE_LIMIT);
+      expect(deferred.list()).toHaveLength(1);
+    });
+
+    it('never holds back a start a person asks for, and clears the count when it works', async () => {
+      const { admission, config, member, sessionFake, startFailures } = sessionStart();
+      for (let i = 0; i < START_FAILURE_LIMIT; i++)
+        startFailures.record(
+          { projectKey: 'AR', member: 'dev-1', place: onTask('AR-1'), provider: 'claude' },
+          { code: 'link_down', sessionId: null },
+        );
+      expect(startFailures.stoppedFor('AR', 'dev-1')).toBe(true);
+      const result = await admission.start({ config, member: member('dev-1'), workItem: onTask('AR-1') });
+      expect(result.started).toBe(true);
+      expect(sessionFake.ensureSession).toHaveBeenCalledTimes(1);
+      // A person's failed start comes back as it was, not as the hold.
+      const failure = new DomainError('session_start_failed', 'the process exited', { status: 500 });
+      sessionFake.ensureSession.mockRejectedValueOnce(failure);
+      await expect(
+        admission.start({ config, member: member('dev-1'), workItem: onTask('AR-1') }),
+      ).rejects.toBe(failure);
+    });
+  });
+
   /** A start that the admission refuses with `code` until it is set to null. */
   function start(
     key: string,

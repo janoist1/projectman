@@ -227,7 +227,8 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
 - `dismiss_signal { signal_id, note }` closes a delivered, unpresented `obligation_overdue`
   that needs nothing, or a coordinator-only
-  `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
+  `structural_pattern` / `milestone_closed` that needs no review, or a coordinator-only `review_follow_ups`
+  once each remark is placed (PM-1362). Coordinator-only signals never go in
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
@@ -267,6 +268,13 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   (`TaskService.reopen`, the reason is on the `task_updated` event). All three, and marking a started card as a
   duplicate (`cancel`), obey `team.projectManagerLifecycle` (`projectManagerMayLifecycle`); a PM the setting
   does not cover gets `project_manager_lifecycle_refused`. Handler: `reopenTask`.
+- `involve_member { task_key, member, reason }` (PM-1267) lets only the selected PM's internal general session,
+  with no owner request, give an AI member a role on a card (`InvolvementService.involve`, a `member_involved`
+  timeline event). It needs `team.memberInvolvement` = `people_and_project_manager` (`mayInvolveMembers`);
+  otherwise `member_involvement_refused`. A person, the PM itself, an unknown member, a theme and a closed card
+  are refused; a second involvement on the same card writes nothing (`already_involved`). The answer says how
+  many messages wait for the member on the card. `send_message` tells a sender who may involve (`mayInvolve`)
+  to use it for `no_card_role` and `refinement_turn`. Handler: `involveMember`.
 - `combine_questions { item_ids, question, note }` lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;
@@ -285,7 +293,7 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   (`owner_topic_required`, `owner_topic_unknown`); an approval question records `approval` without one. A
   `todo` accepts `owner_topic` but does not record it, and its `recipient` is optional and not decisive
   (PM-1243: the integrator gets it when one can take it). `ask_human` with the `signal_id` of an `unreleased`,
-  `structural_pattern` or `milestone_closed` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
+  `structural_pattern`, `milestone_closed` or `review_follow_ups` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
   for the PM's own question, a re-ask and a question nobody screens (no PM, or the screening is off; PM-1249;
   `owner_topic_not_allowed` otherwise), which need it unless they are information or an approval (a question
   nobody screens may ask `recipient: integrator` instead and becomes an integrator todo); the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for
@@ -343,7 +351,9 @@ outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/se
   own folder) and has the session's engine open the file with `EngineHost.openWorkspaceFile`
   (`engine-host/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
 - Screenshots are for the members whose own sandbox cannot start Chromium (Codex).
-  `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
+  Both tools show only when a repository of the project has a `screenshots.command` setting (PM-1353;
+  `MemberAudience.screenshots`; the config patch field is `repoScreenshots`, owner-only like `reviewTest`).
+  `take_screenshots` starts that command (the PM repository's is `npm run shots --`) in the caller's worktree, in the server's own `srt`
   sandbox (`services/full-tests/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
   still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
   are built from the validated fields only: `--out`, `--keep-data` and `--machine` cannot be given,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
-import type { HandoffStart, Session, Task } from '@projectman/shared';
+import type { BoardCard, HandoffStart, Session } from '@projectman/shared';
 import { useCancelTask, useReopenTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -23,7 +23,7 @@ import styles from './TaskLifecycle.module.css';
  * The "⋯" menu of the rare task actions: cancelling the task (after a confirmation with an
  * optional reason) and reopening a cancelled one. Nothing to offer on a finished task.
  */
-export function TaskLifecycleMenu({ task }: { task: Task }) {
+export function TaskLifecycleMenu({ task }: { task: BoardCard }) {
   const { key } = useProject();
   const cancel = useCancelTask(key);
   const reopen = useReopenTask(key);
@@ -146,7 +146,7 @@ export function TaskAssigneeSelect({
   members,
   sessions = [],
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   sessions?: readonly Session[];
 }) {

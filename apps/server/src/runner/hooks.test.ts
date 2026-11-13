@@ -40,6 +40,16 @@ function appWith(session: AgentSession, sessionForToken?: (token: string) => Age
 }
 
 describe('POST /hooks/:token', () => {
+  it('suppresses request info logs while retaining hook warnings', async () => {
+    const lines: string[] = [];
+    const app = Fastify({ logger: { level: 'info', stream: { write: (line: string) => lines.push(line) } } });
+    apps.push(app);
+    const { session } = fakeSession(async () => null);
+    registerHookRoutes(app, { sessionForToken: () => session, parse, logger: app.log });
+    await app.inject({ method: 'POST', url: '/hooks/good', payload: { hook_event_name: 'Stop' } });
+    await app.inject({ method: 'POST', url: '/hooks/good/Stop', payload: {} });
+    expect(lines.map((line) => JSON.parse(line).level)).toEqual([40]);
+  });
   it('passes validated URL events through the same local guards', async () => {
     const { session, calls } = fakeSession(async () => ({ decision: 'allow' }));
     const app = Fastify({ logger: false });

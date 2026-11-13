@@ -57,6 +57,13 @@ const builder = createContextPackBuilder();
 // PM-1340 adds one Claude-only batch of eight fully qualified tool names.
 const CLAUDE_TOOL_BATCH_BYTES = 400;
 
+/** A copy of the project whose repositories have a screenshot command (PM-1353). */
+const withScreenshotCommand = (config: ProjectConfig): ProjectConfig => {
+  const copy = structuredClone(config);
+  for (const repo of copy.project.repos) repo.screenshots = { command: 'npm run shots --' };
+  return copy;
+};
+
 describe('repository prompt conventions (PM-1112)', () => {
   const heavyChecks = {
     commands: ['npm test', 'npm run typecheck', 'npm run shots', 'npm run heavy'],
@@ -598,6 +605,22 @@ it('explains member initiated merging and forbids manually landing or pushing th
   expect(pack.initialMessage).not.toContain('the server owns the merge on Done');
 });
 
+it('tells the merger that its own approval queues the merge only with the setting on (PM-1379)', () => {
+  const marker = 'your approval puts the merge in the queue in your name';
+  const texts = (mergeAfterReview: boolean) => {
+    const project = buildProject();
+    project.project.repos[0]!.requireMerge = true;
+    project.team.mergeAfterReview = mergeAfterReview;
+    const reviewer = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+    return [
+      builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) })).initialMessage,
+      builder.build(reviewer).initialMessage,
+    ];
+  };
+  for (const text of texts(true)) expect(text).toContain(marker);
+  for (const text of texts(false)) expect(text).not.toContain(marker);
+});
+
 // The sentence is built in one provider-independent place (format.ts), so one provider is enough.
 it('allows developers to merge the default branch into their card branch without permission (PM-747)', () => {
   for (const localOnly of [false, true]) {
@@ -1065,7 +1088,11 @@ describe('Claude team tool loading', () => {
     const source = input({ project, handle: 'fe-1' });
     source.stage!.duty = 'testing_acceptance';
     let teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
+    expect(teamwork).not.toContain('mcp__team__take_screenshots');
+    source.project = withScreenshotCommand(project);
+    teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
     expect(teamwork).toContain('mcp__team__take_screenshots');
+    source.project = project;
     source.stage!.duty = 'implementation';
     teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
     expect(teamwork).toContain('mcp__team__link_pull_request');
@@ -1565,6 +1592,43 @@ describe('system prompt', () => {
         expect(prompt).not.toContain(HEADING);
       }
     });
+  });
+
+  it('tells the reviewer a card is small only when the stage gave it to them as a small card (PM-1378)', () => {
+    const project = buildProject();
+    project.pipeline.stages.find((s) => s.id === 'code_review')!.smallCards = {
+      maxPoints: 3,
+      owners: ['code-review'],
+      centralPaths: [],
+    };
+    const promptOf = (small: boolean) =>
+      builder.build(
+        input({
+          handle: 'code-review',
+          project,
+          task: makeTask({
+            stageId: 'code_review',
+            stageOwnerPick: { stageId: 'code_review', small, reason: { code: 'small', points: 2 } },
+          }),
+        }),
+      ).appendSystemPrompt;
+    expect(promptOf(true)).toContain('This is a small card');
+    expect(promptOf(false)).not.toContain('This is a small card');
+  });
+
+  it('names the holders of the duty as owners of a stage that lists none, with the small-card rule on or off (PM-1378)', () => {
+    const stageLine = (rule: boolean) => {
+      const project = buildProject();
+      const stage = project.pipeline.stages.find((s) => s.id === 'code_review')!;
+      delete stage.owners;
+      if (rule) stage.smallCards = { maxPoints: 3, owners: ['fe-1'], centralPaths: [] };
+      const prompt = builder.build(
+        input({ handle: 'code-review', project, task: makeTask({ stageId: 'code_review' }) }),
+      ).appendSystemPrompt;
+      return prompt.split('\n').find((line) => line.startsWith('- Stage: '));
+    };
+    expect(stageLine(false)).toContain('you own this stage');
+    expect(stageLine(true)).toBe(stageLine(false));
   });
 
   it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {
@@ -4004,11 +4068,32 @@ describe("the CLI's own sandbox (PM-167)", () => {
     }
   });
 
-  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+  it('leaves the screenshot tools out of a Codex developer prompt when no repository has the command (PM-1353)', () => {
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const policy = withSessionFolders(
+      buildSessionPolicy({
+        config: project,
+        role: 'developer',
+        task,
+        permissionMode: 'acceptEdits',
+        placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+      }),
+      { own: folder, root: '/tmp/projectman-sessions/abc123' },
+    );
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('take_screenshots');
+    expect(prompt).not.toContain('npm run shots');
+  });
+
+  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+    const shotProject = withScreenshotCommand(project);
+    const member: AiMemberConfig = { ...aiMember(shotProject, 'fe-1'), provider: 'codex' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
     const worktreePolicy = buildSessionPolicy({
-      config: project,
+      config: shotProject,
       role: 'developer',
       task,
       permissionMode: 'default',
@@ -4020,11 +4105,12 @@ describe("the CLI's own sandbox (PM-167)", () => {
     });
     expect(policy.permissions.sandbox).toBe('read-only');
     const prompt = builder.build(
-      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+      input({ project: shotProject, member, handle: 'fe-1', task, sessionPolicy: policy }),
     ).appendSystemPrompt;
     const text = section(prompt, '# Your session folder');
     expect(text).toContain('`take_screenshots` tool');
     expect(text).not.toContain('you make no screenshots');
+    expect(text).not.toContain('npm run shots');
   });
 
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
@@ -4055,9 +4141,10 @@ describe("the CLI's own sandbox (PM-167)", () => {
   });
 
   it('tells a Codex developer its session folder and its own TMPDIR (PM-339)', () => {
-    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const shotProject = withScreenshotCommand(project);
+    const member: AiMemberConfig = { ...aiMember(shotProject, 'fe-1'), provider: 'codex' };
     const developerPolicy = buildSessionPolicy({
-      config: project,
+      config: shotProject,
       role: 'developer',
       task,
       permissionMode: 'acceptEdits',
@@ -4068,7 +4155,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
     const prompt = builder.build(
       input({
-        project,
+        project: shotProject,
         member,
         handle: 'fe-1',
         task,

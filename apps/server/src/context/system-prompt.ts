@@ -33,7 +33,8 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
-  stageOwners,
+  allStageOwners,
+  cardStageOwners,
   teamRules,
   usesCodexCli,
 } from '@projectman/shared';
@@ -48,7 +49,12 @@ import {
   describeSessionTmpDir,
   describeUnattendedCommands,
 } from '../runtime/permissions';
-import { isHumanOnlyLabel, labelHolders, screenshotPlacement } from '@projectman/shared';
+import {
+  coordinatorOnlySignalKindsText,
+  isHumanOnlyLabel,
+  labelHolders,
+  screenshotPlacement,
+} from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { ROLE_PURPOSES } from './role-purposes';
@@ -308,7 +314,10 @@ function claudeToolLoading(
     : duty === 'implementation'
       ? ['set_current_work', 'link_pull_request']
       : duty === 'testing_acceptance' || duty === 'ux_design'
-        ? ['take_screenshots', 'read_attachment']
+        ? [
+            ...(project.project.repos.some((repo) => repo.screenshots) ? ['take_screenshots'] : []),
+            'read_attachment',
+          ]
         : duty === 'code_review' || duty === 'security_review'
           ? ['read_attachment', 'search_history']
           : ['create_task', 'write_document'];
@@ -337,11 +346,11 @@ function codeReviewLine(project: ContextPackInput['project']): string[] {
       (stage.kind === 'step' || stage.kind === 'release') &&
       (stage.duty
         ? stage.duty === 'code_review'
-        : stageOwners(project, stage).some((handle) =>
+        : allStageOwners(project, stage).some((handle) =>
             dutyMembers(project, 'code_review').some((m) => m.handle === handle),
           )),
   );
-  const owners = [...new Set(stages.flatMap((stage) => stageOwners(project, stage)))];
+  const owners = [...new Set(stages.flatMap((stage) => allStageOwners(project, stage)))];
   if (stages.length === 0 || owners.length === 0) return [];
   return [
     `- Code review is the job of ${codeList(owners)} in the ${stages.map((stage) => stage.name).join(' or ')} stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.`,
@@ -486,9 +495,14 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   const { current, next } = situation;
   const lines = [heading, `Task ${task.key}: ${task.title}`];
   if (current) {
-    const owners = (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : '';
+    const cardOwners = cardStageOwners(input.project, current, task);
+    const owners = cardOwners.length > 0 ? `, owners ${codeList(cardOwners)}` : '';
     const own = situation.ownsStage ? 'you own this stage' : 'you do not own this stage';
     lines.push(`- Stage: ${stageLabel(current)}${owners}; ${own}.`);
+    if (situation.ownsStage && task.stageOwnerPick?.stageId === current.id && task.stageOwnerPick.small)
+      lines.push(
+        `- This is a small card: the stage gave it to you instead of its main owners, because its points are within the stage's small-card limit and it changes none of the stage's central files. If you find it touches more than that, say so on the card.`,
+      );
   } else {
     lines.push(`- Stage: ${code(task.stageId)} (not in the pipeline).`);
   }
@@ -519,20 +533,23 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
  * directory of a writing Codex CLI sandbox. A Codex CLI sandbox that does not write only reads the
  * folder. A Claude member's folder is told with its sandbox (`describeSandbox`).
  */
-function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInput): string {
+function sessionFolderSection({ project, task, member, sandbox, sessionPolicy }: ContextPackInput): string {
   const folder = sessionPolicy?.filesystem.sessionFolder ?? sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
   if (!folder) return '';
+  // The server takes screenshots only with the screenshot command of the session's repository (PM-1353).
+  const canShoot =
+    (sessionPolicy === undefined || screenshotPlacement(sessionPolicy.access)) &&
+    repoOf(project, effectiveRepo(project, task))?.screenshots !== undefined;
   if (isGemini(member)) return ['# Your session folder', describeSessionFolder(folder, 'gemini')].join('\n');
   if (!isCodex(member)) return '';
   if (sessionPolicy?.permissions.sandbox === 'read-only')
-    return [
-      '# Your session folder',
-      describeReadOnlySessionFolder(folder, { screenshots: screenshotPlacement(sessionPolicy.access) }),
-    ].join('\n');
+    return ['# Your session folder', describeReadOnlySessionFolder(folder, { screenshots: canShoot })].join(
+      '\n',
+    );
   const tmpDir = sandbox?.portable?.tmpDir;
   return [
     '# Your session folder',
-    describeSessionFolder(folder, 'codex'),
+    describeSessionFolder(folder, 'codex', { screenshots: canShoot }),
     ...(tmpDir ? [describeSessionTmpDir(tmpDir)] : []),
   ].join('\n');
 }
@@ -809,7 +826,7 @@ const SUB_CARD_DUTIES: readonly DutyId[] = [
  * all the following steps, so the card must stand on its own and point at the files it needs.
  */
 const SUB_CARD_RULE =
-  'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "PM-92: 06-rad-var-asztali.jpg" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
+  'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "AR-7: checkout-mobile.png" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
 
 const COMPLEXITY_RULE =
   'You may give a card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason (create_task, update_task) when that helps; a card above 13 must be split.';
@@ -1006,8 +1023,8 @@ function signalRules(
   const someoneToAct = machineAccess
     ? 'open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it.'
     : 'ask the owners with ask_human what to do; you cannot put machine work in their queue.';
-  const never = `${authority === 'owner_request' && level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : signalStepRule(level, authority)} When a stalled, silent, outage or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human, its owner_topic and the signal's signal_id (a question about a signal always carries it). The server refuses an owner question about a structural_pattern or milestone_closed signal (signal_not_for_owner). ${authority === 'owner_request' ? "Anything else on a signal only after an owner's yes." : "Anything else is your call on your own authority, or waits for an owner's yes where the authority line asks for one."}`;
-  const message = `Send the owners at most one message per wake-up: send_message (kind info) with signal_ids, covering every signal of the wake-up except structural_pattern and milestone_closed, in two parts: ${bold(report.done)} (signal → step → result) and ${bold(report.decision)} (what you propose); put the signals the owners must decide in actionable_signal_ids. Leave out a part that is empty; if you did nothing and nothing needs a decision, write nothing.`;
+  const never = `${authority === 'owner_request' && level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : signalStepRule(level, authority)} When a stalled, silent, outage or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human, its owner_topic and the signal's signal_id (a question about a signal always carries it). The server refuses an owner question about a ${coordinatorOnlySignalKindsText()} signal (signal_not_for_owner). ${authority === 'owner_request' ? "Anything else on a signal only after an owner's yes." : "Anything else is your call on your own authority, or waits for an owner's yes where the authority line asks for one."}`;
+  const message = `Send the owners at most one message per wake-up: send_message (kind info) with signal_ids, covering every signal of the wake-up except ${coordinatorOnlySignalKindsText()}, in two parts: ${bold(report.done)} (signal → step → result) and ${bold(report.decision)} (what you propose); put the signals the owners must decide in actionable_signal_ids. Leave out a part that is empty; if you did nothing and nothing needs a decision, write nothing.`;
   if (level === 'report')
     return [
       `${check} Then bring each signal to the owners with what happened and what you propose. ${authority === 'owner_request' ? 'You change nothing until an owner says yes' : 'The signal itself changes nothing'}.`,
@@ -1065,6 +1082,7 @@ function projectManagerGuide(
     "structural_pattern and milestone_closed are standing signals for you only: the owners never see them. Weigh their server evidence and current card state. If a short architecture review would help, use request_structural_review with signal_id and a note; without your own open owner request this creates only a proposal. After its owner approval reaches your next round, call request_structural_review again for that signal. When some are worth the owners' attention, name them in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. Close every one you do not propose a review on with dismiss_signal and a short note. No periodic audit or automatic refactor.",
     'loop_suspected: before triage_loop read get_task and get_project_state, current commits, work, remaining review findings and reply delivery. Many messages alone do not prove a loop. Use progress when the work is advancing, with a short reason and evidence ids from this card; observation continues and a later unchanged window can be assessed again. Use loop only for real circling: the existing human deciders then choose stop or let_run. Your own participation does not prevent filtering.',
     'answer_stalled: read get_task and get_project_state for the delivered answer and next step, then verify delivery before any permitted step.',
+    'review_follow_ups: a card closed with non-blocking remarks its reviewers left for a later card (facts.items). It is for you only: never in signal_ids, never a question to the owners. For each item: when an open card already covers it, add it there (update_task note or acceptance add); when it is worth its own work, open a card with create_task, related to the closed card; when it is done, moot or not worth a card, drop it. Then close the signal with dismiss_signal and a note saying what became of each item.',
     'relation_check: a card changed that others relate to (facts.relations). Check each related card and fix a relation that no longer holds; it closes by itself when the relations are gone, or close it with dismiss_signal and a note. The owners never see it.',
     "senior_wait: a card waits for a developer whose limit reaches its points (facts name the card, the Seniors and since when). The decision is yours, not the owners': read get_task and get_project_state, then call decide_senior_wait with task_key, decision wait (keep waiting for the Senior) or any (let a free developer take it) and a reason in one or two sentences; the signal closes by itself. Only when the choice costs money (more capacity, an extra paid session) ask the owners first with ask_human, topic cost and the signal's signal_id, and decide after their answer.",
     "start_blocked: a card's start waits (facts.reason). It closes by itself when the reason ends, and so does a question you asked about it with ask_human and the signal's signal_id; always pass signal_id on a question about this signal. repo_required: the choice is clear when exactly one of facts.repos is named by the card's title or description (also when facts.parentRepo is set and the card names no other); then, at the unblock or drive level, set it with update_task repo and write the reason in the note; the card starts on its own next round. When the choice is not clear, ask_human with signal_id, the repositories as options and your recommendation. At the report level only propose it. workspace_dirty: you never touch the workspace. Only its member tidies it, in the session on facts.heldBy (the step field starts it): commit the unfinished work to the card's branch, and finish or --abort an unfinished merge or rebase. Nobody discards work (reset, clean, stash, checkout of files) on a signal's authority; that needs an owner's yes through ask_human with signal_id, naming the files that would be lost, and then the member does it. When facts.heldBy is null, the base branch is dirty or the card closed: that is machine work, someone to act. workspace_fetch_failed: the system retries every 30 seconds and tells you only after 10 minutes of failure; do not retry by hand. Start the devops member the step field names to find the cause; fixing the machine (network, credentials, remote repository) is someone to act.",
@@ -1079,7 +1097,7 @@ function projectManagerGuide(
     '## Naming an assignee',
     "Name an assignee in start_task only when you must: the system's own choice keeps the member's complexity limit and specialty, and list_members shows each developer's limit and model. Score a hard card first, or ask the member who scores.",
     '## A person’s message on a card',
-    "A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer; PM-488), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.",
+    "A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.",
     ...(projectDocsOf(project) ? ['## Project documents', ...DOCS_RULES] : []),
     ...(projectDocsOf(project)?.lessons ? [LESSONS_RULE] : []),
     ...(projectDocsOf(project)?.roadmap

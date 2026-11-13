@@ -1,0 +1,47 @@
+{
+  "name": "publish_release",
+  "title": "Publish a repository release",
+  "description": "Tag a merged commit and create its public GitHub release (`summary`, the cards merged since the last one). `preview: true` is open to the deployment duty; publishing is only the owner’s or their connected Claude’s (release_owner_only). After release_publish_failed, call it again.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "English markdown: what the release changes, as short bullets with the card keys. It starts the text of the GitHub release; the card list is added."
+      },
+      "repo": {
+        "description": "The repository name in the project; default: the only repository (required with several).",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "commit": {
+        "description": "A merge commit of a merged card; default: the head of the default branch.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      },
+      "tag": {
+        "description": "The tag name; default: vYYYY.M.D of today, with .2, .3 … when the day has more releases.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      "preview": {
+        "description": "Only show the tag, the commit and the cards, to write the summary; record and send nothing (default false).",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "summary"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Publish a repository release",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

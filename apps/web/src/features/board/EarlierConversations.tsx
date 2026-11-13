@@ -2,18 +2,19 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { hasConnectedOrigin, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
 import type { TeamMessage } from '@projectman/shared';
-import { useReadTeamMessages, useTaskMessages } from '../../api/queries';
+import { useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
+import { ErrorState, LoadingState } from '../../components/States';
 import { formatStamp, formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { splitQuestion } from '../../lib/inbox';
 import { actorByline, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { QuestionBody } from '../inbox/Question';
-import { READ_AFTER_MS, useDocumentVisible } from '../messages/ConversationThread';
 import { MessageAttachments } from '../messages/MessageAttachments';
+import { useReadWhenVisible } from '../messages/useReadWhenVisible';
 import styles from './EarlierConversations.module.css';
 
 /** How long a message reached by a link stays highlighted. */
@@ -61,16 +62,20 @@ function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string |
   return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
 }
 
+type WatchUnread = (id: string) => (element: Element | null) => void;
+
 function Message({
   message,
   members,
   myHandle,
   flash,
+  watchUnread,
 }: {
   message: TeamMessage;
   members: MemberIndex;
   myHandle: string | null;
   flash: boolean;
+  watchUnread: WatchUnread;
 }) {
   const unread = isUnreadBy(message, myHandle);
   return (
@@ -85,7 +90,11 @@ function Message({
         <span className={styles.author}>{senderOf(message, members, myHandle)}</span>
         <span aria-hidden="true"> · </span>
         <time dateTime={message.createdAt}>{formatStamp(message.createdAt)}</time>
-        {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
+        {unread ? (
+          <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+            {t('messages.thread.unread')}
+          </span>
+        ) : null}
       </p>
       {message.body.trim() ? <Markdown text={message.body} /> : null}
       <MessageAttachments files={message.attachments ?? []} from={message.from} />
@@ -105,12 +114,14 @@ function QuestionAndAnswer({
   members,
   myHandle,
   flash,
+  watchUnread,
 }: {
   message: TeamMessage;
   answer: NonNullable<TeamMessage['answer']>;
   members: MemberIndex;
   myHandle: string | null;
   flash: boolean;
+  watchUnread: WatchUnread;
 }) {
   const asker = nameOf(message.to[0], members, myHandle);
   const { title, body } = splitQuestion(answer.question);
@@ -122,7 +133,10 @@ function QuestionAndAnswer({
       data-message-id={message.id}
       data-flash={flash ? '' : undefined}
     >
-      <div className={styles.qaHead}>
+      <div
+        className={styles.qaHead}
+        ref={isUnreadBy(message, myHandle) ? watchUnread(message.id) : undefined}
+      >
         <span>{t('task.thread.qa')}</span>
         <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
       </div>
@@ -171,17 +185,18 @@ export function EarlierConversations({
 }) {
   const { key, myHandle, me } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
-  const readMessages = useReadTeamMessages(key);
-  const visible = useDocumentVisible();
   const messages = useMemo(
     () => [...(query.data?.messages ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [query.data],
   );
   // The old link opens the block; the reader may close it again.
   const [open, setOpen] = useState(messageParam !== null);
+  // A message is read when its mark has been on the screen of the open block in the showing Process view (PM-1386).
+  const watchUnread = useReadWhenVisible(key, { active: active && open });
   const panel = useId();
   const box = useRef<HTMLUListElement>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const loaded = query.data !== undefined;
 
   // The old link: the block opens, the message is scrolled to the middle and framed for a moment.
   const reached = useRef<string | null>(null);
@@ -206,26 +221,42 @@ export function EarlierConversations({
       clearTimeout(timer);
       setFlash(null);
     };
-  }, [active, messageParam]);
+    // Starts again when the messages arrive: a failed load that a retry fixed still leads to the message.
+  }, [active, messageParam, loaded]);
 
-  // Reading: the incoming unread messages of the open block, one request.
-  const unreadKey = messages
-    .filter((message) => isUnreadBy(message, myHandle))
-    .map((message) => message.id)
-    .join(',');
-  const { mutate: markRead } = readMessages;
+  // After a retry the Retry button is gone: the focus goes to the block's toggle once the list is there.
+  const toggle = useRef<HTMLButtonElement>(null);
+  const retried = useRef(false);
   useEffect(() => {
-    if (!unreadKey || !visible || !active || !open) return;
-    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [unreadKey, visible, active, open, markRead]);
+    if (!loaded || !retried.current) return;
+    retried.current = false;
+    toggle.current?.focus();
+  }, [loaded]);
 
-  if (!query.data) return null;
+  if (!query.data) {
+    // A failed first load is shown, with a retry; a plain load only when a `?message=` link waits for it.
+    if (query.isError)
+      return query.isFetching ? (
+        <LoadingState compact />
+      ) : (
+        <ErrorState
+          compact
+          error={query.error}
+          message={t('task.earlier.loadFailed')}
+          onRetry={() => {
+            retried.current = true;
+            void query.refetch();
+          }}
+        />
+      );
+    return query.isPending && messageParam !== null ? <LoadingState compact /> : null;
+  }
   if (messages.length === 0)
     return access === 'client' ? <p className={styles.none}>{t('task.earlier.none')}</p> : null;
   return (
     <section className={styles.earlier} aria-label={t('task.earlier.title', { count: messages.length })}>
       <button
+        ref={toggle}
         type="button"
         className={styles.toggle}
         aria-expanded={open}
@@ -246,6 +277,7 @@ export function EarlierConversations({
               members={members}
               myHandle={myHandle}
               flash={flash === message.id}
+              watchUnread={watchUnread}
             />
           ) : (
             <Message
@@ -254,6 +286,7 @@ export function EarlierConversations({
               members={members}
               myHandle={myHandle}
               flash={flash === message.id}
+              watchUnread={watchUnread}
             />
           ),
         )}

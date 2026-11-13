@@ -15,7 +15,7 @@ export function viewerLabelRefusal(
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   id: string,
   me: string,
-  task: Pick<Task, 'assignee' | 'links'>,
+  task: Pick<Task, 'assignee' | 'links' | 'stageId' | 'stageOwnerPick'>,
 ): LabelRefusal | null {
   return labelRefusal(config, labelDefinition(config, id), { kind: 'human', handle: me }, task);
 }

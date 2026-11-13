@@ -3,6 +3,7 @@ import {
   actorMoveRefusal,
   boardColumnOf,
   canSkipCollectingMerge,
+  cardStageOwners,
   collectingSourceStateOf,
   evaluateMove,
   fixLimitDecisionOf,
@@ -13,7 +14,10 @@ import {
   memberOf,
   mergeRepoOf,
   moveMerge,
+  needsChangedFiles,
   partsClosedWaiver,
+  pickStageOwners,
+  repinStageOwners,
   isOpenTask,
   isProjectManagerActor,
   isTheme,
@@ -28,6 +32,7 @@ import type {
   Actor,
   ApprovalRequirement,
   BoardPlacement,
+  ChangedFiles,
   GateEvaluation,
   GateRequestPayload,
   InboxItem,
@@ -120,6 +125,8 @@ export interface Handover {
   assignee: string | null;
   /** The developer gave a reason for a commit without a green hand-over check (PM-1380); the move records it. */
   exception?: HandoverCheckException;
+  /** The files the head changes, read only when the target stage's small-card rule needs them (PM-1378); null: unreadable. */
+  changed?: ChangedFiles;
 }
 
 /** Why a hand-over was refused before the approver's decision could carry it out. */
@@ -173,6 +180,9 @@ export type SourceHeadReader = (
   opts?: { strict?: boolean },
 ) => Promise<SourceHead | null>;
 
+/** Reads the files `commit` of a task's branch changes against the default branch; null when they cannot be read, never throws (PM-1378). */
+export type ChangedFilesReader = (config: ProjectConfig, task: Task, commit: string) => Promise<ChangedFiles>;
+
 export function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
     unmet: evaluation.unmet,
@@ -215,6 +225,7 @@ export class TaskMoves {
   private readonly inbox: InboxService;
   private readonly sourceHead: SourceHeadReader;
   private readonly handoverCheck: HandoverCheckReader;
+  private readonly changedFiles: ChangedFilesReader;
   private readonly order: BoardOrder;
   private readonly notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
 
@@ -224,6 +235,7 @@ export class TaskMoves {
     inbox: InboxService;
     sourceHead: SourceHeadReader;
     handoverCheck: HandoverCheckReader;
+    changedFiles: ChangedFilesReader;
     order: BoardOrder;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
   }) {
@@ -234,6 +246,7 @@ export class TaskMoves {
     this.inbox = deps.inbox;
     this.sourceHead = deps.sourceHead;
     this.handoverCheck = deps.handoverCheck;
+    this.changedFiles = deps.changedFiles;
     this.inbox.registerDecider('hand_on', async (item, by) => {
       const request = handOnRequestOf(item)!;
       const config = await this.store.projects.config(item.projectKey);
@@ -432,12 +445,16 @@ export class TaskMoves {
       exceptionCommits: (t) => this.exceptionCommits(t),
       reason: handoverCheckException,
     });
-    return {
+    const handover: Handover = {
       head,
       stageId: task.stageId,
       assignee: task.assignee ?? null,
       ...(exception ? { exception } : {}),
     };
+    // A read that fails never stops the move: the card goes to the stage's main owners (PM-1378).
+    if (needsChangedFiles(config, target, task))
+      handover.changed = await this.changedFiles(config, task, head.commit).catch(() => null);
+    return handover;
   }
 
   /**
@@ -500,9 +517,23 @@ export class TaskMoves {
       read: this.handoverCheck,
       exceptionCommits: (t) => this.exceptionCommits(t),
     });
+    const stage = stageOf(config, task.stageId);
+    const changed =
+      task.stageOwnerPick?.stageId === stage?.id &&
+      task.stageOwnerPick?.small &&
+      stage?.smallCards?.centralPaths.length
+        ? await this.changedFiles(config, task, head.commit).catch(() => null)
+        : undefined;
+    const pick = changed !== undefined && stage ? repinStageOwners(stage, changed) : null;
+    let escalatedFrom: string[] | null = null;
     this.store.ctx.unitOfWork(() => {
       const current = this.store.get(projectKey, taskKey);
-      if (current.stageId !== pin.stageId) return;
+      if (
+        current.stageId !== pin.stageId ||
+        !isOpenTask(current) ||
+        this.store.ctx.repos.reviewPins.get(taskKey)?.commit !== pin.commit
+      )
+        return;
       const at = isoNow(this.store.ctx);
       this.store.ctx.repos.reviewPins.save({
         ...pin,
@@ -521,8 +552,30 @@ export class TaskMoves {
           reviewPin: { commit: head.commit, branch: head.branch, previous: pin.commit },
         },
       });
-      this.store.publish(current);
+      let next = current;
+      if (pick && !pick.small && current.stageOwnerPick?.small && stage) {
+        escalatedFrom = cardStageOwners(config, stage, current);
+        next = this.store.write(current, { stageOwnerPick: pick, updatedAt: at });
+        this.store.timeline.append({
+          projectKey,
+          taskKey,
+          actor: SYSTEM_ACTOR,
+          type: 'task_updated',
+          data: {
+            fields: ['stageOwnerPick'],
+            ownerPick: { small: false, reason: pick.reason, owners: cardStageOwners(config, stage, next) },
+          },
+        });
+      }
+      this.store.publish(next);
     });
+    if (escalatedFrom)
+      await this.store.ctx.events.emit('task_owner_escalated', {
+        projectKey,
+        taskKey,
+        stageId: pin.stageId,
+        from: escalatedFrom,
+      });
   }
 
   /**
@@ -646,7 +699,7 @@ export class TaskMoves {
         actor,
         extra,
         effects,
-        head,
+        opts.handover,
         opts.despitePrerequisites === true && mayOverridePrerequisites(config, actor),
         board,
       ),
@@ -908,7 +961,7 @@ export class TaskMoves {
           : {}),
       },
       effects,
-      handed.handover?.head,
+      handed.handover,
       false,
       // The place the person chose when asking; the top when that card is not in the column any more.
       { placement: gate.placement, reranked: [] },
@@ -1005,11 +1058,12 @@ export class TaskMoves {
       | 'noteExcerpt'
     >,
     effects: Effect[],
-    pin?: SourceHead,
+    handover?: Handover | null,
     despitePrerequisites = false,
     board: BoardPlace = { reranked: [] },
   ): Task {
     const at = isoNow(this.store.ctx);
+    const pin = handover?.head;
     this.cancelMerge(task.projectKey, task.key, effects);
     // The commit handed over with the stage the task leaves is no longer its pin.
     this.clearHandOn(task, target.id, actorHandle(actor));
@@ -1024,7 +1078,9 @@ export class TaskMoves {
         pinnedAt: at,
         pinnedBy: actorHandle(actor),
       });
-    const patch: TaskPatch = { stageId: target.id, updatedAt: at };
+    // The stage entered decides whom a small card goes to; a stage without the rule clears the earlier pick (PM-1378).
+    const pick = pickStageOwners(config, target, task, handover?.changed);
+    const patch: TaskPatch = { stageId: target.id, updatedAt: at, stageOwnerPick: pick };
     if (target.id !== task.stageId) patch.stageEnteredAt = at;
     if (target.kind === 'done') {
       patch.status = 'done';
@@ -1048,7 +1104,20 @@ export class TaskMoves {
       taskKey: task.key,
       actor,
       type: 'task_stage_changed',
-      data: { from: task.stageId, to: target.id, ...extra },
+      data: {
+        from: task.stageId,
+        to: target.id,
+        ...extra,
+        ...(pick
+          ? {
+              ownerPick: {
+                small: pick.small,
+                reason: pick.reason,
+                owners: cardStageOwners(config, target, next),
+              },
+            }
+          : {}),
+      },
     });
     this.store.publish(next);
     this.order.publish(task.projectKey, placed);

@@ -1,0 +1,39 @@
+{
+  "name": "link_pull_request",
+  "title": "Link a pull request",
+  "description": "Attach a GitHub pull request to a task, so its checks, reviews and merge are tracked on the task. Call it right after opening the pull request.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "repo": {
+        "type": "string",
+        "pattern": "^[\\w.-]+\\/[\\w.-]+$",
+        "description": "GitHub repository as \"owner/name\"."
+      },
+      "number": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "description": "Pull request number."
+      }
+    },
+    "required": [
+      "task_key",
+      "repo",
+      "number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Link a pull request",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

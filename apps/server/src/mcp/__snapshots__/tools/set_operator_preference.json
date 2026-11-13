@@ -1,0 +1,78 @@
+{
+  "name": "set_operator_preference",
+  "title": "Set personal conversation preferences",
+  "description": "Change only the current person’s five style fields, learned only from their explicit style requests or corrections; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "expected_revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "The revision get_operator_preference returned; on operator_knowledge_stale read it again."
+      },
+      "preference": {
+        "type": "object",
+        "properties": {
+          "length": {
+            "type": "string",
+            "enum": [
+              "brief",
+              "balanced",
+              "detailed"
+            ]
+          },
+          "technicalLevel": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "mixed",
+              "technical"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "offer",
+              "include"
+            ]
+          },
+          "clarity": {
+            "type": "string",
+            "enum": [
+              "plain",
+              "precise"
+            ]
+          },
+          "background": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "contextual"
+            ]
+          }
+        },
+        "required": [
+          "length",
+          "technicalLevel",
+          "detail",
+          "clarity",
+          "background"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "expected_revision",
+      "preference"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Set personal conversation preferences",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

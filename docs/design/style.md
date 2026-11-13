@@ -133,3 +133,6 @@ both styles. Add the screen you design to that scenario or make a scenario of yo
    frame.
 6. Focus is visible and the order is right; targets are 44 px on a phone; the text fits at 390 px.
 7. Nothing is hardcoded in Hungarian: the text is in `i18n/hu.ts`.
+8. After an action (send, delete, undo, close) focus lands on a defined next control: the control that replaces the
+   one acted on, the next item in the list, or the element that opened the dialog. It is never lost to the page body
+   when the focused element disappears.

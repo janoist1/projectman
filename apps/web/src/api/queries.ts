@@ -1535,7 +1535,7 @@ export function useWorkQueue(key: string, queue: WorkQueueRef, closedSince: stri
 export function useDismissProjectManagerSignal(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (signalId: string) => api.dismissOperatorSignal(key, signalId),
+    mutationFn: (signalId: string) => api.dismissProjectManagerSignal(key, signalId),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.projectManager(key) }),
   });
 }

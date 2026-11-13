@@ -31,7 +31,7 @@ function config(): ProjectConfig {
         {
           kind: 'ai',
           handle: 'operator',
-          displayName: 'Legacy coordinator',
+          displayName: 'Retired built-in member',
           role: 'ai_operator',
           sponsor: 'owner',
         },

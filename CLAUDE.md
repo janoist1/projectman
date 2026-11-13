@@ -104,7 +104,8 @@ need no entry. Add web feature/top-level folders to YAML (`structure-map.test.ts
   behavior's test files instead of broad `related`. Never run the full suite; merge runs it.
 - Before hand-over and in fixes: commit, then `npm run handover-check` at root (the step names
   it; the move into review needs its green result): nearest workspace tests, typechecks,
-  dead-code (`-- --dry-run` lists them). Fix new dead-code; never extend baseline.
+  dead-code (`-- --dry-run` lists them). Fix new dead-code; never extend baseline. It does
+  not replace the merge test.
   SQL/metadata migrations have no import edge; this selects schema tests.
 - Removed capabilities: search tests for retired tools, inbox kinds and route/file paths;
   run their boundary tests too (HTTP/string fixtures escape import selection).

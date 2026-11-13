@@ -46,7 +46,8 @@ npm run build && npm start
 
 Open http://localhost:4700 and create the owner account. Runtime data defaults to
 `~/.projectman` (override with `PROJECTMAN_HOME`). `npm run dev` is for development: server
-on port 4700, Vite on port 5173, data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set.
+on port 4700, Vite on port 5173, data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. Never run a development build
+against `~/.projectman`: newer migrations make older builds refuse the database.
 Checks: `npm run typecheck` and `npm test`. Single-machine operation and updates:
 [docs/DEPLOY.md](docs/DEPLOY.md). Cloud setup, verification and backups: [docs/HYBRID.md](docs/HYBRID.md)
 and [docs/AWS.md](docs/AWS.md).

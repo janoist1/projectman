@@ -21,7 +21,7 @@ import type { ProjectService } from '../../core/projects';
 import { conflict, externalToolOrigin, forbidden } from '../../kernel';
 import type { OperatorAdmission } from './ports';
 import type { CoordinationRequests, OperatorSteps } from './requests';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerSignals } from './signals';
 
 function structuralReviewText(payload: OperatorStructuralReview): string {
   return (
@@ -39,7 +39,7 @@ export class StructuralReviews {
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
-    signals: OperatorSignals;
+    signals: ProjectManagerSignals;
     requests: CoordinationRequests;
     steps: OperatorSteps;
     admission: Pick<OperatorAdmission, 'memberLoad'>;

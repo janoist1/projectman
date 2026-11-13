@@ -4,7 +4,7 @@ import type { ProjectConfig, Session, SystemFeedbackItem } from '@projectman/sha
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { DomainError, humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/coordination';
+import { ProjectManagerRequests } from '../src/services/coordination';
 import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../src/services/coordination/requests';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -67,7 +67,7 @@ function conversation(handle?: string, member = 'pm', request = true): ToolConte
   h.repos.sessions.insert(session);
   h.repos.sessions.update(id, { startCause: session.startCause });
   if (request)
-    new OperatorRequests({ ctx: h.domain.ctx }).open({
+    new ProjectManagerRequests({ ctx: h.domain.ctx }).open({
       projectKey: 'AR',
       sessionId: id,
       source: 'message',

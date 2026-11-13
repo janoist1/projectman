@@ -5,7 +5,7 @@
 The project manager's coordination: owner requests and their steps, the coordination tools (`mcp/project-manager`),
 signal triage, question screening, and the project manager's knowledge, checklist and preferences. The coordinator is
 the selected project manager (`coordinationMemberOf`, `packages/shared/src/config/project-manager.ts`). Code names that
-still say "operator" (`OperatorRequests`, `OPERATOR_READ_TOOLS`, `operator_*` error codes and so on) are listed in
+still say "operator" (`ProjectManagerRequests`, `OPERATOR_READ_TOOLS`, `operator_*` error codes and so on) are listed in
 `docs/ARCHITECTURE.md`, "Code names"; they name the project manager's coordination, not a member. Decision authority
 is in the Project plan, chapter 4; this file describes only what the code does.
 
@@ -173,7 +173,7 @@ corner (`ProjectManagerCorner`, read only).
 
 ## Owner requests and the write guard
 
-**Owner requests** (`OperatorRequests` in `services/coordination/requests.ts`). A request opens when an owner's message,
+**Owner requests** (`ProjectManagerRequests` in `services/coordination/requests.ts`). A request opens when an owner's message,
 or the owner's answer to the project manager's question, is delivered into its session
 (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on the
 session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next batch
@@ -213,12 +213,12 @@ signal decision atomically, and its delivery opens the usual owner request. Owne
 resolution. Signal WS events reach owners only.
 
 `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked` merge with an AI merger, at once; a person as merger
-gets the inbox item instead) is raised and closed by the same sweep from `OperatorSignals.boardRead` (`pending()`
+gets the inbox item instead) is raised and closed by the same sweep from `ProjectManagerSignals.boardRead` (`pending()`
 rechecks a signal against it before waking the project manager).
 
 Stalled work is watched in one place: the obligation ladder (`ObligationsService`). Its second rung, `tell_pm`, writes
 `pm_told_at`, moves the due time on by one step and raises an `obligation_overdue` signal
-(`obligation_overdue:<obligation id>`) through `OperatorSignals.raiseObligationOverdue`; the signal then follows the
+(`obligation_overdue:<obligation id>`) through `ProjectManagerSignals.raiseObligationOverdue`; the signal then follows the
 usual delivery rules (grouping, the 15-minute project wake interval). The case holds while the obligation is `open` and
 `pm_told_at` is set; the 60-second sweep resolves the row once the obligation is fulfilled, closed or handed over. The
 `next_step` obligation kind follows every open card by the rule `cardDuty`, and the project manager gets a card nobody
@@ -229,7 +229,7 @@ over the board is what is relied on). The signal kinds `idle`, `merge_waiting`, 
 resolves an open row of it).
 
 **`senior_wait` (PM-1251).** The `senior_wait` obligation's hand-over raises it (`senior_wait:<obligation id>`,
-`OperatorSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its
+`ProjectManagerSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its
 points; its facts name the card, the Seniors, since when and the points. The case holds while the obligation is
 `handed_over` and has no `decision`; the pm's `decide_senior_wait` (coordinator only, `SeniorDecisions.decide`) sets it,
 so the next sweep resolves the signal. A project without a pm gets the old owner question instead.

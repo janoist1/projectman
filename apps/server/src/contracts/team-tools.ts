@@ -796,7 +796,7 @@ export interface TeamToolsHandler
     DocumentToolsHandler,
     EmailToolsHandler,
     HostRequestToolsHandler,
-    OperatorToolsHandler,
+    ProjectManagerToolsHandler,
     ProjectDocToolsHandler,
     SystemFeedbackToolsHandler,
     HistoryToolsHandler,
@@ -1077,7 +1077,7 @@ export interface UpdateChecklistResult {
 }
 
 /** The tools of services/coordination (PM-605). */
-export interface OperatorToolsHandler {
+export interface ProjectManagerToolsHandler {
   getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
   requestStructuralReview(
     ctx: ToolContext,

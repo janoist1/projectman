@@ -8,7 +8,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/coordination';
+import { CoordinationRequests, ProjectManagerRequests, OperatorSteps } from '../src/services/coordination';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -436,7 +436,7 @@ describe('persisted coordination signal bindings', () => {
       await setup();
       const { card, signal, pm } = await idleSignal();
       const operator = await internal('operator');
-      const oldRound = new OperatorRequests({ ctx: h.domain.ctx }).openRound('AR', operator.sessionId);
+      const oldRound = new ProjectManagerRequests({ ctx: h.domain.ctx }).openRound('AR', operator.sessionId);
       new OperatorSteps({ ctx: h.domain.ctx }).record({
         requestId: oldRound.id,
         action: 'task_start',

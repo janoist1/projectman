@@ -37,9 +37,9 @@ import {
   OPERATOR_TOOL_ACTIONS,
   PM_CARD_TOOLS,
 } from '../services/coordination';
-import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/coordination';
+import type { CoordinationRequests, ProjectManagerRequests, OperatorSteps } from '../services/coordination';
 import type { Viewer } from '../core/projects';
-import type { OperatorSignals } from '../services/coordination';
+import type { ProjectManagerSignals } from '../services/coordination';
 import type { ProjectService } from '../core/projects';
 import type { TaskService } from '../core/tasks';
 
@@ -134,7 +134,7 @@ export function toToolError(err: unknown): unknown {
 /** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
 export interface CallerWithRequest {
   config: ProjectConfig;
-  request: ReturnType<OperatorRequests['openFor']>;
+  request: ReturnType<ProjectManagerRequests['openFor']>;
   /** The person the Operator talks with when they are not an owner: it reads what they see and answers them (PM-475). */
   guest: GuestView | null;
   /** The system signal the call acts on (PM-545); with no owner request, `request` is the signal round. */
@@ -164,11 +164,11 @@ export class ToolCaller {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
   private readonly tasks: Pick<TaskService, 'find' | 'get'>;
-  private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+  private readonly operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
   private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
   private readonly operatorSignals: Pick<
-    OperatorSignals,
+    ProjectManagerSignals,
     'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
   >;
   private readonly sessionEngine:
@@ -180,11 +180,11 @@ export class ToolCaller {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
     tasks: Pick<TaskService, 'find' | 'get'>;
-    operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+    operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
     coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
     operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
     operatorSignals: Pick<
-      OperatorSignals,
+      ProjectManagerSignals,
       'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
     >;
     sessionEngine?:
@@ -393,7 +393,7 @@ export class ToolCaller {
           'forbidden',
           'operator_owner_only: preferences require your internal conversation.',
         );
-      // This grants only entry to OperatorPreferences, which rechecks the current person and request.
+      // This grants only entry to ProjectManagerPreferences, which rechecks the current person and request.
       return { config, request: null, guest: null };
     }
     if (signal) {

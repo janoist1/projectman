@@ -1,7 +1,7 @@
 # Team tools MCP server (`src/mcp`)
 
 Code names used here: the connected Claude is the `integrator` (key mode `super` or `read`), the project manager's
-internals are `operator…` (`OperatorRequests`, `operator_steps`, `OPERATOR_GUEST_TOOLS`); see "Code names" in
+internals are `operator…` (`operator_requests`, `operator_steps`, `OPERATOR_GUEST_TOOLS`); see "Code names" in
 [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;

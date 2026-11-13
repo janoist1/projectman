@@ -5,7 +5,7 @@ import type { IntegratorExecutionScope, MemberStartResult } from '../src/contrac
 import { forbidden, runIntegratorExecution } from '../src/kernel';
 import { StructuralPatterns, normalizedEvidencePath } from '../src/services/coordination/structural-patterns';
 import { CoordinationRequests, StructuralReviews } from '../src/services/coordination';
-import { OperatorTools } from '../src/mcp/project-manager/handler';
+import { ProjectManagerTools } from '../src/mcp/project-manager/handler';
 import {
   createDomainHarness,
   OWNER_ACTOR,
@@ -309,9 +309,9 @@ describe('owner-approved occasional review', () => {
         { handle: 'owner', access: 'owner' },
       );
       await flush();
-      const original = OperatorTools.prototype.startMember;
-      vi.spyOn(OperatorTools.prototype, 'startMember').mockImplementationOnce(async function (
-        this: OperatorTools,
+      const original = ProjectManagerTools.prototype.startMember;
+      vi.spyOn(ProjectManagerTools.prototype, 'startMember').mockImplementationOnce(async function (
+        this: ProjectManagerTools,
         ctx,
         args,
       ) {
@@ -348,7 +348,7 @@ describe('owner-approved occasional review', () => {
       { handle: 'owner', access: 'owner' },
     );
     await flush();
-    const start = vi.spyOn(OperatorTools.prototype, 'startMember').mockResolvedValueOnce({
+    const start = vi.spyOn(ProjectManagerTools.prototype, 'startMember').mockResolvedValueOnce({
       messageId: 'msg_failed_review',
       recipient: { handle: 'planner', delivery: 'wake', start: { state: 'failed', code: 'start_failed' } },
     });

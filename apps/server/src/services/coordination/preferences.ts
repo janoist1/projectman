@@ -11,18 +11,18 @@ import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import { forbidden } from '../../kernel';
-import type { OperatorRequests } from './requests';
+import type { ProjectManagerRequests } from './requests';
 
 /** Personal style only. Neither the caller nor preference data can select another person. */
-export class OperatorPreferences {
+export class ProjectManagerPreferences {
   private readonly deps: {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
-    requests: Pick<OperatorRequests, 'openFor'>;
+    requests: Pick<ProjectManagerRequests, 'openFor'>;
     store: OperatorKnowledgeStore;
   };
 
-  constructor(deps: OperatorPreferences['deps']) {
+  constructor(deps: ProjectManagerPreferences['deps']) {
     this.deps = deps;
   }
 

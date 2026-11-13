@@ -21,20 +21,20 @@ import { DECISION_OPTIONS, type InboxService, type Resolver } from '../../core/i
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
 import { conflict, forbidden, humanActor, invalid, newId } from '../../kernel';
-import type { OperatorRequests, OperatorSteps } from './requests';
+import type { ProjectManagerRequests, OperatorSteps } from './requests';
 
 /** Owner-approved shared knowledge. File writes and configuration commits share one project lock. */
-export class OperatorKnowledge {
+export class ProjectManagerKnowledge {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
     store: OperatorKnowledgeStore;
-    requests: OperatorRequests;
+    requests: ProjectManagerRequests;
     steps: OperatorSteps;
     inbox: InboxService;
     timeline: TimelineService;
   };
-  constructor(deps: OperatorKnowledge['deps']) {
+  constructor(deps: ProjectManagerKnowledge['deps']) {
     this.deps = deps;
   }
 

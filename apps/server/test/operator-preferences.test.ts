@@ -7,7 +7,7 @@ import type { ToolContext } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp/tools';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/coordination';
+import { ProjectManagerRequests } from '../src/services/coordination';
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
@@ -80,7 +80,7 @@ describe('personal Operator preference authorization', () => {
     return { projectKey: 'AR', member, sessionId: id, taskKey: null };
   }
   function request(ctx: ToolContext, from: string, source: 'message' | 'answer' = 'message') {
-    return new OperatorRequests({ ctx: h.domain.ctx }).open({
+    return new ProjectManagerRequests({ ctx: h.domain.ctx }).open({
       projectKey: 'AR',
       sessionId: ctx.sessionId,
       source,

@@ -995,7 +995,7 @@ const LESSONS_RULE =
 /**
  * What the PM does when projectman wakes it with system signals (PM-550, PM-707), by the project's level
  * (`team.operatorWatch`, PM-545). The server enforces the level and the budget of steps; the wake-up text
- * (`OperatorSignals`) tells the same per signal, so the two must not contradict each other.
+ * (`ProjectManagerSignals`) tells the same per signal, so the two must not contradict each other.
  */
 const SIGNAL_STEP_EXCEPTION =
   "Apart from the step a signal names (its step field) and the card's repository on a start_blocked repo_required signal, on a signal you never merge, release, approve, move a card, or set a label or a setting.";

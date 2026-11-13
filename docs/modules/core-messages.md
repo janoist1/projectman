@@ -36,7 +36,7 @@ its original position, so a newly queued full test still holds delivery.
 - `MessageRouting` decides `place` and `holdOf` before recording, then `deliver` types in, holds or wakes each placed AI recipient. `MessageHoldName`, `MessagePlace`, `MessagePlacement` and `RecipientDelivery` describe its inputs and results. `Messaging` builds the send report from the result; ordinary delivery stays synchronous, while `awaitWake` waits for the wake-up results with the existing timeout.
 - `MessageSessions` reads the sessions needed by the core: `find`, `isRunning`, `requestReviewRound`, `sourceHead` and `cardWorkers`, plus `list` for `RelationNotices` (which needs only `list` and `isRunning`).
 - `MessageRefinement.turnMember` names the member whose refinement turn it is.
-- `MessageRequests.open` opens the project manager's request (`OperatorRequests`) that an owner's message or answer causes; `MessageRequestInput` is its input.
+- `MessageRequests.open` opens the project manager's request (`ProjectManagerRequests`) that an owner's message or answer causes; `MessageRequestInput` is its input.
 
 `SourceHead` lives in `contracts/context.ts`; `SessionStartCause` comes from `@projectman/shared`.
 

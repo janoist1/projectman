@@ -2,7 +2,7 @@ import { MEMBER_QUEUE_HOLD_CODES, memberQueueSourceOf } from '@projectman/shared
 import type { StoredMemberQueueItem } from '../../db';
 import type { MemberQueueLane } from './lane';
 
-/** What the lane asks of the system signals (the services' `OperatorSignals`). */
+/** What the lane asks of the system signals (the services' `ProjectManagerSignals`). */
 interface SignalLaneSignals {
   owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean;
   holdsBack(projectKey: string, signalId: string): boolean;

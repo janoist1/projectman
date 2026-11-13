@@ -15,7 +15,7 @@ import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { Messaging } from '../../core/messages';
 import type { MessageAttachmentService } from '../../core/attachments';
-import { RELAY_WINDOW_MS, type OperatorRequests } from '../../services/coordination';
+import { RELAY_WINDOW_MS, type ProjectManagerRequests } from '../../services/coordination';
 import { aiActor } from '../../kernel';
 import { toMessageToolError, toFileToolError, isOwner, OWNER_ONLY } from '../caller';
 
@@ -23,7 +23,7 @@ export class MessageTools implements MessageToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
   private readonly messaging: Messaging;
-  private readonly operatorRequests: Pick<OperatorRequests, 'roundFor'>;
+  private readonly operatorRequests: Pick<ProjectManagerRequests, 'roundFor'>;
   private readonly messageAttachments: Pick<
     MessageAttachmentService,
     'assertCanUpload' | 'upload' | 'delete'
@@ -32,7 +32,7 @@ export class MessageTools implements MessageToolsHandler {
     calls: ToolCaller;
     ctx: DomainContext;
     messaging: Messaging;
-    operatorRequests: Pick<OperatorRequests, 'roundFor'>;
+    operatorRequests: Pick<ProjectManagerRequests, 'roundFor'>;
     messageAttachments: Pick<MessageAttachmentService, 'assertCanUpload' | 'upload' | 'delete'>;
   }) {
     this.calls = deps.calls;

@@ -2,6 +2,7 @@ import {
   appendFileSync,
   chmodSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -676,6 +677,47 @@ describe('the further owners', () => {
     expect(existsSync(ownerFile('alpha', 'engine-access-token.json'))).toBe(false);
     expect(existsSync(ownerFile('alpha', 'notes.txt'))).toBe(true);
     expect(world.output).toContain('kept owners/alpha');
+  });
+
+  /** A handoff archive and a staging leftover, as `owner handoff` leaves them. */
+  const writeHandoffLeftovers = (id: string) => {
+    writeFileSync(ownerFile(id, `projectman-handoff-${id}.zip`), 'zip', { mode: 0o600 });
+    mkdirSync(ownerFile(id, '.handoff-x1'), { mode: 0o700 });
+    writeFileSync(ownerFile(id, '.handoff-x1/handoff.zip'), 'partial', { mode: 0o600 });
+  };
+
+  it('deletes the handoff archive and staging leftovers of an owner who left, with the folder', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    writeHandoffLeftovers('alpha');
+    world.writeConfig(ownersConfig());
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(existsSync(world.tokenPath('owners/alpha'))).toBe(false);
+    expect(world.output).not.toContain('kept owners/alpha');
+  });
+
+  it('after a rotation deletes the stale handoff archive and asks for a new owner handoff', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    writeHandoffLeftovers('alpha');
+    world.lines.length = 0;
+    expect(await edge('--dry-run', '--rotate-owner-token', 'alpha')).toBe(0);
+    expect(world.output).toContain('skipped owner-handoff alpha: dry-run');
+    expect(existsSync(ownerFile('alpha', 'projectman-handoff-alpha.zip'))).toBe(true);
+
+    world.lines.length = 0;
+    expect(await edge('--rotate-owner-token', 'alpha')).toBe(0);
+    expect(world.output).toContain('updated owner-handoff alpha');
+    expect(world.output).toContain('owner handoff alpha');
+    expect(readdirSync(world.tokenPath('owners/alpha')).sort()).toEqual([
+      'engine-access-token.json',
+      'integrator-access-token.json',
+    ]);
+
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(world.output).not.toContain('owner-handoff alpha');
   });
 
   it('only reads under --dry-run when adding and when taking off', async () => {

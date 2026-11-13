@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
@@ -582,6 +582,41 @@ describe('the command line', () => {
     expect(await runCloud(['owner', 'add', 'friend', '--email', 'friend@example.com'], world.deps())).toBe(0);
     expect(await runCloud(['owner', 'add', 'friend', '--email', 'other@example.com'], world.deps())).toBe(2);
     expect(loadConfig(world.configFile, world.home).access.owners[0]?.email).toBe('friend@example.com');
+  });
+
+  it.each([
+    ['an access.emails address', 'Owner@Example.com', 'already in access.emails'],
+    ['another owner’s address', 'friend@example.com', 'already belongs to the owner friend'],
+  ])('refuses %s as the new owner’s e-mail without saving', async (_what, email, message) => {
+    world.writeConfig(ownerConfig);
+    expect(await runCloud(['owner', 'add', 'friend', '--email', 'friend@example.com'], world.deps())).toBe(0);
+    const before = readFileSync(world.configFile, 'utf8');
+    expect(await runCloud(['owner', 'add', 'other', '--email', email], world.deps())).toBe(2);
+    expect(world.output).toContain(message);
+    expect(readFileSync(world.configFile, 'utf8')).toBe(before);
+  });
+
+  it('refuses a configuration without an access block (exit 2, not a crash)', async () => {
+    world.writeConfig({ ...ownerConfig, access: undefined });
+    const before = readFileSync(world.configFile, 'utf8');
+    expect(await runCloud(['owner', 'add', 'friend', '--email', 'friend@example.com'], world.deps())).toBe(2);
+    expect(world.output).toContain('access');
+    expect(readFileSync(world.configFile, 'utf8')).toBe(before);
+  });
+
+  it('keeps the mode of a 644 configuration in a 755 --config folder', async () => {
+    world.writeConfig(ownerConfig);
+    const dir = path.join(world.home, 'cloud-config');
+    mkdirSync(dir, { mode: 0o755 });
+    chmodSync(dir, 0o755);
+    const file = path.join(dir, 'config.json');
+    writeFileSync(file, readFileSync(world.configFile, 'utf8'));
+    chmodSync(file, 0o644);
+    const argv = ['owner', 'add', 'friend', '--email', 'friend@example.com', '--config', file];
+    expect(await runCloud(argv, world.deps())).toBe(0);
+    expect(statSync(file).mode & 0o777).toBe(0o644);
+    expect(loadConfig(file, world.home).access.owners.map((owner) => owner.id)).toEqual(['friend']);
+    expect(readdirSync(dir)).toEqual(['config.json']);
   });
 
   it('exits 2 when there is no configuration file, and says where it looked', async () => {

@@ -340,8 +340,10 @@ change the deployment setup without the host's decision.
 
 1. Run `npm run cloud -- owner add <id> --email <address>`. The id is 1–32 lowercase letters,
    digits or hyphens, starting with a letter or digit; it becomes the entry's display name.
-   This validates and saves only `access.owners` in the local configuration. Repeating the same id
-   and address changes nothing; changing an existing address requires an explicit configuration edit.
+   This validates and saves only `access.owners` in the local configuration, keeping the file's own
+   mode (a 644 copy of the example stays 644). Repeating the same id and address changes nothing;
+   changing an existing address requires an explicit configuration edit. An address already in
+   `access.emails` or used by another owner is refused: each further owner needs their own.
 2. Explain the pending Cloudflare Access change and obtain the host's explicit approval for
    `edge`. Deploy is required only if `edge` reports that `cloud.env` changed; obtain separate
    approval for that live deployment before running it.
@@ -370,7 +372,10 @@ engineLinkHeadersFile, integratorAccessHeadersFile }`. The two file names are re
 The archive carries only that owner's two service tokens. It contains no password, engine key or
 integrator key: the friend creates those in their own login. To replace both Access tokens, obtain
 approval for `npm run cloud -- edge --rotate-owner-token <id>`, then create and securely deliver a new
-handoff; replace both received files. Deleting the archive does not revoke the tokens.
+handoff; replace both received files. Whenever `edge` writes new token files for an owner, its
+`owner-handoff <id>` line deletes the stale archive and asks for a new `owner handoff`. Deleting the
+archive does not revoke the tokens. When an owner leaves `access.owners`, `edge` revokes their tokens
+and deletes their folder with its handoff archive and any `.handoff-*` staging leftover.
 
 **Remote engine:** preparation runs on the host's maintenance machine and `edge` talks to Cloudflare.
 There is no new hub/engine crossing. The friend's engine reads its own local extracted headers file;

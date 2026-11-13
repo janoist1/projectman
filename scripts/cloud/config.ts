@@ -1,9 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { HybridReleaseTarget, ProjectConfig, RepoConfig } from '@projectman/shared';
 import { refused } from './errors';
-import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir, writeSecret } from './secrets';
+import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secrets';
 
 /**
  * The configuration file of the cloud commands (PM-534): `~/.config/projectman/cloud/config.json`, or the file
@@ -384,9 +385,50 @@ export function addOwner(file: string, homeDir: string, id: string, email: strin
       throw refused(`owner ${id} already has a different e-mail address; edit the configuration explicitly`);
     return false;
   }
+  const address = owner.data.email!;
+  if (current.access.emails.includes(address))
+    throw refused(`${address} is already in access.emails; a further owner needs an address of their own`);
+  const other = current.access.owners.find((entry) => entry.email === address);
+  if (other) throw refused(`${address} already belongs to the owner ${other.id}`);
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!isPlainObject(raw) || !isPlainObject(raw.access))
+    throw refused(`${file} has no access block; add one (see deploy/aws/config.example.json)`);
+  if (raw.access.owners !== undefined && !Array.isArray(raw.access.owners))
+    throw refused(`access.owners in ${file} is not a list; edit the configuration explicitly`);
   raw.access.owners = [...(raw.access.owners ?? []), owner.data];
   parseConfig(raw, homeDir, path.dirname(file));
-  writeSecret(path.dirname(file), path.basename(file), `${JSON.stringify(raw, null, 2)}\n`);
+  writeConfigFile(file, `${JSON.stringify(raw, null, 2)}\n`);
   return true;
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Atomic write of the (not secret) configuration that keeps the file's own mode: a 644 copy of the example stays
+ * 644 and a `--config` folder wider than 700 is fine. A link or a non-regular file at the target is refused.
+ */
+function writeConfigFile(file: string, content: string): void {
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile()) throw refused(`${file} is not a regular file; edit the configuration explicitly`);
+  const mode = stat.mode & 0o777;
+  const temporary = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+  try {
+    const descriptor = fs.openSync(temporary, 'wx', mode);
+    try {
+      fs.fchmodSync(descriptor, mode);
+      fs.writeFileSync(descriptor, content);
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
 }

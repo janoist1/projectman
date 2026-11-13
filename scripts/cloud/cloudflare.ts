@@ -191,6 +191,25 @@ export function ownersOf(config: CloudConfig): CloudConfig['access']['owners'] {
 export function ownerDir(secretsDir: string, id: string): string {
   return path.join(secretsDir, OWNERS_DIR, id);
 }
+
+/** `owner handoff` builds the archive in a `.handoff-*` staging folder, then moves it next to the token files. */
+export const HANDOFF_STAGING_PREFIX = '.handoff-';
+
+export function handoffArchiveName(id: string): string {
+  return `projectman-handoff-${id}.zip`;
+}
+
+/** Delete an owner's handoff archive and staging leftovers, whose tokens are revoked or replaced; returns their names. */
+export function removeHandoffFiles(dir: string, id: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const archive = handoffArchiveName(id);
+  const names = fs
+    .readdirSync(dir)
+    .filter((name) => name === archive || name.startsWith(HANDOFF_STAGING_PREFIX))
+    .sort();
+  for (const name of names) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  return names;
+}
 const TRANSFORM_PHASE = 'http_response_headers_transform';
 const TRANSFORM_REF = 'projectman_frame_headers';
 const AUTH_DOMAIN_SUFFIX = '.cloudflareaccess.com';
@@ -859,10 +878,10 @@ interface TokenTarget {
   skipWithoutCopy: boolean;
 }
 
-function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator'): Promise<void> {
+async function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator'): Promise<void> {
   const engine = kind === 'engine';
   const fileName = engine ? ENGINE_TOKEN_FILE : INTEGRATOR_TOKEN_FILE;
-  return ensureToken(state, {
+  await ensureToken(state, {
     step: `service-token-${kind}`,
     name: engine ? state.names.engineToken : state.names.integratorToken,
     dir: state.context.secretsDir,
@@ -885,9 +904,10 @@ async function ensureOwnerTokens(state: EdgeState): Promise<void> {
     const ids: OwnerIds = { engine: null, integrator: null };
     state.ownerTokenIds.set(owner.id, ids);
     const rotate = state.options.rotateOwnerToken === owner.id;
+    let written = false;
     for (const kind of ['engine', 'integrator'] as const) {
       const fileName = kind === 'engine' ? ENGINE_TOKEN_FILE : INTEGRATOR_TOKEN_FILE;
-      await ensureToken(state, {
+      const saved = await ensureToken(state, {
         step: `owner-token ${owner.id}-${kind}`,
         name: kind === 'engine' ? names.engineToken : names.integratorToken,
         dir: ownerDir(secretsDir, owner.id),
@@ -900,21 +920,37 @@ async function ensureOwnerTokens(state: EdgeState): Promise<void> {
         },
         skipWithoutCopy: true,
       });
+      written ||= saved;
     }
+    if (written || (rotate && state.options.dryRun)) await refreshHandoff(state, owner.id);
   }
 }
 
-async function ensureToken(state: EdgeState, target: TokenTarget): Promise<void> {
+/** New token files make the owner's handoff archive stale: it goes, and the output asks for a new one. */
+async function refreshHandoff(state: EdgeState, id: string): Promise<void> {
+  const next = `run npm run cloud -- owner handoff ${id} and send the new archive to the owner`;
+  await runStep(state, `owner-handoff ${id}`, async () => {
+    if (state.options.dryRun) return dry(`delete the old handoff archive; afterwards ${next}`);
+    const removed = removeHandoffFiles(ownerDir(state.context.secretsDir, id), id);
+    const deleted = removed.length ? `deleted the stale ${removed.join(', ')}; ` : '';
+    return { status: 'updated', detail: `new token files: ${deleted}${next}` };
+  });
+}
+
+/** Returns whether a new secret was written to the token file. */
+async function ensureToken(state: EdgeState, target: TokenTarget): Promise<boolean> {
   const { context, api, accountId } = state;
   const { name, dir, fileName, label, rotate, flag } = target;
   const file = path.join(dir, fileName);
   const collection = `/accounts/${accountId}/access/service_tokens`;
+  let saved = false;
   await runStep(state, target.step, async () => {
     const existing = await withRight(RIGHT_TOKENS, () => findServiceToken(api, accountId, name));
     const save = (id: string, secret: string) => {
       context.report.protect(secret);
       if (target.skipWithoutCopy) ensureSecretsDir(path.join(context.secretsDir, OWNERS_DIR));
       writeSecret(dir, fileName, tokenFileText(id, secret));
+      saved = true;
     };
     if (!existing) {
       if (state.options.dryRun)
@@ -973,6 +1009,7 @@ async function ensureToken(state: EdgeState, target: TokenTarget): Promise<void>
       detail: `${name} rotated, ${expiryText(rotated.expires_at ? rotated : existing, context.deps.now())}; secret in ${label} (mode 600)`,
     };
   });
+  return saved;
 }
 
 async function ensurePolicy(state: EdgeState, spec: PolicySpec): Promise<string | null> {
@@ -1233,6 +1270,7 @@ async function removeLeftOwners(state: EdgeState): Promise<void> {
       const dir = ownerDir(secretsDir, id);
       for (const file of [ENGINE_TOKEN_FILE, INTEGRATOR_TOKEN_FILE])
         fs.rmSync(path.join(dir, file), { force: true });
+      removeHandoffFiles(dir, id);
       // `rmdir` removes an empty folder only: a file of the host's own in it stays.
       if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
       else kept.push(`${OWNERS_DIR}/${id}`);

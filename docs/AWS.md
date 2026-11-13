@@ -807,7 +807,11 @@ at the first refused change, name the right they lack and change nothing further
    `--rotate-owner-token <id>` makes both of that owner's secrets anew and writes the files (an id that
    is not in `access.owners` is refused). Removing an owner from `access.owners` deletes only that
    owner's objects, in this order: policies, tokens, then the files and the folder (a folder that holds
-   other files stays). The file goes to the owner by hand, outside projectman.
+   other files stays). For a new owner, follow [Adding a further owner, guided](HYBRID.md#adding-a-further-owner-guided):
+   `owner add <id> --email <address>` updates only the local configuration, approved `edge` provisions the
+   tokens, and `owner handoff <id>` packages the two owner token files and a non-secret manifest into a
+   mode-600 zip under `owners/<id>/`. The host creates the invitation in their own web login and sends it
+   with the archive through an end-to-end encrypted channel; never through e-mail, projectman messages or cards.
 
 8. **The tunnel** `<N>` (managed from Cloudflare, `config_src: cloudflare`; a tunnel that is configured
    from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp/*` answer 404 (the board's

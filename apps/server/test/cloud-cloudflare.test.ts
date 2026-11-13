@@ -3,12 +3,15 @@ import {
   chmodSync,
   existsSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
+import { realDeps } from '../../../scripts/cloud/deps';
 import { CF_ACCOUNT, CloudflareWorld } from './helpers/fake-cloudflare';
 
 /** `npm run cloud -- edge` against the stateful Cloudflare fake (PM-536). */
@@ -449,6 +452,85 @@ describe('the further owners', () => {
   const ownerFile = (id: string, name: string) => world.tokenPath(`owners/${id}/${name}`);
   const ownerSecret = (id: string, kind: 'engine' | 'integrator') =>
     JSON.parse(readFileSync(ownerFile(id, `${kind}-access-token.json`), 'utf8'))['CF-Access-Client-Secret'];
+
+  const handoff = () => runCloud(['owner', 'handoff', 'alpha'], { ...world.deps(), run: realDeps().run });
+
+  it('packages exactly the two owner tokens and the portable manifest with mode 600, without printing secrets', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    writeFileSync(ownerFile('alpha', 'unrelated-key'), 'do not include');
+    world.lines.length = 0;
+    expect(await handoff()).toBe(0);
+    const archive = ownerFile('alpha', 'projectman-handoff-alpha.zip');
+    expect(statSync(archive).mode & 0o777).toBe(0o600);
+    const run = realDeps().run;
+    const listing = await run('unzip', ['-Z1', archive]);
+    expect(listing.code).toBe(0);
+    expect(listing.stdout.trim().split('\n').sort()).toEqual([
+      'engine-access-token.json',
+      'handoff.json',
+      'integrator-access-token.json',
+    ]);
+    const manifest = await run('unzip', ['-p', archive, 'handoff.json']);
+    expect(JSON.parse(manifest.stdout)).toEqual({
+      version: 1,
+      ownerId: 'alpha',
+      hubUrl: 'https://board.example.com',
+      integratorBaseUrl: 'https://machine.example.com',
+      engineLinkHeadersFile: 'engine-access-token.json',
+      integratorAccessHeadersFile: 'integrator-access-token.json',
+    });
+    for (const kind of ['engine', 'integrator'] as const) {
+      const name = `${kind}-access-token.json`;
+      const extracted = await run('unzip', ['-p', archive, name]);
+      expect(extracted.stdout).toBe(readFileSync(ownerFile('alpha', name), 'utf8'));
+      expect(world.output).not.toContain(ownerSecret('alpha', kind));
+    }
+    expect(readdirSync(world.tokenPath('owners/alpha')).some((name) => name.startsWith('.handoff-'))).toBe(
+      false,
+    );
+  });
+
+  it.each(['engine-access-token.json', 'integrator-access-token.json'])(
+    'requires edge when %s is missing',
+    async (name) => {
+      world.writeConfig(ownersConfig('alpha'));
+      expect(await edge()).toBe(0);
+      rmSync(ownerFile('alpha', name));
+      expect(await handoff()).toBe(2);
+      expect(world.output).toContain('run npm run cloud -- edge');
+      expect(existsSync(ownerFile('alpha', 'projectman-handoff-alpha.zip'))).toBe(false);
+    },
+  );
+
+  it('rejects symbolic links to token files', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    rmSync(ownerFile('alpha', 'engine-access-token.json'));
+    symlinkSync(
+      ownerFile('alpha', 'integrator-access-token.json'),
+      ownerFile('alpha', 'engine-access-token.json'),
+    );
+    expect(await handoff()).toBe(2);
+    expect(world.output).toContain('symbolic link');
+  });
+
+  it('cleans staging and hides child output when zip fails', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    world.lines.length = 0;
+    const secret = ownerSecret('alpha', 'engine');
+    expect(
+      await runCloud(['owner', 'handoff', 'alpha'], {
+        ...world.deps(),
+        run: async () => ({ code: 1, stdout: secret, stderr: secret }),
+      }),
+    ).toBe(2);
+    expect(world.output).not.toContain(secret);
+    expect(readdirSync(world.tokenPath('owners/alpha')).some((name) => name.startsWith('.handoff-'))).toBe(
+      false,
+    );
+  });
   const policyIds = (app: string) =>
     (world.cf.app(app)!.policies as { id: string }[]).map((policy) => policy.id);
   const hostSnapshot = () =>

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { HybridReleaseTarget, ProjectConfig, RepoConfig } from '@projectman/shared';
 import { refused } from './errors';
-import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secrets';
+import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir, writeSecret } from './secrets';
 
 /**
  * The configuration file of the cloud commands (PM-534): `~/.config/projectman/cloud/config.json`, or the file
@@ -371,4 +371,22 @@ export function loadConfig(file: string, homeDir: string): CloudConfig {
     throw refused(`${file} is not valid JSON: ${(error as Error).message}`);
   }
   return parseConfig(raw, homeDir, path.dirname(path.resolve(file)));
+}
+
+/** Add a further owner without materializing defaults or rewriting relative paths. */
+export function addOwner(file: string, homeDir: string, id: string, email: string): boolean {
+  const current = loadConfig(file, homeDir);
+  const owner = accessOwnerSchema.safeParse({ id, name: id, email });
+  if (!owner.success) throw refused('invalid owner id or e-mail address');
+  const existing = current.access.owners.find((entry) => entry.id === id);
+  if (existing) {
+    if (existing.email !== owner.data.email)
+      throw refused(`owner ${id} already has a different e-mail address; edit the configuration explicitly`);
+    return false;
+  }
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  raw.access.owners = [...(raw.access.owners ?? []), owner.data];
+  parseConfig(raw, homeDir, path.dirname(file));
+  writeSecret(path.dirname(file), path.basename(file), `${JSON.stringify(raw, null, 2)}\n`);
+  return true;
 }

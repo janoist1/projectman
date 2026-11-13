@@ -429,8 +429,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
           }),
         )
       ).json().result.instructions as string;
-    expect(await instructionsOf(key('super').secret)).toContain('get_operator_instance_knowledge');
-    expect(await instructionsOf(tenantKey.secret)).not.toContain('get_operator_instance_knowledge');
+    const hostInstructions = await instructionsOf(key('super').secret);
+    const tenantInstructions = await instructionsOf(tenantKey.secret);
+    expect(hostInstructions).toContain('get_operator_instance_knowledge');
+    expect(tenantInstructions).not.toContain('get_operator_instance_knowledge');
+    expect(hostInstructions).toContain('docs/HYBRID.md#adding-a-further-owner-guided');
+    expect(tenantInstructions).not.toContain('docs/HYBRID.md#adding-a-further-owner-guided');
   });
 
   it('keeps a further owner’s queue to their own projects, and the host’s to theirs (PM-1063)', async () => {

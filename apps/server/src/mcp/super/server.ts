@@ -36,6 +36,7 @@ const HOST_INSTRUCTIONS =
   'every project come first. You handle machine, system and development matters, and you do little on your own. ' +
   'When a function is missing or broken, bridge the gap for the owner and record it as feedback ' +
   '(record_system_feedback; if this connection does not offer it, tell the owner). ' +
+  'When asked to add a further owner, follow docs/HYBRID.md#adding-a-further-owner-guided; edge and any deploy require the host’s explicit approval, and the host creates and sends the invitation and encrypted handoff. ' +
   'Project work is the project’s pm: do it only when the owner explicitly asks you to.';
 
 /** What a key of another owner (not the host) is told (PM-1063): its own projects and machine, never a secret. */

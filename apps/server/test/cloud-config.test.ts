@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
@@ -533,6 +533,57 @@ describe('the command line', () => {
   });
   afterEach(() => world.cleanup());
 
+  const ownerConfig = {
+    cloudflare: {
+      zone: 'example.com',
+      hostname: 'board.example.com',
+      integratorHostname: 'machine.example.com',
+    },
+    access: { emails: ['owner@example.com'], integratorServiceToken: true },
+  };
+
+  it('persists an owner in the selected file, preserves raw settings and is idempotent', async () => {
+    world.writeConfig(ownerConfig);
+    const raw = JSON.parse(readFileSync(world.configFile, 'utf8'));
+    raw.deployment.imageBundle = './bundle';
+    writeFileSync(world.configFile, JSON.stringify(raw));
+    const argv = ['owner', 'add', 'friend', '--email', 'Friend@Example.com', '--config', world.configFile];
+    expect(await runCloud(argv, world.deps())).toBe(0);
+    const saved = readFileSync(world.configFile, 'utf8');
+    expect(JSON.parse(saved)).toEqual({
+      ...raw,
+      access: { ...raw.access, owners: [{ id: 'friend', name: 'friend', email: 'friend@example.com' }] },
+    });
+    expect(await runCloud(argv, world.deps())).toBe(0);
+    expect(readFileSync(world.configFile, 'utf8')).toBe(saved);
+    expect(world.aws.calls).toEqual([]);
+  });
+
+  it.each([
+    ['../escape', 'friend@example.com'],
+    ['friend', '*@example.com'],
+    ['friend', 'invalid'],
+  ])('refuses invalid owner input %s %s without saving', async (id, email) => {
+    world.writeConfig(ownerConfig);
+    const before = readFileSync(world.configFile, 'utf8');
+    expect(await runCloud(['owner', 'add', id, '--email', email], world.deps())).toBe(2);
+    expect(readFileSync(world.configFile, 'utf8')).toBe(before);
+  });
+
+  it('refuses owners without an integrator hostname through the configuration validation', async () => {
+    world.writeConfig();
+    expect(await runCloud(['owner', 'add', 'friend', '--email', 'friend@example.com'], world.deps())).toBe(2);
+    expect(world.output).toContain('cloudflare.integratorHostname');
+    expect(loadConfig(world.configFile, world.home).access.owners).toEqual([]);
+  });
+
+  it('refuses silently replacing an existing owner’s address', async () => {
+    world.writeConfig(ownerConfig);
+    expect(await runCloud(['owner', 'add', 'friend', '--email', 'friend@example.com'], world.deps())).toBe(0);
+    expect(await runCloud(['owner', 'add', 'friend', '--email', 'other@example.com'], world.deps())).toBe(2);
+    expect(loadConfig(world.configFile, world.home).access.owners[0]?.email).toBe('friend@example.com');
+  });
+
   it('exits 2 when there is no configuration file, and says where it looked', async () => {
     expect(await runCloud(['preflight'], world.deps())).toBe(2);
     expect(world.output).toContain(world.configFile);
@@ -575,6 +626,10 @@ describe('the command line', () => {
       ['preflight', '--rotate-keys'],
       ['aws', '--config'],
       ['aws', '--dry-run=yes'],
+      ['owner', 'add'],
+      ['owner', 'add', 'friend'],
+      ['owner', 'handoff'],
+      ['owner', 'handoff', 'friend', '--email', 'friend@example.com'],
     ]) {
       world.errors.length = 0;
       expect(await runCloud(argv, world.deps()), argv.join(' ')).toBe(64);

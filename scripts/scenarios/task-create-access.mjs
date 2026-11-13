@@ -22,7 +22,7 @@ export default async ({ instance, open, shoot, step }) => {
   };
   // Load the actual locale through Vite; UI wording stays in hu.ts.
   const first = await open({});
-  const ui = await first.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await first.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const copy = ui.settings.team.taskCreate;
   const group = async (page) => {
     await page.waitForSelector('#settings-task-create-title');
@@ -52,9 +52,7 @@ export default async ({ instance, open, shoot, step }) => {
     const page = await open({ path: '/p/AC/settings/team' });
     await group(page);
     await page.getByRole('radio', { name: new RegExp(copy.options.client) }).check();
-    await page.waitForFunction(
-      () => !document.querySelector('fieldset[aria-busy="true"]'),
-    );
+    await page.waitForFunction(() => !document.querySelector('fieldset[aria-busy="true"]'));
     await shoot(page, 'b-owner-client', { widths: [390], highlight: '#settings-task-create-title' });
   });
 

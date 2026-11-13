@@ -37,7 +37,7 @@ Documentation map:
    (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
-   (`apps/web/src/i18n/hu.ts`, `apps/feedback-widget/src/i18n/hu.ts`,
+   (`apps/web/src/i18n/hu/` (one file per section), `apps/feedback-widget/src/i18n/hu.ts`,
    `packages/templates/src/locales/hu.ts`, `deploy/mac/menubar/Resources/hu.lproj/Localizable.strings`). Data written by
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same

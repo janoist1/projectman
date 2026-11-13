@@ -1,0 +1,27 @@
+export const ownerCommand = {
+  operation: 'Command on your machine',
+  hub: 'Hub',
+  chip: 'Command · with your yes',
+  title: 'Can it run this command on your machine?',
+  command: 'The command',
+  reason: 'Why',
+  target: 'Machine',
+  cwd: 'Folder',
+  timeout: 'Time limit',
+  home: 'your home folder (~)',
+  seconds: '{n|# second|# seconds}',
+  minutes: '{n|# minute|# minutes}',
+  footer:
+    'It runs only this one command, as your user. If it needs to run again, it asks again. The question expires at {time}.',
+  outputPrivacy:
+    'The output isn’t fully filtered. The connected Claude and its model provider receive the output too.',
+  yes: 'Yes, run it',
+  no: 'No',
+  approved: 'You approved it; the command is running.',
+  refused: 'You refused it; the command won’t run.',
+  error: 'Couldn’t load the command.',
+  exit: 'Exit code {n} · {time}',
+  stdout: 'stdout',
+  stderr: 'stderr',
+  truncated: 'The output is cut off (64 KB).',
+} as const;

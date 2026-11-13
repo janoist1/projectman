@@ -5,7 +5,9 @@
  *
  *   npm run shots -- scripts/scenarios/card-story.mjs --widths 1512,390
  */
-import { hu } from '../../apps/web/src/i18n/hu.ts';
+import { tsImport } from 'tsx/esm/api';
+
+const { hu } = await tsImport('../../apps/web/src/i18n/hu/index.ts', import.meta.url);
 
 export default async ({ instance, open, shoot, step, log }) => {
   const { config, version } = await instance.api('/api/projects/AC/config');

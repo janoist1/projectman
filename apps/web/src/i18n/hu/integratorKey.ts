@@ -1,0 +1,86 @@
+export const integratorKey = {
+  title: 'Claude Code a gépeden',
+  audit: 'Napló',
+  auditEmpty: 'Még nincs bejegyzés.',
+  auditActions: { created: 'Létrehozva', revoked: 'Visszavonva' },
+  modes: { super: 'Teljes jogosítvánnyal', read: 'Csak olvasás', legacy: 'Régi kulcs' },
+  purpose: 'Mire kell?',
+  superHint: 'A csatlakoztatott Claude-nak (Claude Code): a te nevedben és jogaiddal dolgozik.',
+  readHint: 'Scripteknek: olvasás és események követése, változtatni nem tud.',
+  days1: '1 nap',
+  days7: '7 nap',
+  days365: '365 nap',
+  noExpiryHint: 'A kiszivárgott kulcs a visszavonásig érvényes. Bármikor visszavonhatod.',
+  readSecretTitle: 'Új olvasó kulcs',
+  superSecretTitle: 'Új Claude Code-kulcs',
+  emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. A csapat nélküle is dolgozik.',
+  past: 'Korábbi kulcsok ({n})',
+  ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
+  today: 'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
+  channels: { mcp: 'MCP', cli: 'parancssor', rest: 'API' },
+  connection: 'Csatlakozás',
+  connectionBody:
+    'Mentsd a kulcsot a ~/.config/projectman/integrator-key fájlba (mappa: 700, fájl: 600). A projectman parancs ebből a fájlból olvas. Cloudban az Access service token is kell, ugyanebben a mappában. A kulcsot soha ne add meg parancssori argumentumként. Részletek: docs/DEPLOY.md.',
+  mcpAddress: 'MCP-cím',
+  /** The instruction for the owner's own assistant (PM-1078): it names no key; the owner saves it from the clipboard. */
+  assistant: {
+    summary: 'AI-asszisztenssel',
+    intro:
+      'Másold be a Claude vagy a Codex asztali alkalmazásába. Ha kéri a kulcsot, a fenti Másolás gombbal tedd a vágólapra; az utasításban nincs benne.',
+    introOpen:
+      'Másold be a Claude vagy a Codex asztali alkalmazásába. Az utasításban nincs kulcs: ha kéri, a kulcs létrehozásakor a Másolás gombbal tedd a vágólapra.',
+    aria: 'Utasítás az asszisztensnek',
+    copy: 'Utasítás másolása',
+    help: 'Az asszisztens a te gépeden, a te engedélyeddel futtat parancsokat.',
+    helpOwner: 'A kulcs csak a saját projektjeidhez ad hozzáférést.',
+    head: 'Segíts csatlakoztatni téged a projectmanhez ({origin}) ezen a gépen, MCP-n át. Haladj lépésenként, minden parancs előtt mondd el, mit csinál, és hibánál állj meg, és mondd el, mi történt.',
+    install:
+      'Ha még nincs projectman-mappa a gépen (például a gépem bekötéséből), töltsd le: `git clone https://github.com/janoist1/projectman.git ~/projectman && cd ~/projectman && npm install`. Utána a mappában `npm link`, hogy a `projectman` parancs elérhető legyen.',
+    saveKey:
+      'Hozd létre a `~/.config/projectman` mappát 700-as joggal. Kérj meg, hogy másoljam ki a kulcsot a projectman oldaláról, és ha szóltam, mentsd el: `pbpaste > ~/.config/projectman/integrator-key && chmod 600 ~/.config/projectman/integrator-key` (macOS-en kívül a rendszer vágólap-parancsával). A kulcsot ne írd ki, ne olvasd vissza, és ne kérd, hogy beírjam a beszélgetésbe.',
+    cloudToken:
+      'Nézd meg, megvan-e a `~/.config/projectman/cloud/integrator-access-token.json` (600-as jog). Ezt a projectman gazdájától kapom személyesen. Ha nincs meg, kérd, hogy hozzam létre; az értékeit ne kérd el.',
+    client:
+      'Írd meg a `~/.config/projectman/client.json`-t 600-as joggal: `baseUrl` = `{origin}`, `keyFile` = `~/.config/projectman/integrator-key`{cloudFile}, `version` = 1. Titok ne kerüljön bele.',
+    clientCloudFile: ', `accessHeadersFile` = `~/.config/projectman/cloud/integrator-access-token.json`',
+    mcp: 'Add hozzá a saját MCP-beállításodhoz a projectman szervert: parancs `projectman`, argumentum `mcp-proxy`. (A proxy a {mcpUrl} címet hívja.) Titok ide se kerüljön.',
+    verify:
+      'Kérd, hogy indítsam újra az alkalmazást, utána hívd meg a projectman `list_projects` eszközét, és mondd meg, mely projekteket látod.',
+    tail: 'Jelszót, kulcsot vagy tokent soha ne kérj tőlem, és ne írj fájlba vagy üzenetbe; a belépéseket én végzem.',
+  },
+  revokeReadBody: 'A scriptek minden hívása azonnal elutasítást kap. Amit eddig tettek, a naplóban megmarad.',
+  intro:
+    'Ha a Claude Code-dal dolgozol, ezzel a kulccsal lesz belőle a csatlakoztatott Claude-od: a te nevedben, a te jogaiddal éri el a műveleteket, naplózva. A sor nélküle is halad.',
+  none: 'Még nincs kulcs.',
+  noValid: 'Nincs érvényes kulcs.',
+  create: 'Kulcs létrehozása',
+  submit: 'Létrehozás',
+  new: 'Új kulcs',
+  revoked: 'A kulcs visszavonva.',
+  copyFailed: 'Nem sikerült másolni. Jelöld ki és másold ki a kulcsot.',
+  revoke: 'Visszavonás',
+  expiry: 'Lejárat',
+  days30: '30 nap',
+  days90: '90 nap',
+  never: 'Nem jár le',
+  once: 'Csak most látod. Mentsd a ~/.config/projectman/integrator-key fájlba. Ne küldd el üzenetben, ne tedd kártyára, és ne add meg parancssori argumentumként.',
+  copy: 'Másolás',
+  copied: 'Kimásolva',
+  done: 'Kész, elmentettem',
+  prefix: 'Kulcs',
+  created: 'Létrehozva',
+  used: 'Utoljára használva',
+  expires: 'Lejár',
+  soon: 'A Claude Code-kulcs {n} nap múlva lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
+  replaceBody:
+    'A mostani Claude Code-kulcs ({prefix}…) azonnal érvényét veszti; a Claude Code az újjal dolgozik tovább.',
+  replaceReadBody:
+    'A mostani olvasó kulcs ({prefix}…) azonnal érvényét veszti; a scriptek az újjal dolgoznak tovább.',
+  revokeTitle: 'Visszavonod a {prefix}… kulcsot?',
+  revokeBody:
+    'A Claude Code minden hívása azonnal elutasítást kap, MCP-n, a parancssorban és az eseményfolyamon is. Amit eddig tett, a csatlakoztatott Claude neve alatt megmarad.',
+  states: { active: 'Aktív', expired: 'Lejárt', revoked: 'Visszavonva' },
+  error: 'Nem sikerült betölteni a kulcsokat.',
+  activity: 'Mit tett ezzel a kulccsal?',
+  forwarded: 'A tulajdonos válasza, a csatlakoztatott Claude rögzítette',
+} as const;

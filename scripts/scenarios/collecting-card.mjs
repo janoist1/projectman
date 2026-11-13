@@ -32,7 +32,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await instance.api(`${root}/${parent.key}`, { method: 'PATCH', body: { stageId: ready.id } });
 
   const page = await open({ path: '/p/AC' });
-  const ui = await page.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await page.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const status = ui.taskStatus.collecting.replace('{count}', '3');
   await step('collector on the board', async () => {
     await page.getByText(status, { exact: true }).first().waitFor();

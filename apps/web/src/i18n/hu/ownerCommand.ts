@@ -1,0 +1,27 @@
+export const ownerCommand = {
+  operation: 'Parancs a gépeden',
+  hub: 'Központi gép (hub)',
+  chip: 'Parancs · a te igeneddel',
+  title: 'Lefuttathatja ezt a parancsot a gépeden?',
+  command: 'A parancs',
+  reason: 'Miért',
+  target: 'Gép',
+  cwd: 'Mappa',
+  timeout: 'Időkorlát',
+  home: 'a saját mappád (~)',
+  seconds: '{n} másodperc',
+  minutes: '{n} perc',
+  footer:
+    'Csak ezt az egy parancsot futtatja, a te felhasználóddal. Ha még egyszer kell, újra megkérdez. A kérdés {time}-kor lejár.',
+  outputPrivacy:
+    'A kimenet szűrése nem teljes körű. A kimenetet a csatlakoztatott Claude és modellszolgáltatója is megkapja.',
+  yes: 'Igen, futtathatja',
+  no: 'Nem',
+  approved: 'Jóváhagytad, a parancs fut.',
+  refused: 'Elutasítottad, a parancs nem fut.',
+  error: 'Nem sikerült betölteni a parancsot.',
+  exit: 'Kilépési kód {n} · {time}',
+  stdout: 'stdout',
+  stderr: 'stderr',
+  truncated: 'A kimenet le van vágva (64 KB).',
+} as const;

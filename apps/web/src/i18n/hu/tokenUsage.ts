@@ -1,0 +1,36 @@
+/** Token usage of sessions, cards and members (PM-178). */
+export const tokenUsage = {
+  title: 'Tokenfogyasztás',
+  noData: 'Nincs adat',
+  noDataSession: 'Nincs adat: ez a munkamenet a mérés bevezetése előtt futott.',
+  none: 'Még nem használt tokent.',
+  total: 'Összesen: {total} token',
+  main: 'saját',
+  subagent: 'alügynök',
+  input: 'Bemenet {count}',
+  output: 'Kimenet {count}',
+  cacheRead: 'Gyorsítótárból {count}',
+  cacheWrite: 'Gyorsítótárba {count}',
+  since: '{time} óta mérve; a korábbi fogyasztásról nincs adat.',
+  codexSubagents: 'Codex-alügynök: nincs adat.',
+  sessionsWithoutData: '{count} korábbi munkamenetről nincs adat.',
+  byMember: 'Tagonként',
+  lastDay: 'Utolsó 24 óra',
+  lastWeek: 'Utolsó 7 nap',
+  /** The warning limit of a session's tokens (PM-187). */
+  counted: 'A figyelmeztetési határba számít: {count} token',
+  countedHelp: 'A gyorsítótárból olvasott tokenek egytizedükkel számítanak, a többi teljes értékkel.',
+  alertChip: 'Határ fölött',
+  alert:
+    'Átlépte a figyelmeztetési határt ({time}): {counted} token, a határ {limit} token. A munkamenet fut tovább.',
+  /** What a card took (PM-222): the rounds, and the weighted tokens per model. */
+  roundsTitle: 'Körök és súlyozott token',
+  reviewRounds: 'Átnézési körök',
+  changeRequests: 'Javítást kérő átnézések',
+  designChangeRequests: 'Javítást kérő UI/UX átnézések',
+  fixRounds: 'Javítási körök',
+  fixRoundsValue: '{rounds} / {limit}',
+  sendBacks: 'Visszaküldések',
+  weighted: 'Súlyozott token modellenként',
+  weightedTotal: 'Súlyozva összesen: {total} token',
+} as const;

@@ -20,7 +20,7 @@ export default async ({ instance, open, shoot, step }) => {
   };
   // Load the actual locale through Vite; UI wording stays in hu.ts.
   const first = await open({});
-  const ui = await first.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await first.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const copy = ui.settings.team.mergeAfterReview;
   const group = async (page) => {
     await page.waitForSelector('#settings-merger-title');

@@ -2,7 +2,7 @@
 
 Status: draft by `designer` on PM-1178 (2026-10-30). The developer of PM-1178 commits it as
 `docs/design/glossary.md`; the translation cards (PM-1179–PM-1182, PM-1184, PM-1185) follow it.
-A word changes here first, then in `apps/web/src/i18n/en.ts`.
+A word changes here first, then in `apps/web/src/i18n/en/`.
 
 This is the English pair of decision 22 ("one word per thing"): one Hungarian UI word has one
 English word, and the same thing is never called two names.
@@ -18,7 +18,7 @@ English word, and the same thing is never called two names.
   organise, licence (noun). Dates and numbers come from `i18n/format.ts`, never hand-written.
 - **Voice:** short, direct, "you". Errors say what happened and what to do:
   "Couldn't save the priority. Try again." Contractions are fine (can't, couldn't, don't).
-- **Punctuation:** quotes “ ”, apostrophe ’ (typographic, in every text of `en.ts`: “Couldn’t”,
+- **Punctuation:** quotes “ ”, apostrophe ’ (typographic, in every text of `en/`: “Couldn’t”,
   “You’d”; code, placeholders and key names keep the plain '), ellipsis "…" (one character),
   the `·` separator stays, en dash "–" for ranges.
 - **Time abbreviations** have one form, as in the shell `time` section: “{count}s ago”, “10 min”,

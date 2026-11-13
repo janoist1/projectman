@@ -650,12 +650,14 @@ export interface TimelineEventData {
   };
   /**
    * A team message was dropped before it reached `recipient` (PM-1248): its card closed (`place_closed`) or the
-   * recipient left the team (`member_removed`). On the card the message was about, else on the project; the actor is the system.
+   * recipient left the team (`member_removed`). It waited for a session that will not come (PM-1446): its card is
+   * closed or gone (`card_closed`), or it is about no card and waited 14 days (`expired`). On the card the message
+   * was about, else on the project; the actor is the system.
    */
   message_dropped: {
     messageId: string;
     recipient: MemberHandle;
-    reason: 'place_closed' | 'member_removed';
+    reason: 'place_closed' | 'member_removed' | 'card_closed' | 'expired';
   };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {

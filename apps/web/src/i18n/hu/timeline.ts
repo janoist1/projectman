@@ -351,6 +351,8 @@ export const timeline = {
       'Egy üzenet nem jutott el a címzetthez ({recipient}): a kártya lezárult, mielőtt kézbesíthető lett volna.',
     message_dropped_member_removed:
       'Egy üzenet nem jutott el a címzetthez ({recipient}): a címzett kikerült a tagok közül.',
+    message_dropped_expired:
+      'Egy üzenet nem jutott el a címzetthez ({recipient}): 14 napig várt a következő munkamenetére, ezért elavultként lezárult.',
     obligation_handed_over:
       'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
     obligation_handed_over_refused:

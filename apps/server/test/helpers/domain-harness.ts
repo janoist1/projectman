@@ -31,6 +31,8 @@ import { createTemplateRegistry } from '../../src/core/base';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import type { EmailChannelEnv, EmailSender } from '../../src/services/email-channel';
 import { createMemberWorkspaceManager } from '../../src/worktree';
+import { localWorkspaceAccess } from '../../src/worktree/workspace-access';
+import type { WorkspaceAccess } from '../../src/worktree/workspace-access';
 import type { Domain, DomainOptions } from '../../src/assembly';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
 import { createLocalEngine } from '../../src/engine-host';
@@ -68,6 +70,20 @@ export async function waitForSession(
     if (!session) throw new Error(`Waiting for session in ${projectKey}: ${JSON.stringify(filters)}`);
     return session;
   });
+}
+
+/**
+ * The local workspace access without the automatic `maintenance run --auto` / `gc --auto` git
+ * starts after a fetch: a member workspace test runs hundreds of git processes, and these only
+ * slow it down (PM-1443). Only the harness sets them; the server's git stays as it is.
+ */
+function noAutoMaintenance(): WorkspaceAccess {
+  const inner = localWorkspaceAccess();
+  return {
+    ...inner,
+    git: (owner, args, opts) =>
+      inner.git(owner, ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args], opts),
+  };
 }
 
 /**
@@ -239,7 +255,11 @@ export async function createDomainHarness(
 
   const memberWorkspaces = opts.memberWorkspaces
     ? (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
-        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+        createMemberWorkspaceManager({
+          rootDir: workspacesDir,
+          logger: log.logger,
+          access: noAutoMaintenance(),
+        }),
       )
     : undefined;
   const runningVersion = { value: opts.appVersion ?? 'dev' };

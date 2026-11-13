@@ -47,7 +47,8 @@ export const twoTasks = (c: ProjectConfig) => {
 
 /**
  * Registers the file's git configuration (no system or user configuration) and its seed
- * repository; returns the seed, readable from the tests on.
+ * repository; returns the seed, readable from the tests on. The tests' own commits start no
+ * automatic maintenance or gc (PM-1443; the server's git: `noAutoMaintenance` in the harness).
  */
 export function useWorkspaceSeed(): () => ReturnType<typeof createGitSeed> {
   let configDir: string;
@@ -57,7 +58,7 @@ export function useWorkspaceSeed(): () => ReturnType<typeof createGitSeed> {
     const file = path.join(configDir, 'gitconfig');
     await writeFile(
       file,
-      '[user]\n\tname = projectman test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n',
+      '[user]\n\tname = projectman test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n',
     );
     vi.stubEnv('GIT_CONFIG_GLOBAL', file);
     vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');

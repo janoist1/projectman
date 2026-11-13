@@ -36,6 +36,7 @@ export interface SelectionRule {
 }
 
 const STRUCTURE_MAP = 'projectman.structure.yaml';
+const SCOPE_GUARD_TEST = 'apps/server/test/merge-test-scope.test.ts';
 const WEB_CODE = ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'];
 
 /** The regular expression of a path pattern (`*`, `**`, a trailing `/`). */
@@ -235,7 +236,16 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
       'apps/server/test/engine-menubar.test.ts',
       'apps/server/test/engine-app-*.test.ts',
       'apps/server/test/engine-service*.test.ts',
+      // Its OWNED_PATH_RULES must name the tests that read deploy/mac (PM-1436).
+      SCOPE_GUARD_TEST,
     ],
+  },
+  {
+    reason:
+      'the scope guard test reads every server test file for the deploy/mac, workflow and structure map paths (PM-1436)',
+    sources: ['apps/server/**/*.test.ts'],
+    broad: true,
+    tests: [SCOPE_GUARD_TEST],
   },
   {
     reason:
@@ -592,7 +602,12 @@ export function handoverSelection(
   if (coarse.kind === 'cloud')
     return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: CLOUD_TEST_FILTERS };
   if (coarse.kind === 'owned')
-    return { ...empty('cloud'), typecheck: ['apps/server'], testFilters: coarse.tests };
+    // The guard that every test reading an owned path is named by a rule runs with the rules (PM-1436).
+    return {
+      ...empty('cloud'),
+      typecheck: ['apps/server'],
+      testFilters: [...new Set([...coarse.tests, SCOPE_GUARD_TEST])],
+    };
 
   const merge = refineScope(coarse, changed, input.before, input.after);
   const afterPaths = new Set(input.after.map((file) => file.path));

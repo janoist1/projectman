@@ -424,6 +424,22 @@ describe('the first input of a resumed session', () => {
       expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
     });
 
+    it('stores the nudge of a pause the CLI never took as a system message for the session (R-04)', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
+
+      h.runner.emit({
+        type: 'nudge_failed',
+        sessionId: session.id,
+        text: 'Your turn was interrupted, carry on.',
+      });
+      await flush();
+
+      expect(h.repos.messages.pending('AR', 'dev-1').map((m) => [m.from, m.body, m.taskKey])).toEqual([
+        ['system', 'Your turn was interrupted, carry on.', 'AR-1'],
+      ]);
+    });
+
     it('types a message again when the CLI did not take it, and never twice', async () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
       h.runner.setState(session.id, 'idle');

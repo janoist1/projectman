@@ -18,7 +18,7 @@ import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 import { forbidden, notFound } from '../kernel';
-import { relayOwnerAnswer, resolveIntegratorFixLimit } from '../services/super-operator';
+import { relayOwnerAnswer, resolveIntegratorFixLimit } from '../services/super';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };

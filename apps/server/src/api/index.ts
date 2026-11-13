@@ -73,7 +73,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
       // the change journal that a key's `events follow` waits on. The key's access and the project's stay checked.
       const reads = request.method === 'GET' || request.method === 'HEAD';
       if (params.key)
-        return domain.superOperator.execute(
+        return domain.superExecution.execute(
           context,
           {
             projectKey: params.key,
@@ -83,7 +83,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
           },
           run,
         );
-      return domain.superOperator.executeInstance(
+      return domain.superExecution.executeInstance(
         context,
         `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
         run,

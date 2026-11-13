@@ -436,7 +436,7 @@ export async function asSuperIntegrator<T>(
   const principal = auth.resolveIntegratorCredential(secret, 'mcp')!;
   const config = await domain.projects.config('AR');
   const access = bindSuperPrincipal(config, projectAccessFor(config, OWNER_LOGIN.email)!, principal);
-  return domain.superOperator.run(
+  return domain.superExecution.run(
     { principal, email: OWNER_LOGIN.email, requestId: randomUUID(), projectKey: 'AR' },
     () => body(access),
   );

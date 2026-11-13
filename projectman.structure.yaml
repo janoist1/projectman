@@ -218,12 +218,12 @@ modules:
       - apps/server/src/context/
 
   # Server: service
-  - id: services/super-operator
+  - id: services/super
     area: service
-    name: Super Operátor
-    summary: A hitelesített tokenes végrehajtás és közös hozzáférés összeállítása.
+    name: Csatlakoztatott Claude
+    summary: A csatlakoztatott Claude és a koordináló projektmenedzser hitelesített végrehajtása, átadásai és eszközei.
     paths:
-      - apps/server/src/services/super-operator/
+      - apps/server/src/services/super/
   - id: services/merges
     area: service
     name: Összefésülések

@@ -47,8 +47,8 @@ older events and messages name it.
 
 ## Operations (`operate`, `execute_operation`, `get_operation`)
 
-These are live project manager tools (`mcp/project-manager/tools.ts`), served by `services/super-operator` (see
-[services/super-operator](services-super-operator.md)). With `team.projectManagerAuthority = outside_owner_only` (the
+These are live project manager tools (`mcp/project-manager/tools.ts`), served by `services/super` (see
+[services/super](services-super.md)). With `team.projectManagerAuthority = outside_owner_only` (the
 default, PM-1284/PM-1287) the project manager acts on its own authority in its own internal general conversation,
 with no owner request: `CoordinationRequests.actingRequest` returns the open request, or opens (once per session) the
 session's own round (source `signal`, no `signalId`), so its steps log on that round, with origin `member`: K3 effects

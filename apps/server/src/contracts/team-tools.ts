@@ -1454,7 +1454,7 @@ export interface ExternalMcpBackend {
   handler: ExternalToolsHandler;
   /** Whether the key's holder is the chopper's host owner (PM-1063): the tools of `hostOnly` are theirs alone. */
   isHost(principal: IntegratorPrincipal): boolean;
-  /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperOperator.execute`). */
+  /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperExecution.execute`). */
   execute<T>(
     context: { principal: IntegratorPrincipal; requestId: string; issuer?: string },
     target: { projectKey: string; taskKey?: string; operation: string },

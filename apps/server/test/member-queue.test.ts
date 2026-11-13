@@ -8,7 +8,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type { InboxItem, ServerEvent } from '@projectman/shared';
-import { resolveIntegratorTodo } from '../src/services/super-operator';
+import { resolveIntegratorTodo } from '../src/services/super';
 import {
   addHumanAndLogin,
   createAppHarness,

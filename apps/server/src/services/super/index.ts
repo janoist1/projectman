@@ -20,9 +20,9 @@ export { createCommandExecutor } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
 export {
   appRequestId,
-  createOperatorAppCredentials,
-  createOperatorAppOperations,
-  createOperatorAppSessions,
+  createProjectManagerAppCredentials,
+  createProjectManagerAppOperations,
+  createProjectManagerAppSessions,
 } from './app';
 export type { ProjectManagerAppOperations } from './app';
 export { createSuperOperations } from './facade';
@@ -66,7 +66,7 @@ const holdsOwnership = (
   );
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
-export function createSuperOperator(deps: {
+export function createSuperExecution(deps: {
   projects: Pick<ProjectService, 'config' | 'cachedConfig' | 'summaries'>;
   audit: SuperAuditService;
   credentials?: IntegratorCredentialAuthority;
@@ -339,4 +339,4 @@ export function createSuperOperator(deps: {
     },
   };
 }
-export type SuperOperator = ReturnType<typeof createSuperOperator>;
+export type SuperExecution = ReturnType<typeof createSuperExecution>;

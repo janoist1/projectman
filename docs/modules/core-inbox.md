@@ -148,7 +148,7 @@ question (`owner_topic_not_allowed`). The topic lands in `payload.ownerTopic` an
 super key (not revoked, not expired; `AuthService.hasActiveSuperKey`), whatever the project manager's leave or AI
 switch; assembly passes it to inbox. Super credentials are checked when a client resolves the item.
 `resolveIntegratorTodo` is reached through the super-only external MCP adapter (there is no REST route, PM-1030) in
-`services/super-operator/todo.ts`. It uses the same question lock and transactional answer delivery
+`services/super/todo.ts`. It uses the same question lock and transactional answer delivery
 as owner resolution, rechecking authenticated execution before persistence. The result carries
 `resolution.integratorTodo` and the full super actor, never `ownerAnswerRelayed` or a decision candidate.
 The owner can still resolve with their own login through normal resolution.
@@ -162,7 +162,7 @@ hands an item to the owners under that lock only on the integrator's explicit pa
 `planIntegratorPassOn`; it records the route (`integrator_pass_on`) and `item_routed`, sends no answer and does not
 release the waiting label. Old `question_recipient_escalated` and `fix_limit_recipient_escalated` events keep
 rendering. No server code writes `payload.operatorHandoff` any more (it is read only, so old items keep rendering; see
-[services/super-operator](services-super-operator.md)). Closed items are refused with `inbox_item_closed`, other or
+[services/super](services-super.md)). Closed items are refused with `inbox_item_closed`, other or
 already handed-off items with `super_relay_refused`. No new machine operation or engine-boundary method is needed.
 
 ### Fix limit decisions (PM-801)

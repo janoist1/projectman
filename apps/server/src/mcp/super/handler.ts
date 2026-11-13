@@ -86,8 +86,8 @@ import {
   resolveIntegratorFixLimit,
   resolveIntegratorTodo,
   updateInstanceKnowledge,
-} from '../../services/super-operator';
-import type { SuperOperations, SuperOperator } from '../../services/super-operator';
+} from '../../services/super';
+import type { SuperOperations, SuperExecution } from '../../services/super';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
@@ -95,7 +95,7 @@ const MAX_ATTACHMENT_PAGE = 100;
 
 interface ExternalToolsDeps {
   credentials: IntegratorCredentialAuthority;
-  superOperator: Pick<SuperOperator, 'access' | 'execute' | 'executeOwned'>;
+  superExecution: Pick<SuperExecution, 'access' | 'execute' | 'executeOwned'>;
   accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
   projects: Pick<ProjectService, 'has' | 'config' | 'load'>;
   tasks: Pick<
@@ -207,7 +207,7 @@ export class ExternalTools implements ExternalToolsHandler {
     if (operation === 'write' && principal.mode === 'read')
       throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
     const owner = await this.owned(principal, projectKey);
-    const access = await this.deps.superOperator.access(
+    const access = await this.deps.superExecution.access(
       { principal, email: this.holder(principal), requestId, ...(issuer ? { issuer } : {}) },
       owner,
       operation,
@@ -227,7 +227,7 @@ export class ExternalTools implements ExternalToolsHandler {
       execute: async (context, target, run) => {
         const { principal } = context;
         await this.owned(principal, target.projectKey);
-        return this.deps.superOperator.execute(
+        return this.deps.superExecution.execute(
           {
             principal,
             email: this.holder(principal),
@@ -265,7 +265,7 @@ export class ExternalTools implements ExternalToolsHandler {
     const email = this.holder(principal);
     // A holder who is an owner of no project gets an empty list, never an error.
     return {
-      projects: await this.deps.superOperator.executeOwned(
+      projects: await this.deps.superExecution.executeOwned(
         { principal, email, requestId },
         'mcp_list_projects',
         async (projects) => projects,
@@ -632,7 +632,7 @@ export class ExternalTools implements ExternalToolsHandler {
       };
     }
     const email = this.holder(principal);
-    const items = await this.deps.superOperator.executeOwned(
+    const items = await this.deps.superExecution.executeOwned(
       { principal, email, requestId },
       'mcp_list_integrator_inbox',
       async (projects) => (await Promise.all(projects.map((project) => read(project.key)))).flat(),
@@ -656,7 +656,7 @@ export class ExternalTools implements ExternalToolsHandler {
     // The instance knowledge describes the host's machine: only the host owner's key reads or changes it (PM-1061).
     if (!this.deps.credentials.isHostOwner?.(principal.userId))
       throw forbidden('host_only', 'only the host owner’s key may use this');
-    return this.deps.superOperator.executeOwned(
+    return this.deps.superExecution.executeOwned(
       { principal, email, requestId },
       operation,
       async (projects) => {

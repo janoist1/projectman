@@ -1,9 +1,9 @@
-# services/super-operator
+# services/super
 
 ## Responsibility
 
 The typed operations a connected Claude (with an integrator key) or the project manager (in its app session) starts,
-the owner's question for a reserved effect, the external MCP endpoint (`mcp/super-operator`), and the closed project
+the owner's question for a reserved effect, the external MCP endpoint (`mcp/super`), and the closed project
 diagnostics catalogue. The code names (`super`, `integrator`, `operator-super`) are explained in
 `docs/ARCHITECTURE.md`, "Code names".
 
@@ -39,17 +39,17 @@ cancels the operation. After a restart a running operation is `unknown` and neve
 The relay (`POST …/inbox/:id/relay-answer`) lets the connected Claude give the owner's words as the answer to an open
 question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
 `ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The rule lives in
-`services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` both call it.
+`services/super/relay.ts`; the REST route and the MCP tool `relay_owner_answer` both call it.
 
 ### The project manager's session on the shared path
 
 The project manager uses the same path as a super key: `execute_operation {request_key, task_key?, command}` and
 `get_operation` (see [services/coordination](services-coordination.md)). They call `SuperOperations`,
-`SuperOperator.execute` and `SuperHandoffService.operate`, so the rights check, the audit and the owner question for a
+`SuperExecution.execute` and `SuperHandoffService.operate`, so the rights check, the audit and the owner question for a
 K3 effect are shared with the key path. The old supervisor's machine grant, tools and API are gone; its table and rows
 stay.
 
-- **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
+- **Credential.** There is no stored key. `services/super/app.ts` issues an `IntegratorPrincipal` with
   `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the project manager's session id, acting as the first owner
   (by handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
   was issued there (a `WeakSet`) and `ProjectManagerAppSessions.active` holds: the session is live, it is the project
@@ -71,8 +71,8 @@ connection, no login, no session and no engine. The member door `/mcp/:token` is
 connection, `ToolContext` with a `sessionId`).
 
 - **Stateless.** The SDK `WebStandardStreamableHTTPServerTransport` runs per request with no session id, over the SDK's
-  low-level `Server` (`mcp/super-operator/server.ts`), so an unknown or forbidden tool is a domain denial and not an
-  `isError` text. `GET` and `DELETE` are `405` with `Allow: POST`. The route (`mcp/super-operator/route.ts`) requires the
+  low-level `Server` (`mcp/super/server.ts`), so an unknown or forbidden tool is a domain denial and not an
+  `isError` text. `GET` and `DELETE` are `405` with `Allow: POST`. The route (`mcp/super/route.ts`) requires the
   `request.principal` the root auth hook resolved (`resolveIntegratorCredential(secret, 'mcp')`); a missing, wrong, expired,
   revoked or over-HTTP key is `401` (`integrator_key_invalid`, `integrator_https_required`), never the member door's `404`
   and never a `200` with an error text, also for a batch element and a notification. The key is re-read in each tool call
@@ -81,13 +81,13 @@ connection, `ToolContext` with a `sessionId`).
 - **Its own context.** `ExternalToolContext = {principal, projectKey, actor, requestId}` (`contracts/team-tools.ts`) has
   no `sessionId`; `ToolContext` is separate. The shared tool definitions get a caller adapter: a definition is
   **denied by default** until it carries an explicit `external` binding (`mcp/kit.ts`: modes, read or write access, the
-  project and card argument). `mcp/super-operator/registry.ts` lists the served tools (`EXTERNAL_TOOLS`) and the denied
+  project and card argument). `mcp/super/registry.ts` lists the served tools (`EXTERNAL_TOOLS`) and the denied
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
 - **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
   projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
   refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
-- **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
+- **Same right, same audit.** A call runs through `SuperExecution.execute` (`super` and `read` keys: the REST scope; `super`:
   the audit row `mcp_<tool>`). Keys of the retired legacy mode fail authentication with 401. The super tools
   (`super_operate`, `get_super_operation`, `query_super_diagnostics`, `relay_owner_answer`) are `super` only and answer
   with structured JSON plus the domain `errorCode`.
@@ -100,7 +100,7 @@ connection, `ToolContext` with a `sessionId`).
 ## Operations and diagnostics
 
 A connected Claude starts application commands through the shared operation path and queries the closed project
-diagnostics catalogue. `services/super-operator/facade.ts` exposes `SuperOperations`; machine actions stay with the
+diagnostics catalogue. `services/super/facade.ts` exposes `SuperOperations`; machine actions stay with the
 connected Claude on the owner's machine.
 
 Machine-dependent parts: see the [machine-dependent inventory](../MACHINE-DEPENDENT.md).

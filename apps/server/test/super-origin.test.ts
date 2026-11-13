@@ -78,7 +78,7 @@ describe('super-mode origin and audit (PM-757)', () => {
         at: new Date().toISOString(),
         expiresAt: null,
       });
-    return h.domain.superOperator.run(
+    return h.domain.superExecution.run(
       {
         principal: h.auth.resolveIntegratorCredential(secret, 'rest')!,
         email: OWNER.email,

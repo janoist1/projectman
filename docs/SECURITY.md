@@ -1371,7 +1371,7 @@ the default is seven days. One active key per user and mode is retained.
 Creation/revocation and `mcp_<tool>` calls are audited.
 Revocation and expiry apply on the next request; continuations recheck the stored credential.
 
-**Shared commands.** `SuperHandoffService` (`services/super-operator`) stores the exact
+**Shared commands.** `SuperHandoffService` (`services/super`) stores the exact
 project/command hash and expected configuration version.
 `superCommandMutations` classifies effects on the server and fails closed if unknown.
 Deletion, security and paid-cost effects wait in `waiting_owner`; only an owner's own

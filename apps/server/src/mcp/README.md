@@ -75,7 +75,7 @@ tests use the SDK's own client, which behaves the same way here):
 ## The connected Claude's endpoint (`POST /mcp`)
 
 A second, separate door for the connected Claude's MCP client: a bearer `pmi_` key, no session and no engine. Code:
-`super-operator/` (`route.ts`, `server.ts`, `handler.ts`, `registry.ts`, `tools.ts`) and the shared helpers in `http.ts`.
+`super/` (`route.ts`, `server.ts`, `handler.ts`, `registry.ts`, `tools.ts`) and the shared helpers in `http.ts`.
 
 - Stateless: the SDK `WebStandardStreamableHTTPServerTransport` per request over the low-level `Server`; no session id,
   `GET`/`DELETE` are `405` with `Allow: POST`.
@@ -87,12 +87,12 @@ A second, separate door for the connected Claude's MCP client: a bearer `pmi_` k
   fits); `list_projects {}` lists the projects the holder owns now.
 - A shared tool definition is **denied by default**. To serve it, add an `external` binding in `kit.ts` (`modes`, read
   or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
-  reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
-  the connected Claude has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
+  reason in `EXTERNAL_DENIED` (`super/registry.ts`). A test fails for a tool that is neither. Tools only the
+  the connected Claude has (`list_projects`, the super tools) are in `super/tools.ts`.
 - A key of an older mode fails authentication with 401. `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
   a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
   result, and super tools answer with structured JSON.
-- The tools only this door has (`super-operator/tools.ts`): `list_projects`, `super_operate`, `get_super_operation`,
+- The tools only this door has (`super/tools.ts`): `list_projects`, `super_operate`, `get_super_operation`,
   `get_super_question`, `query_super_diagnostics`, `get_project_doc_write` and `relay_owner_answer`;
   the connected Claude's own queue: `list_integrator_inbox` (the open items addressed to the connected Claude, with the full
   text; an optional `project_key`, without it every project of the key), `resolve_integrator_todo`

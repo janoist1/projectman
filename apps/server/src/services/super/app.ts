@@ -22,7 +22,7 @@ import { projectAccessFor } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
 import { forbidden, unavailable } from '../../kernel';
 import type { SuperOperations } from './facade';
-import type { SuperOperator } from './index';
+import type { SuperExecution } from './index';
 
 /**
  * The in-app Operator on the shared super-operation path (decision 55, PM-888). It acts as the project's
@@ -55,7 +55,7 @@ export function isAppOperation(ctx: DomainContext, operation: SuperOperation): b
  * conversation (not a guest's), and it has a request to act on: an owner request is open, or (PM-1287) the PM
  * acts on its own authority.
  */
-export function createOperatorAppSessions(deps: {
+export function createProjectManagerAppSessions(deps: {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   actingRequest(projectKey: string, sessionId: string): { source: string; fromHandle: string } | null;
@@ -97,7 +97,7 @@ interface ProjectManagerAppCredentials {
   ): IntegratorPrincipal | null;
 }
 
-export function createOperatorAppCredentials(deps: {
+export function createProjectManagerAppCredentials(deps: {
   base: IntegratorCredentialAuthority | undefined;
   sessions: ProjectManagerAppSessions;
   /** The request the session acts on, when there is one: where it came from decides what the session may start. */
@@ -192,10 +192,10 @@ interface AppOperationInput {
  * principal is bound to the owner's access now, the execution is audited like a key's, and `operate` does the
  * rest (K3 effects wait for the owner's yes).
  */
-export function createOperatorAppOperations(deps: {
+export function createProjectManagerAppOperations(deps: {
   ctx: DomainContext;
   credentials: ProjectManagerAppCredentials;
-  superOperator: Pick<SuperOperator, 'access' | 'execute'>;
+  superExecution: Pick<SuperExecution, 'access' | 'execute'>;
   superOperations: Pick<SuperOperations, 'operate' | 'operation'>;
   projects: Pick<ProjectService, 'config'>;
 }) {
@@ -211,8 +211,8 @@ export function createOperatorAppOperations(deps: {
     if (owner?.access !== 'owner')
       throw forbidden('insufficient_access', 'the credential owner is no longer an owner of the project');
     const context = { principal, email, requestId: input.requestId };
-    const access = await deps.superOperator.access(context, owner, 'write');
-    return deps.superOperator.execute(
+    const access = await deps.superExecution.access(context, owner, 'write');
+    return deps.superExecution.execute(
       context,
       { projectKey, ...(input.taskKey ? { taskKey: input.taskKey } : {}), operation: 'execute_operation' },
       () =>
@@ -260,4 +260,4 @@ export function createOperatorAppOperations(deps: {
     },
   };
 }
-export type ProjectManagerAppOperations = ReturnType<typeof createOperatorAppOperations>;
+export type ProjectManagerAppOperations = ReturnType<typeof createProjectManagerAppOperations>;

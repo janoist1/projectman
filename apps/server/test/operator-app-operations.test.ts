@@ -7,7 +7,7 @@ import { seedOperatorRequest } from './helpers/operator-session';
 import type { IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
 import { TEAM_TOOLS } from '../src/mcp/tools';
-import { appRequestId, createOperatorAppSessions } from '../src/services/super-operator';
+import { appRequestId, createProjectManagerAppSessions } from '../src/services/super';
 
 const NOW = '2026-10-20T10:00:00.000Z';
 const REQUEST = 'opr_app_1';
@@ -149,12 +149,12 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         projectKey: 'AR',
       };
       await expect(async () =>
-        h.domain.superOperator.run(context, async () => undefined),
+        h.domain.superExecution.run(context, async () => undefined),
       ).rejects.toMatchObject({ code: 'insufficient_access' });
     });
 
     it('is never active for the Operator, which has no app session (PM-1045)', () => {
-      const sessions = createOperatorAppSessions({
+      const sessions = createProjectManagerAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
         actingRequest: () => ({ source: 'message', fromHandle: 'owner' }),
@@ -231,7 +231,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
     });
 
     it('binds an app principal only to its own general session', () => {
-      const sessions = createOperatorAppSessions({
+      const sessions = createProjectManagerAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
         actingRequest: () => ({ source: 'message', fromHandle: 'owner' }),

@@ -62,9 +62,9 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   { id: 'services/web-push', layer: 'service', target: 'services/web-push', pass: 'none', sealed: true },
   { id: 'services/ntfy', layer: 'service', target: 'services/ntfy', pass: 'none', sealed: true },
   {
-    id: 'services/super-operator',
+    id: 'services/super',
     layer: 'service',
-    target: 'services/super-operator',
+    target: 'services/super',
     pass: 'none',
     sealed: true,
   },

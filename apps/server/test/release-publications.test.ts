@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, MemberConfig, RepoConfig } from '@projectman/shared';
 import type { Actor, EngineView, ProjectConfig } from '@projectman/shared';
 import { MergeError } from '../src/contracts';
-import type { BranchMerger, MergeBaseState } from '../src/contracts';
+import type { BranchMerger, FullTestExecutor, FullTestSpec, MergeBaseState } from '../src/contracts';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { releaseStatusOf } from '../src/services/releases';
 import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
@@ -22,12 +22,12 @@ const MERGED = [
 ];
 
 /** A repository that is one line of history, with a remote that keeps the tags it is sent. */
-function fakeMerger(head: string) {
+function fakeMerger(head: string, onRemote = false) {
   const base: MergeBaseState = {
     local: head,
     remote: null,
     relation: 'same',
-    contains: { local: false, remote: null },
+    contains: { local: false, remote: onRemote ? true : null },
     checkout: null,
   };
   const remote = new Map<string, string>();
@@ -45,17 +45,57 @@ function fakeMerger(head: string) {
   return { merger, remote };
 }
 
+/** An executor that only records the compute jobs it is asked to run; they end when the harness is stopped. */
+function recordingExecutor() {
+  const specs: FullTestSpec[] = [];
+  const executor: FullTestExecutor = {
+    available: async () => ({ ok: true }),
+    run: (spec, signal) =>
+      new Promise((resolve) => {
+        specs.push(spec);
+        signal.addEventListener('abort', () =>
+          resolve({
+            outcome: 'error',
+            reason: 'killed',
+            exitCode: null,
+            durationMs: 0,
+            failedFiles: [],
+            outputTail: '',
+          }),
+        );
+      }),
+  };
+  return { executor, specs };
+}
+
 describe('publish_release', () => {
   let h: DomainHarness;
   let git: ReturnType<typeof fakeMerger>;
+  let jobs: ReturnType<typeof recordingExecutor>;
 
-  async function setup(opts: { extraRepo?: boolean; merged?: typeof MERGED } = {}) {
+  async function setup(
+    opts: { extraRepo?: boolean; merged?: typeof MERGED; engineRelease?: 'registered' | 'unpublished' } = {},
+  ) {
     const merged = opts.merged ?? MERGED;
-    git = fakeMerger(merged.at(-1)!.commit);
+    git = fakeMerger(merged.at(-1)!.commit, opts.engineRelease === 'registered');
+    jobs = recordingExecutor();
     h = await createDomainHarness({
       merger: git.merger,
+      fullTestExecutor: jobs.executor,
       adjust(config: ProjectConfig) {
         config.project.repos[0]!.github = 'acme/web';
+        if (opts.engineRelease)
+          config.project.repos[0]!.computeJobs = [
+            {
+              id: 'engine-release',
+              workflow: 'projectman-engine-release.yml',
+              command: 'engine-release',
+              runsOn: 'macos-15',
+              outputs: ['app/projectman-motor.json'],
+              node: '22',
+              timeoutMinutes: 60,
+            },
+          ];
         if (opts.extraRepo) config.project.repos.push(RepoConfig.parse({ name: 'notes', path: 'notes' }));
         config.team.members.push(
           MemberConfig.parse({
@@ -152,6 +192,66 @@ describe('publish_release', () => {
     expect(h.github.published[0]).toMatchObject({ repo: 'acme/web', tag: result.tag, title: result.tag });
     expect(h.github.published[0]!.notes).toContain('- AR-2 Card AR-2');
     expect(h.repos.releasePublications.byCommit('AR', 'web', sha(3))?.url).toBe(result.url);
+  });
+
+  describe('the engine app build (PM-1424)', () => {
+    it('starts the registered engine-release job on the release commit', async () => {
+      await setup({ engineRelease: 'registered' });
+
+      const result = await publish();
+
+      expect(result.appBuild).toMatchObject({ state: 'started', job: 'engine-release' });
+      await vi.waitFor(() => expect(jobs.specs).toHaveLength(1));
+      expect(jobs.specs[0]!.githubJob).toMatchObject({
+        job: 'engine-release',
+        workflow: 'projectman-engine-release.yml',
+        commit: sha(3),
+      });
+      expect(
+        h.repos.computeJobRuns.latestFor({
+          projectKey: 'AR',
+          repo: 'web',
+          job: 'engine-release',
+          commit: sha(3),
+        }),
+      ).toMatchObject({ requestedBy: 'owner', taskKey: null });
+    });
+
+    it('reports not_configured when the repository registers no engine-release job', async () => {
+      await setup();
+
+      const result = await publish();
+
+      expect(result.appBuild).toEqual({ state: 'not_configured' });
+      expect(jobs.specs).toEqual([]);
+    });
+
+    it('keeps the release published when the build cannot start', async () => {
+      await setup({ engineRelease: 'unpublished' });
+
+      const result = await publish();
+
+      expect(result.appBuild).toMatchObject({ state: 'failed', job: 'engine-release' });
+      expect(result.url).toEqual(expect.any(String));
+      expect(h.repos.releasePublications.byCommit('AR', 'web', sha(3))?.url).toBe(result.url);
+    });
+
+    it('starts nothing in a preview', async () => {
+      await setup({ engineRelease: 'registered' });
+
+      const result = await h.domain.releasePublications.preview('AR', DEVOPS, { summary: 'x' });
+
+      expect(result.appBuild).toBeNull();
+      expect(jobs.specs).toEqual([]);
+      expect(
+        h.repos.computeJobRuns.latestFor({
+          projectKey: 'AR',
+          repo: 'web',
+          job: 'engine-release',
+          commit: sha(3),
+        }),
+      ).toBeNull();
+    });
   });
 
   it('records and sends nothing in a preview', async () => {

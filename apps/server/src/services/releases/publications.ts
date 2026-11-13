@@ -8,6 +8,7 @@ import {
 import type { Actor, EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
 import { MergeError } from '../../contracts';
 import type {
+  AppBuildResult,
   BranchMerger,
   EngineDirectory,
   GithubService,
@@ -48,6 +49,16 @@ type Deps = {
   github: Pick<GithubService, 'publishRelease'>;
   /** The engine that holds the project's repository. */
   engineId: (projectKey: string) => EngineId;
+  /**
+   * Starts the engine app build of the release commit (PM-1424): the compute job that runs the engine-release
+   * workflow. The wiring (assembly) binds the compute-jobs service; it answers `not_configured` when the
+   * repository registers no such job and does not throw.
+   */
+  startAppBuild: (
+    projectKey: string,
+    actor: Actor,
+    input: { repo: string; commit: string; taskKey: null },
+  ) => Promise<AppBuildResult>;
 };
 
 /**
@@ -218,7 +229,15 @@ export class ReleasePublishService {
     const tasks = keys.map((key) => ({ key, title: ctx.repos.tasks.get(key)?.title ?? key }));
     const remote = await this.gitStep(() => merger.remoteTags(ref, { base: repo.defaultBranch }));
     const tag = this.chooseTag(projectKey, repo.name, commit, remote, existing?.tag, input.input.tag);
-    const result: PublishedRelease = { repo: repo.name, commit, baseCommit, tag, url: null, tasks };
+    const result: PublishedRelease = {
+      repo: repo.name,
+      commit,
+      baseCommit,
+      tag,
+      url: null,
+      tasks,
+      appBuild: null,
+    };
     if (!write) return result;
 
     // The authority is checked again where the writes begin: the engine calls above take a while.
@@ -267,7 +286,26 @@ export class ReleasePublishService {
     }
     const releaseRow = row;
     ctx.unitOfWork(() => publications.markPublished(releaseRow.id, url, isoNow(ctx)));
-    return { ...result, url };
+    return { ...result, url, appBuild: await this.startAppBuild(projectKey, actor, repo.name, commit) };
+  }
+
+  /** The engine app build of the release commit; the release is published already, so a failure only shows in the answer. */
+  private async startAppBuild(
+    projectKey: string,
+    actor: Actor,
+    repo: string,
+    commit: string,
+  ): Promise<AppBuildResult> {
+    try {
+      return await this.deps.startAppBuild(projectKey, actor, { repo, commit, taskKey: null });
+    } catch (err) {
+      return {
+        state: 'failed',
+        job: 'engine-release',
+        code: 'app_build_failed',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /** The commit the previous release ended at: the last published one, else the last live release of the instance. */

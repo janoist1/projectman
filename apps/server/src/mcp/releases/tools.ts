@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { PublishedRelease, PublishReleaseArgs, ReleaseStatus } from '../../contracts';
+import type { AppBuildResult, PublishedRelease, PublishReleaseArgs, ReleaseStatus } from '../../contracts';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 export const RELEASE_TOOL_GROUP: TeamToolGroup = {
@@ -33,9 +33,9 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
       title: 'Publish a repository release',
       readOnly: false,
       description:
-        'Tag a merged commit and create its public GitHub release (`summary`, the cards merged since the last ' +
-        'one). `preview: true` is open to the deployment duty; publishing is only the owner’s or their ' +
-        'connected Claude’s (release_owner_only). After release_publish_failed, call it again.',
+        'Tag a merged commit, create its public GitHub release (`summary`: cards since the last one) and start ' +
+        'its engine app build. `preview: true` is open to the deployment duty; publishing is only the owner’s ' +
+        'or their connected Claude’s (release_owner_only). After release_publish_failed, call it again.',
       input: {
         summary: z
           .string()
@@ -106,7 +106,20 @@ function formatPublished(result: PublishedRelease): string {
   const cards = result.tasks.map((task) => `${task.key} ${task.title}`).join('\n');
   const head = `repo=${result.repo} tag=${result.tag} commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}`;
   if (!result.url) return `preview (nothing recorded)\n${head}\n${cards}`;
-  return `published tag=${result.tag} url=${result.url}\n${head}\n${cards}`;
+  const build = result.appBuild ? `\n${formatAppBuild(result.appBuild)}` : '';
+  return `published tag=${result.tag} url=${result.url}\n${head}\n${cards}${build}`;
+}
+
+function formatAppBuild(build: AppBuildResult): string {
+  switch (build.state) {
+    case 'started':
+    case 'reused':
+      return `engine app build ${build.state}: job=${build.job} run=${build.runId}${build.url ? ` url=${build.url}` : ''}`;
+    case 'failed':
+      return `engine app build failed (the release stays published): job=${build.job} ${build.code}: ${build.message}. Run it by hand with run_compute_job.`;
+    case 'not_configured':
+      return 'engine app build not started: the repository registers no engine-release job (docs/DEPLOY.md, one-time setup step 2).';
+  }
 }
 
 function formatStatus(status: ReleaseStatus): string {

@@ -207,8 +207,13 @@ a manual install all take the same assets. It is registered like any dedicated j
 }
 ```
 
-After `publish_release`, the owner's connected Claude starts it with `run_compute_job job=engine-release commit=<SHA40>`
-(a production step: the hub refuses it to every member, PM-1238), where the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
+`publish_release` starts this job by itself (PM-1424) on the release commit, with the same actor, right after the
+GitHub release exists, and prints the build state (`started`, `reused`, `failed` or `not_configured`; a failed start
+never withdraws the release). It picks the repository's job whose `workflow` is `projectman-engine-release.yml`; a
+live run of the same commit is reused (never `force`). Without such a job the state is `not_configured`: register it
+(one-time rollout, step 2). By hand it stays for filling a gap (an older release, a failed start): the owner's
+connected Claude runs `run_compute_job job=engine-release commit=<SHA40>` (a production step: the hub refuses it to
+every member, PM-1238), where the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
 checks) and fails unless: it runs from the default branch; the inputs are exactly the registered ones; the commit is
 on the default branch; exactly one tag of the `RELEASE_TAG_PATTERN` form points at it; and that tag has a GitHub
 release (otherwise `app_release_missing`). Then it checks the commit out with its full history and tags, so
@@ -316,7 +321,9 @@ bound there since PM-1238), reporting to the owner afterwards:
 5. `get_release_status`: the hub shows the new version. It is read-only and gives the hub's version and, per engine,
    `connected`, `version`, `versionMismatch` and `lastSeenAt`.
 6. `publish_release commit=<SHA> tag=<the preview's tag>` tags the commit and creates the GitHub release.
-7. `run_compute_job job=engine-release commit=<SHA>` builds and attests the engine app for that tag (PM-1198).
+7. The engine app build (PM-1198) starts by itself at the end of step 6 (`publish_release` prints its state, PM-1424).
+   By hand, only to fill a gap or after a `failed`/`not_configured` state: `run_compute_job job=engine-release
+   commit=<SHA>`. Check that the release shows `projectman-motor.zip`, `.dmg` and `.json` once the run ends.
 8. Poll `get_release_status` until every connected engine shows the new version and no `versionMismatch`, for at most
    2 hours (the menu bar apps check for an update every 30 minutes, PM-1199).
 9. Cleanup runs by itself: the cloud keeps the current and the previous image (`prune-images`), each engine prunes

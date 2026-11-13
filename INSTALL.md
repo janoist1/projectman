@@ -53,19 +53,24 @@ the archive's location.
 
 1. **[FRIEND]** opens the invitation link, sets a password and logs in to the hub's web app. Keep
    that browser tab open: steps 4 and 5 need it.
-2. **[AI]** unpack the archive into the private configuration folder. It holds two Access token
-   files (secrets) and a non-secret `handoff.json`:
+2. **[AI]** unpack the archive into a private staging folder, not into `cloud/` itself: step 5's
+   `connect` writes `cloud/integrator-access-token.json` by itself, from the file you give it, and
+   refuses to copy a file onto itself. The archive holds two Access token files (secrets) and a
+   non-secret `handoff.json`:
 
    ```sh
-   mkdir -p ~/.config/projectman/cloud
-   chmod 700 ~/.config/projectman ~/.config/projectman/cloud
-   unzip -o <archive> -d ~/.config/projectman/cloud
-   chmod 600 ~/.config/projectman/cloud/*.json
+   mkdir -p ~/.config/projectman/cloud ~/.config/projectman/handoff
+   chmod 700 ~/.config/projectman ~/.config/projectman/cloud ~/.config/projectman/handoff
+   unzip -o <archive> -d ~/.config/projectman/handoff
+   chmod 600 ~/.config/projectman/handoff/*.json
+   mv ~/.config/projectman/handoff/engine-access-token.json ~/.config/projectman/cloud/
    ```
 
-   Then read **only** `~/.config/projectman/cloud/handoff.json`. It gives `hubUrl` (the hub, for
+   Then read **only** `~/.config/projectman/handoff/handoff.json`. It gives `hubUrl` (the hub, for
    `--cloud`) and `integratorBaseUrl` (for `connect`). Do not open the two `*-access-token.json`
-   files. Delete the archive afterwards and tell the friend to delete their copy of the transfer.
+   files. The engine's file now lives in `cloud/` (step 4 uses it there); the integrator's file
+   stays in `handoff/` until step 5. Delete the archive afterwards and tell the friend to delete
+   their copy of the transfer.
 
 ## 3. The app
 
@@ -88,12 +93,13 @@ motor.app` and prints the command to start it. If it prints `REFUSED [code]`, st
 Start the app with the printed `open "…"` command. If your environment does not allow `open`, ask
 the friend to open _Home → Applications_ in Finder and double-click **projectman motor**.
 
-**[FRIEND]** on the first start, macOS shows a background-item notice: _System Settings → General →
-Login Items_, switch **projectman motor** on. If it asks for the Xcode command line tools again,
-click _Install_. Wait until the app's menu bar icon is there.
+The app's first start only unpacks the engine; it does **not** start it yet, because the engine
+has no link to a hub. The app's window then says it waits for the setup (step 4), and macOS
+shows nothing yet. **[FRIEND]** only needs to click _Install_ if the app asks for the Xcode command
+line tools, and to leave the app running (its icon is in the menu bar).
 
-Check: `"$engine" status --json` prints one JSON line; `package` is not `null`. (`overall` is
-`not_initialised` until step 4.)
+Check: `"$engine" status --json` prints one JSON line with `"overall":"not_initialised"`. (`package`
+is still `null` and no service exists: the app installs the service in step 4.)
 
 From here on, two commands matter, and the app does not put them on `PATH`; always use their
 absolute paths. Below, `$engine` and `$client` stand for them; each shell command is a separate
@@ -126,12 +132,26 @@ client="$HOME/Library/Application Support/projectman/engine/bin/projectman"
    creates it in the web app) and which folder on this Mac holds the project's code. If the friend
    has no folder yet, agree on one, for example `~/projects/<name>`; create it, and run `git init`
    in it if it is empty.
-4. **[AI]** bind the project and restart the engine so it reports the project to the hub:
+4. **[AI]** bind the project:
 
    ```sh
    "$engine" project set <KEY> <absolute folder path>
+   ```
+
+5. Once `init` has run, the app notices it within seconds, installs the engine's service
+   (LaunchAgent) and opens _System Settings → General → Login Items_. **[FRIEND]** switches
+   **projectman motor** on there (macOS asks for this once; the app starts the engine as soon as it
+   is on). Then **[AI]** wait for the service, then restart it so the engine reports the new project
+   to the hub (it learns of a `project set` only at its start):
+
+   ```sh
+   "$engine" service status      # exit 0 only when the service runs; repeat every few seconds
    "$engine" service restart
    ```
+
+   If the service is still not installed about a minute after `init` and the app shows no
+   progress, run `"$engine" service install` yourself (it installs and starts the service; macOS
+   may still ask for the Login Items approval above) and skip the restart.
 
    (Further steps, such as adding a repository with `repo add`, are in
    [docs/HYBRID.md](docs/HYBRID.md#connecting-the-engine).)
@@ -150,12 +170,13 @@ projects.
    ```sh
    pbpaste | "$client" connect \
      --base-url <integratorBaseUrl> \
-     --access-headers-file "$HOME/.config/projectman/cloud/integrator-access-token.json"
+     --access-headers-file "$HOME/.config/projectman/handoff/integrator-access-token.json"
    ```
 
-   It writes `~/.config/projectman/integrator-key` (mode 600), the Access file under `cloud/` and
-   `client.json`; it prints no secret. It refuses to overwrite different content without
-   `--replace`. Again: ask the friend to clear the clipboard.
+   It writes `~/.config/projectman/integrator-key` (mode 600), its own normalised copy of the
+   Access file as `cloud/integrator-access-token.json`, and `client.json`; it prints no secret. It
+   refuses to overwrite different content without `--replace`. Afterwards delete the staging folder
+   (`rm -r ~/.config/projectman/handoff`) and ask the friend to clear the clipboard.
 
 3. **[AI]** register the MCP server in the friend's client(s), with the absolute path of the shim
    (Claude Desktop does not use the shell's `PATH`). Do those the friend uses:

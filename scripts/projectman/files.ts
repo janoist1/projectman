@@ -46,20 +46,35 @@ function assertPrivateDirectory(dir: string, owner: FileOwner = currentOwner()):
     fail('credential_mode', `the directory ${dir} must have mode 0700 (chmod 700)`);
 }
 
+interface CredentialFileOptions {
+  owner?: FileOwner;
+  /** Require exactly mode 0600; `connect` leaves it out because it narrows a wide mode itself. */
+  requireMode?: boolean;
+  /** A missing file is `null` instead of a `credential_file_missing` failure. */
+  allowMissing?: boolean;
+}
+
 /**
- * Reads a credential file (the configuration, the key, the Access headers) as text, after the checks.
- * The file is opened without following a link and checked through the open descriptor, so a swap between
+ * The one way the client reads a credential file as text: a regular file (not a link) of the current user, at most
+ * 64 KiB. The file is opened without following a link and checked through the open descriptor, so a swap between
  * the check and the read cannot change what is read.
  */
-export function readPrivateFile(file: string, owner: FileOwner = currentOwner()): string {
-  assertPrivateDirectory(path.dirname(file), owner);
+export function readCredentialFile(
+  file: string,
+  options: CredentialFileOptions & { allowMissing: true },
+): string | null;
+export function readCredentialFile(file: string, options?: CredentialFileOptions): string;
+export function readCredentialFile(file: string, options: CredentialFileOptions = {}): string | null {
+  const owner = options.owner ?? currentOwner();
   let link: fs.Stats;
   try {
     link = fs.lstatSync(file);
-  } catch {
+  } catch (error) {
+    if (options.allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     return fail('credential_file_missing', `the file ${file} does not exist`);
   }
   if (link.isSymbolicLink()) fail('credential_symlink', `the file ${file} is a symbolic link`);
+  if (!link.isFile()) fail('credential_file_invalid', `${file} is not a regular file`);
   let fd: number;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -71,13 +86,19 @@ export function readPrivateFile(file: string, owner: FileOwner = currentOwner())
     if (!stat.isFile()) fail('credential_file_invalid', `${file} is not a regular file`);
     if (owner.uid !== null && stat.uid !== owner.uid)
       fail('credential_owner', `the file ${file} is not owned by the current user`);
-    if ((stat.mode & MODE_BITS) !== 0o600)
+    if (options.requireMode && (stat.mode & MODE_BITS) !== 0o600)
       fail('credential_mode', `the file ${file} must have mode 0600 (chmod 600)`);
     if (stat.size > 64 * 1024) fail('credential_file_invalid', `the file ${file} is too large`);
     return fs.readFileSync(fd, 'utf8');
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** Reads a credential file (the configuration, the key, the Access headers) as text, after the checks. */
+export function readPrivateFile(file: string, owner: FileOwner = currentOwner()): string {
+  assertPrivateDirectory(path.dirname(file), owner);
+  return readCredentialFile(file, { owner, requireMode: true });
 }
 
 const MAX_INPUT_BYTES = 1024 * 1024;

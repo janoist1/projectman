@@ -390,19 +390,12 @@ export function addOwner(file: string, homeDir: string, id: string, email: strin
     throw refused(`${address} is already in access.emails; a further owner needs an address of their own`);
   const other = current.access.owners.find((entry) => entry.email === address);
   if (other) throw refused(`${address} already belongs to the owner ${other.id}`);
+  // loadConfig has accepted the file, so the schema guarantees an access object and an owners list (if present).
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!isPlainObject(raw) || !isPlainObject(raw.access))
-    throw refused(`${file} has no access block; add one (see deploy/aws/config.example.json)`);
-  if (raw.access.owners !== undefined && !Array.isArray(raw.access.owners))
-    throw refused(`access.owners in ${file} is not a list; edit the configuration explicitly`);
   raw.access.owners = [...(raw.access.owners ?? []), owner.data];
   parseConfig(raw, homeDir, path.dirname(file));
   writeConfigFile(file, `${JSON.stringify(raw, null, 2)}\n`);
   return true;
-}
-
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

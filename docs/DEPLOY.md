@@ -323,7 +323,7 @@ bound there since PM-1238), reporting to the owner afterwards:
 6. `publish_release commit=<SHA> tag=<the preview's tag>` tags the commit and creates the GitHub release.
 7. The engine app build (PM-1198) starts by itself at the end of step 6 (`publish_release` prints its state, PM-1424).
    By hand, only to fill a gap or after a `failed`/`not_configured` state: `run_compute_job job=engine-release
-   commit=<SHA>`. Check that the release shows `projectman-motor.zip`, `.dmg` and `.json` once the run ends.
+commit=<SHA>`. Check that the release shows `projectman-motor.zip`, `.dmg` and `.json` once the run ends.
 8. Poll `get_release_status` until every connected engine shows the new version and no `versionMismatch`, for at most
    2 hours (the menu bar apps check for an update every 30 minutes, PM-1199).
 9. Cleanup runs by itself: the cloud keeps the current and the previous image (`prune-images`), each engine prunes
@@ -824,9 +824,14 @@ Setting the client up on a machine (the key comes on standard input, never as an
 
 ```sh
 engine=~/"Library/Application Support/projectman/engine/bin/projectman"
-"$engine" connect --base-url https://<integrator hostname> --access-headers-file ./integrator-access-token.json < key.txt
+pbpaste | "$engine" connect --base-url https://<integrator hostname> --access-headers-file ./integrator-access-token.json
 "$engine" check
 ```
+
+Copy the key to the clipboard first and pipe it in as above, so no plain-text key file is left on the disk. A key
+typed at a terminal would show on the screen, so `connect` refuses a terminal as standard input. If the key is in a
+file (`< key.txt`), delete that file as soon as `connect` has run. `./integrator-access-token.json` holds the Access
+secret in plain text as well: delete it after `connect` too (the setup keeps its own 0600 copy).
 
 `connect` writes `~/.config/projectman/integrator-key` (0600), the copy of the Access file as
 `~/.config/projectman/cloud/integrator-access-token.json` (0600) and `client.json` (version 1), in directories of

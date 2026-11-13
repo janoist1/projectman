@@ -3,7 +3,14 @@ import path from 'node:path';
 import { ClientAccessHeaders, ClientKeyText, CLIENT_CONFIG_RELATIVE_PATH } from '@projectman/shared';
 import { parseBaseUrl, ClientConfigError } from './config';
 import { UsageError, type CommandContext } from './context';
-import { ClientFileError, currentOwner, readInputFile, readStream, writeFileAtomic } from './files';
+import {
+  ClientFileError,
+  currentOwner,
+  readCredentialFile,
+  readInputFile,
+  readStream,
+  writeFileAtomic,
+} from './files';
 
 /**
  * `projectman connect` (PM-1429): writes the client's credential files from what the user hands it, so a
@@ -23,30 +30,9 @@ interface Target {
   text: string;
 }
 
-/** What the target holds now: null when it does not exist; a link or a non-regular file is refused. */
+/** What the target holds now: null when it does not exist; a link, another user's or a non-regular file is refused. */
 function currentText(file: string): string | null {
-  let link: fs.Stats;
-  try {
-    link = fs.lstatSync(file);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    return fail('credential_file_unreadable', `the file ${file} cannot be inspected`);
-  }
-  if (link.isSymbolicLink()) return fail('credential_symlink', `the file ${file} is a symbolic link`);
-  if (!link.isFile()) return fail('credential_file_invalid', `${file} is not a regular file`);
-  let fd: number;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  } catch {
-    return fail('credential_file_unreadable', `the file ${file} cannot be opened`);
-  }
-  try {
-    if (fs.fstatSync(fd).size > 64 * 1024)
-      return fail('credential_file_invalid', `the file ${file} is too large`);
-    return fs.readFileSync(fd, 'utf8');
-  } finally {
-    fs.closeSync(fd);
-  }
+  return readCredentialFile(file, { allowMissing: true });
 }
 
 /** A real directory of the user with mode 0700, made when it is missing; a link is never followed. */
@@ -71,7 +57,10 @@ function ensurePrivateDirectory(dir: string): void {
   if ((stat.mode & 0o777) !== 0o700) fs.chmodSync(dir, 0o700);
 }
 
-/** The first existing ancestor that is a link, or a file in place of a directory, stops the command before any write. */
+/**
+ * Checks the directory itself (its ancestors are not inspected) before any write: when it exists, it must not be a
+ * link, must be a directory and must belong to the current user. A missing directory passes; it is made later.
+ */
 function assertDirectoryUsable(dir: string): void {
   let stat: fs.Stats | undefined;
   try {
@@ -81,6 +70,9 @@ function assertDirectoryUsable(dir: string): void {
   }
   if (stat.isSymbolicLink()) fail('credential_symlink', `the directory ${dir} is a symbolic link`);
   if (!stat.isDirectory()) fail('credential_directory_invalid', `${dir} is not a directory`);
+  const owner = currentOwner();
+  if (owner.uid !== null && stat.uid !== owner.uid)
+    fail('credential_owner', `the directory ${dir} is not owned by the current user`);
 }
 
 function text(ctx: CommandContext, name: string): string | undefined {
@@ -94,6 +86,11 @@ export async function runConnect(ctx: CommandContext): Promise<number> {
   if (baseUrlText === undefined || baseUrlText === '') throw new UsageError('--base-url is required');
   const accessSource = text(ctx, 'access-headers-file');
   const replace = ctx.values.replace === true;
+  // A terminal would show the typed key on the screen (and in its scrollback); the key must come through a pipe.
+  if (ctx.io.stdinIsTerminal)
+    throw new UsageError(
+      'standard input is a terminal: pipe the key in (for example `pbpaste | projectman connect ...`)',
+    );
 
   let origin: string;
   try {

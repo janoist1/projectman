@@ -6,6 +6,8 @@ export interface CliIo {
   stdout: { write(chunk: string, done: (error?: Error | null) => void): unknown };
   stderr: { write(chunk: string): unknown };
   stdin: AsyncIterable<string | Uint8Array>;
+  /** Standard input is a terminal: what is typed there shows on the screen. */
+  stdinIsTerminal?: boolean;
   home: string;
   fetch: typeof fetch;
   /** Aborted by Ctrl-C (SIGINT) or SIGTERM. */
@@ -38,6 +40,7 @@ export function processIo(): CliIo {
     stdout: process.stdout,
     stderr: process.stderr,
     stdin: process.stdin,
+    stdinIsTerminal: process.stdin.isTTY === true,
     home: os.homedir(),
     fetch: globalThis.fetch,
     signal: controller.signal,

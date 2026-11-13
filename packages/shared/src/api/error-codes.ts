@@ -60,6 +60,7 @@ export const ERROR_CODES = [
   'compute_job_unknown',
   'config_conflict',
   'config_invalid',
+  'config_version_outdated',
   // A cover must be a ready image of the card (PM-224)
   'cover_not_an_image',
   'custom_role_shadows_builtin',

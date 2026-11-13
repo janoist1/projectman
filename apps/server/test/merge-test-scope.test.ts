@@ -68,7 +68,7 @@ describe('merge test scope', () => {
   });
   it.each([
     'apps/server/src/contracts/tasks.ts',
-    'apps/server/src/config/migrations.ts',
+    'apps/server/src/config/layout.ts',
     'scripts/live/config-check.ts',
     'scripts/example.cjs',
     'scripts/example.mtsx',

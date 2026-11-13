@@ -154,6 +154,8 @@ function fromConfigError(err: unknown): never {
         throw new DomainError('not_found', err.message, { status: 404 });
       case 'unknown_version':
         throw invalid('unknown_version', err.message);
+      case 'config_version_outdated':
+        throw invalid('config_version_outdated', err.message);
       case 'invalid_key':
         throw invalid('invalid_request', err.message);
     }

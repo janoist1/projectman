@@ -1,12 +1,13 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
-import { labelDefinition, labelRefusal, Me } from '@projectman/shared';
+import { Me } from '@projectman/shared';
 import type { ConfigView, ProjectConfig } from '@projectman/shared';
 import { parseYamlFile } from '../src/config/layout';
-import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { testConfig } from './helpers/test-template';
 
 /**
  * Real installations hold configurations written before a rule existed (decisions 16 and 19). The
@@ -37,6 +38,25 @@ describe('projects whose stored configuration predates a rule', () => {
     (response.json().error.details.issues as Array<{ code: string; severity?: string }>)
       .filter((issue) => issue.severity !== 'warning')
       .map((issue) => issue.code);
+
+  it('registers a project only the customization repository holds from a current configuration', async () => {
+    const stored = testConfig({
+      key: 'LG',
+      owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.test' },
+    });
+    await h.app.projectman.configStore.save('LG', stored, {
+      author: { name: 'Owner', email: 'owner@example.test' },
+      message: 'Create current configuration',
+    });
+    await restart();
+
+    const { domain } = h.app.projectman;
+    expect(domain.projects.has('LG')).toBe(true);
+    expect(await domain.projects.config('LG')).toEqual(stored);
+    expect(await domain.projectsFor('owner@example.test')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'LG', access: 'owner' })]),
+    );
+  });
 
   it('allows edits with existing duplicate repositories and columns but refuses only introduced errors', async () => {
     handEdit('project.yaml', (document) => document.project.repos.push({ name: 'web', path: 'web-copy' }));
@@ -86,63 +106,5 @@ describe('projects whose stored configuration predates a rule', () => {
     expect(saved.statusCode, saved.body).toBe(200);
     const hired = await inject(h.app, 'POST', '/api/projects/AR/members', cookie, { role: 'qa' });
     expect(hired.statusCode, hired.body).toBe(201);
-  });
-
-  it('registers a project only the customization repository holds, with its legacy release gate, and lists it', async () => {
-    // A fictional project as it was stored before labels; its release gate is a human_approval on the release approval duty.
-    const source = new URL('./fixtures/legacy-release-gate/', import.meta.url);
-    const directory = join(h.home, 'customization/projects/LG');
-    mkdirSync(directory, { recursive: true });
-    for (const file of ['project.yaml', 'team.yaml', 'pipeline.yaml'])
-      writeFileSync(join(directory, file), readFileSync(new URL(file, source), 'utf8'));
-    await restart();
-
-    const { domain } = h.app.projectman;
-    expect(domain.projects.has('LG')).toBe(true);
-    const release = (await domain.projects.config('LG')).pipeline.stages.find(
-      (stage) => stage.id === 'release',
-    );
-    expect(release?.gate).toEqual({
-      conditions: [
-        { type: 'has_label', label: 'release-approved' },
-        { type: 'lacks_label', label: 'acceptance-unconfirmed' },
-      ],
-    });
-    expect(await domain.projectsFor('owner@example.test')).toEqual([
-      expect.objectContaining({ key: 'LG', access: 'owner' }),
-    ]);
-  });
-
-  it('takes the approval of a release away from everyone but the release approval duty when the project loads', async () => {
-    await addHumanAndLogin(h.app, { handle: 'kata', name: 'Kata', access: 'client' });
-    const before = await config();
-    const task = { assignee: null, links: [], stageId: 'release' };
-    const kata = { kind: 'human', handle: 'kata' } as const;
-    expect(labelRefusal(before, labelDefinition(before, 'release-ok'), kata, task)).toBe('not_holder');
-
-    // The release approval as it could be stored before: every human, clients and viewers included.
-    const wide = { ...labelDefinition(before, 'release-ok')!, setBy: 'humans' as const };
-    expect(labelRefusal(before, wide, kata, task)).toBeNull();
-    handEdit('pipeline.yaml', (document) => {
-      document.labels.find((label: { id: string }) => label.id === 'release-ok').setBy = 'humans';
-    });
-    await restart();
-
-    const after = await config();
-    expect(labelDefinition(after, 'release-ok')!.setBy).toEqual({
-      duties: ['release_approval'],
-      humansOnly: true,
-    });
-    expect(labelRefusal(after, labelDefinition(after, 'release-ok'), kata, task)).toBe('not_holder');
-    expect(Me.parse((await inject(h.app, 'GET', '/api/me', cookie)).json()).projects).toHaveLength(1);
-    // The owner holds the duty, so edits go on; the narrowed label is what the next commit stores.
-    const view = (await inject(h.app, 'GET', '/api/projects/AR/config', cookie)).json<ConfigView>();
-    const patched = await inject(h.app, 'PATCH', '/api/projects/AR/config', cookie, {
-      baseVersion: view.version,
-      limits: { maxConcurrentAi: 2 },
-    });
-    expect(patched.statusCode, patched.body).toBe(200);
-    const stored = readFileSync(join(h.home, 'customization/projects/AR/pipeline.yaml'), 'utf8');
-    expect(stored).not.toContain('setBy: humans');
   });
 });

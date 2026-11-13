@@ -1,13 +1,11 @@
 import {
   ACCEPTANCE_OPEN_LABEL,
   ACCEPTANCE_UNCONFIRMED_LABEL,
-  DEFAULT_PROJECT_LANGUAGE,
   PR_MERGED_LABEL,
   REFINE_LABEL,
   type GateCondition,
   type LabelDefinition,
 } from '@projectman/shared';
-import { getLocale } from './locales';
 import type { StandardLabelId, TemplateLocale } from './locales';
 
 type LabelRules = Omit<LabelDefinition, 'id' | 'name' | 'meaning'>;
@@ -166,128 +164,4 @@ export function withAcceptanceGates<S extends GatedStage>(stages: readonly S[]):
     ];
     return { ...stage, gate: { conditions } };
   });
-}
-
-/**
- * Gives an existing raw configuration the acceptance gates and the two system labels (idempotent): it
- * does nothing once the project defines `acceptance-open`, so a gate the owner removed later stays removed.
- */
-export function migrateAcceptanceGates<T>(raw: T): T {
-  const config = raw as LegacyConfig;
-  const stages = config?.pipeline?.stages;
-  if (!Array.isArray(stages)) return raw;
-  const labels = config.pipeline?.labels ?? [];
-  // What it cannot read is left to the schema.
-  if (!Array.isArray(labels) || labels.some((label) => typeof label?.id !== 'string')) return raw;
-  if (stages.some((stage) => typeof stage?.id !== 'string' || typeof stage.kind !== 'string')) return raw;
-  if (stages.some((stage) => stage.gate !== undefined && !Array.isArray(stage.gate?.conditions))) return raw;
-  if (labels.some((label) => label.id === ACCEPTANCE_OPEN_LABEL)) return raw;
-  const gated = withAcceptanceGates(stages);
-  if (gated.every((stage, index) => stage === stages[index])) return raw;
-  const locale = getLocale(config.project?.language ?? DEFAULT_PROJECT_LANGUAGE);
-  return {
-    ...config,
-    pipeline: {
-      ...config.pipeline,
-      stages: gated,
-      labels: [
-        ...labels,
-        ...[ACCEPTANCE_OPEN_LABEL, ACCEPTANCE_UNCONFIRMED_LABEL]
-          .filter((id): id is StandardLabelId => !labels.some((label) => label.id === id))
-          .map((id) => standardLabel(id, locale)),
-      ],
-    },
-  } as T;
-}
-
-/* ---------- configurations from before labels ---------- */
-
-type LegacyCheck = 'code_review' | 'security_review' | 'qa' | 'client_test';
-const LEGACY_PASSED_CHECK_LABELS: Record<LegacyCheck, StandardLabelId> = {
-  code_review: 'code-review-ok',
-  security_review: 'security-ok',
-  qa: 'qa-ok',
-  client_test: 'client-accepted',
-};
-
-interface LegacyStage {
-  id: string;
-  name: string;
-  kind: string;
-  gate?: { conditions: Array<Record<string, unknown>> };
-}
-interface LegacyConfig {
-  project?: { language?: string };
-  pipeline?: { stages?: LegacyStage[]; labels?: LabelDefinition[] };
-}
-
-/**
- * Rewrites a raw configuration from before labels: check_passed, pr_merged and human_approval
- * gate conditions become label conditions, and the labels they need are defined (standard ones
- * with their whole group; a stage-specific approval label for explicit approvers or other
- * duties). A configuration without legacy conditions is returned unchanged.
- */
-export function migrateLegacyConfig<T>(raw: T): T {
-  const config = raw as LegacyConfig;
-  const stages = config?.pipeline?.stages;
-  if (!Array.isArray(stages)) return raw;
-  const legacy = (c: Record<string, unknown>) =>
-    c.type === 'check_passed' || c.type === 'pr_merged' || c.type === 'human_approval';
-  if (!stages.some((stage) => stage.gate?.conditions?.some(legacy))) return raw;
-
-  // Name the labels in the language the configuration loads with (the schema's default when unset).
-  const locale = getLocale(config.project?.language ?? DEFAULT_PROJECT_LANGUAGE);
-  const standard = new Set<string>();
-  const custom: LabelDefinition[] = [];
-  const nextStages = stages.map((stage) => {
-    if (!stage.gate?.conditions?.some(legacy)) return stage;
-    const conditions = stage.gate.conditions.map((c) => {
-      if (c.type === 'check_passed') {
-        const label = LEGACY_PASSED_CHECK_LABELS[c.check as LegacyCheck] ?? String(c.check);
-        standard.add(label);
-        return { type: 'has_label', label };
-      }
-      if (c.type === 'pr_merged') {
-        standard.add(PR_MERGED_LABEL);
-        return { type: 'has_label', label: PR_MERGED_LABEL };
-      }
-      if (c.type !== 'human_approval') return c;
-      const approvers = c.approvers as string[] | undefined;
-      const duty = c.duty as string | undefined;
-      const standardApproval =
-        !approvers && duty === 'release_approval'
-          ? 'release-approved'
-          : !approvers && duty === 'final_decision'
-            ? 'merge-approved'
-            : undefined;
-      if (standardApproval) {
-        standard.add(standardApproval);
-        return { type: 'has_label', label: standardApproval };
-      }
-      const id = `approval-${stage.id.replace(/_/g, '-')}`.slice(0, 40);
-      custom.push({
-        id,
-        name: locale.stageApproval(stage.name),
-        color: 'orange',
-        setBy: approvers
-          ? { members: approvers, humansOnly: true }
-          : { duties: [duty as never], humansOnly: true },
-        clearedWhen: ['moved_back', 'pr_updated'],
-      });
-      return { type: 'has_label', label: id };
-    });
-    return { ...stage, gate: { conditions } };
-  });
-  const existing = new Set((config.pipeline?.labels ?? []).map((label) => label.id));
-  const added = [...standardLabelsFor(standard, locale), ...custom].filter(
-    (label) => !existing.has(label.id),
-  );
-  return {
-    ...config,
-    pipeline: {
-      ...config.pipeline,
-      stages: nextStages,
-      labels: [...(config.pipeline?.labels ?? []), ...added],
-    },
-  } as T;
 }

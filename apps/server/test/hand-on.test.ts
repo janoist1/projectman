@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { handOnRequestOf } from '@projectman/shared';
 import type { CardMover, ProjectConfig } from '@projectman/shared';
-import { migrateProjectConfig } from '../src/config/migrations';
 import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { TEAM_TOOLS } from '../src/mcp';
 import {
@@ -312,17 +311,5 @@ describe('hand-on requests', () => {
       await h.domain.inbox.resolve('AR', result.pendingApproval[0]!.id, { optionId: 'approve' }, owner);
       expect(h.domain.tasks.get('AR', task.key).stageId).toBe('merge');
     }
-  });
-
-  it('migrates missing movers to worker and keeps explicit values', () => {
-    const logger = { warn: () => {} };
-    const old = { team: { members: [] } };
-    expect(migrateProjectConfig(old, { projectKey: 'AR', logger })).toMatchObject({
-      team: { cardMover: { kind: 'worker' } },
-    });
-    const configured = { team: { members: [], cardMover: human } };
-    expect(migrateProjectConfig(configured, { projectKey: 'AR', logger })).toMatchObject({
-      team: { cardMover: human },
-    });
   });
 });

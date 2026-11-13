@@ -630,6 +630,7 @@ export const en = {
       duplicate_repo: 'The same repo is listed twice.',
       invalid_config: 'The setting is invalid.',
       config_invalid: 'The setting is invalid.',
+      config_version_outdated: 'This version uses an older settings format and cannot be restored.',
       config_conflict: 'The settings changed in the meantime.',
       stage_in_use: 'The stage still has cards. Move them to another stage first.',
       already_set_up: 'The owner account already exists.',

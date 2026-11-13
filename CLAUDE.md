@@ -54,10 +54,9 @@ should confirm still goes to them as a question.
 - Route handlers parse the request, check access and call a domain service; business logic
   lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
   `apps/server/src/assembly.ts` composes them. Only `apps/server/src/start.ts` (started by `index.ts`) reads the environment.
-- Older configuration shapes, database rows and timeline events exist in real installations.
-  Configuration migrations live in `apps/server/src/config/migrations.ts`, database
-  migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
-  event types keep rendering.
+- Stored configuration must use the current schema; retired configuration converters were
+  removed in PM-1383. Database migrations live in `apps/server/src/db/migrations.ts`;
+  timeline events are append-only, so old event types keep rendering.
 
 ## Machine-dependent assumptions
 

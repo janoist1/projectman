@@ -391,6 +391,9 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
+/** The job id of the engine app build when the repository registers none of its own (PM-1198, PM-1424). */
+export const ENGINE_RELEASE_JOB = 'engine-release';
+
 /**
  * The engine app build `publish_release` starts for the release commit (PM-1424): `started` a new run, `reused`
  * a live run of the same commit, `failed` the start was refused (the release stays published), `not_configured`

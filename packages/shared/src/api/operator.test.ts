@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OperatorMemberChanges,
-  OperatorOperation,
-  OperatorPlan,
+  ProjectManagerMemberChanges,
+  ProjectManagerOperation,
+  ProjectManagerPlan,
   operatorCriticalOp,
-  OperatorSignal,
+  ProjectManagerSignal,
   ProjectManagerCorner,
   RoleConfigurationRead,
   SendTeamMessageRequest,
@@ -13,11 +13,11 @@ import {
 describe('Operator operation contracts', () => {
   it('accepts targeted role resets and validates the full role read response', () => {
     expect(
-      OperatorOperation.parse({ op: 'config_patch', patch: { roleOverrides: { developer: null } } }),
+      ProjectManagerOperation.parse({ op: 'config_patch', patch: { roleOverrides: { developer: null } } }),
     ).toEqual({ op: 'config_patch', patch: { roleOverrides: { developer: null } } });
-    expect(OperatorOperation.safeParse({ op: 'config_patch', patch: { roleOverrides: null } }).success).toBe(
-      false,
-    );
+    expect(
+      ProjectManagerOperation.safeParse({ op: 'config_patch', patch: { roleOverrides: null } }).success,
+    ).toBe(false);
     const response = {
       version: 'v1',
       role: 'developer',
@@ -30,22 +30,24 @@ describe('Operator operation contracts', () => {
   });
   it('accepts bounded typed messages and refuses commands, credentials and unsupported operations', () => {
     const message = { op: 'message_send', to: ['guest'], text: 'Exact text' };
-    expect(OperatorOperation.parse(message)).toEqual(message);
+    expect(ProjectManagerOperation.parse(message)).toEqual(message);
     for (const extra of [
       { command: 'echo unsafe' },
       { token: 'credential-placeholder' },
       { sessionId: 'other-session' },
     ])
-      expect(OperatorOperation.safeParse({ ...message, ...extra }).success).toBe(false);
+      expect(ProjectManagerOperation.safeParse({ ...message, ...extra }).success).toBe(false);
     for (const to of [[], Array.from({ length: 11 }, (_, i) => `guest-${i}`)])
-      expect(OperatorOperation.safeParse({ ...message, to }).success).toBe(false);
+      expect(ProjectManagerOperation.safeParse({ ...message, to }).success).toBe(false);
     expect(
-      OperatorOperation.safeParse({ ...message, to: Array.from({ length: 10 }, (_, i) => `guest-${i}`) })
-        .success,
+      ProjectManagerOperation.safeParse({
+        ...message,
+        to: Array.from({ length: 10 }, (_, i) => `guest-${i}`),
+      }).success,
     ).toBe(true);
     for (const text of ['', ' ', 'a'.repeat(20_001)])
-      expect(OperatorOperation.safeParse({ ...message, text }).success).toBe(false);
-    expect(OperatorOperation.safeParse({ ...message, text: 'a'.repeat(20_000) }).success).toBe(true);
+      expect(ProjectManagerOperation.safeParse({ ...message, text }).success).toBe(false);
+    expect(ProjectManagerOperation.safeParse({ ...message, text: 'a'.repeat(20_000) }).success).toBe(true);
     for (const op of [
       'merge',
       'release',
@@ -55,15 +57,19 @@ describe('Operator operation contracts', () => {
       'transcript',
       'shell',
     ])
-      expect(OperatorOperation.safeParse({ op }).success).toBe(false);
+      expect(ProjectManagerOperation.safeParse({ op }).success).toBe(false);
     expect(
-      OperatorOperation.safeParse({ op: 'session_stop', sessionId: 'target', command: 'stop' }).success,
+      ProjectManagerOperation.safeParse({ op: 'session_stop', sessionId: 'target', command: 'stop' }).success,
     ).toBe(false);
   });
 
   it('validates descriptive plans and identifies only the two critical operations', () => {
     const plan = { why: ' Explain ', impact: ' One guest ', reversible: false };
-    expect(OperatorPlan.parse(plan)).toEqual({ why: 'Explain', impact: 'One guest', reversible: false });
+    expect(ProjectManagerPlan.parse(plan)).toEqual({
+      why: 'Explain',
+      impact: 'One guest',
+      reversible: false,
+    });
     for (const change of [
       { why: '' },
       { impact: 'a'.repeat(501) },
@@ -71,7 +77,7 @@ describe('Operator operation contracts', () => {
       { command: 'unsafe' },
       { credential: 'placeholder' },
     ])
-      expect(OperatorPlan.safeParse({ ...plan, ...change }).success).toBe(false);
+      expect(ProjectManagerPlan.safeParse({ ...plan, ...change }).success).toBe(false);
     expect(operatorCriticalOp('message_send')).toBe(true);
     expect(operatorCriticalOp('session_stop')).toBe(true);
     expect(operatorCriticalOp('member_update')).toBe(false);
@@ -92,9 +98,9 @@ describe('Operator operation contracts', () => {
       decidedAt: null,
       resolvedAt: null,
     };
-    expect(OperatorSignal.parse(signal)).toEqual(signal);
-    expect(OperatorSignal.safeParse({ ...signal, kind: 'workflow' }).success).toBe(false);
-    expect(OperatorSignal.safeParse({ ...signal, state: 'closed' }).success).toBe(false);
+    expect(ProjectManagerSignal.parse(signal)).toEqual(signal);
+    expect(ProjectManagerSignal.safeParse({ ...signal, kind: 'workflow' }).success).toBe(false);
+    expect(ProjectManagerSignal.safeParse({ ...signal, state: 'closed' }).success).toBe(false);
     expect(
       ProjectManagerCorner.parse({
         member: null,
@@ -113,7 +119,7 @@ describe('Operator operation contracts', () => {
     ).toBe(signal.id);
   });
   it('accepts AI settings and capacity while excluding human identity and privileges', () => {
-    const result = OperatorMemberChanges.parse({
+    const result = ProjectManagerMemberChanges.parse({
       capacity: 3,
       role: 'developer',
       permissionMode: 'auto',
@@ -122,14 +128,16 @@ describe('Operator operation contracts', () => {
       displayName: 'Owner',
     });
     expect(result).toEqual({ capacity: 3, role: 'developer', permissionMode: 'auto' });
-    expect(OperatorMemberChanges.safeParse({ capacity: 6 }).success).toBe(false);
-    expect(OperatorMemberChanges.safeParse({ capacity: 0 }).success).toBe(false);
+    expect(ProjectManagerMemberChanges.safeParse({ capacity: 6 }).success).toBe(false);
+    expect(ProjectManagerMemberChanges.safeParse({ capacity: 0 }).success).toBe(false);
   });
 
   it('omits caller-supplied configuration provenance from a patch', () => {
     expect(
-      OperatorOperation.safeParse({ op: 'config_patch', patch: { baseVersion: 'v1', message: 'Spoofed' } })
-        .success,
+      ProjectManagerOperation.safeParse({
+        op: 'config_patch',
+        patch: { baseVersion: 'v1', message: 'Spoofed' },
+      }).success,
     ).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { OperatorSignal } from '@projectman/shared';
+import type { ProjectManagerSignal } from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -20,7 +20,7 @@ export function OperatorSignalGroup({
   onDismiss,
   onResize,
 }: {
-  signals: OperatorSignal[];
+  signals: ProjectManagerSignal[];
   operatorHandle: string;
   readOnly: boolean;
   onDismiss: (id: string) => void;
@@ -48,7 +48,7 @@ export function OperatorSignalGroup({
   const [confirm, setConfirm] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
-  const [dismissed, setDismissed] = useState<Record<string, OperatorSignal>>({});
+  const [dismissed, setDismissed] = useState<Record<string, ProjectManagerSignal>>({});
   const ordered = signals.map((signal) => dismissed[signal.id] ?? signal);
   const open = ordered.filter((signal) => signal.state === 'open');
   const busy = progress !== null;
@@ -90,7 +90,7 @@ export function OperatorSignalGroup({
           // Retain feedback before the final refresh, including signals already closed elsewhere.
           onDismiss(signal.id);
           try {
-            let result: OperatorSignal;
+            let result: ProjectManagerSignal;
             try {
               result = await api.dismissOperatorSignal(key, signal.id);
             } catch (error) {

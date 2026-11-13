@@ -1,4 +1,4 @@
-import type { OperatorPauses } from './ports';
+import type { ProjectManagerPauses } from './ports';
 import {
   isOnLeave,
   managerConversationOf,
@@ -27,7 +27,7 @@ export class ProjectManagerChannels {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    pauses: Pick<OperatorPauses, 'projectView'>;
+    pauses: Pick<ProjectManagerPauses, 'projectView'>;
     operatorRequests: ProjectManagerRequests;
     operatorSignals: ProjectManagerSignals;
     workQueues: Pick<WorkQueues, 'pmSummary'>;

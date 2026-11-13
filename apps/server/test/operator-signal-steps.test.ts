@@ -4,7 +4,7 @@ import {
   OPERATOR_SIGNAL_ROUND_FROM,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
 } from '@projectman/shared';
-import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
+import type { ObligationKind, ProjectManagerWatch, ProjectConfig, Task } from '@projectman/shared';
 
 import type { ToolContext } from '../src/contracts';
 
@@ -28,7 +28,7 @@ const later = (minutes: number) => {
 };
 
 async function setup(
-  level: OperatorWatch | undefined,
+  level: ProjectManagerWatch | undefined,
   opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {},
 ) {
   now = new Date('2026-10-12T10:00:00Z');
@@ -323,7 +323,7 @@ describe('the unreleased signal (PM-1201)', () => {
     );
   };
   /** Two cards landed two days after the last release, and an `unreleased` row an older build left is open. */
-  const unreleased = async (level: OperatorWatch) => {
+  const unreleased = async (level: ProjectManagerWatch) => {
     await setup(level, { adjust: withDevops });
     const day = 24 * 3_600_000;
     const at = (days: number) => new Date(now.getTime() - days * day).toISOString();

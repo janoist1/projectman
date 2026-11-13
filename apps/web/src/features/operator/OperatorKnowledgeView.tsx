@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import type { OperatorPreferenceData } from '@projectman/shared';
+import type { ProjectManagerPreferenceData } from '@projectman/shared';
 import { operatorKnowledgeApprovalOf } from '@projectman/shared';
 import { Link } from 'react-router';
 import { useInbox } from '../../api/queries';
@@ -37,7 +37,7 @@ export function KnowledgeSkeleton() {
 }
 
 const fields = ['length', 'technicalLevel', 'detail', 'clarity', 'background'] as const;
-function preferenceValues(data: OperatorPreferenceData) {
+function preferenceValues(data: ProjectManagerPreferenceData) {
   return fields.map((field) => tDynamic(`knowledge.values.${field}.${data[field]}`, data[field]));
 }
 

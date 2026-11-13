@@ -6,7 +6,7 @@ import { LabelColor, LabelDefinition, LabelId } from '../domain/label';
 import { Pipeline } from '../domain/pipeline';
 import { BuiltInRoleId, RoleBundle } from '../domain/role';
 import { RepoDocs } from './project-docs';
-import { OperatorWatch } from './operator-watch';
+import { ProjectManagerWatch } from './operator-watch';
 import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
 import type { RuleReasons } from './schema';
 import {
@@ -72,7 +72,7 @@ export const PatchConfigRequest = z
     roleOverrides: ProjectConfig.shape.team.shape.roleOverrides,
     roles: ProjectConfig.shape.team.shape.roles.removeDefault().optional(),
     releaseFourEyes: z.boolean().optional(),
-    operatorWatch: OperatorWatch.nullable().optional(),
+    operatorWatch: ProjectManagerWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
     /** The lowest human access that may open a new card (PM-1100). Owner-only (`task_create_access`). */
     taskCreateAccess: ProjectConfig.shape.team.shape.taskCreateAccess,
@@ -158,34 +158,39 @@ export const PatchConfigRequest = z
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 
 /** Operator edits replace or explicitly reset only the named built-in roles. */
-const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
-type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
+const ProjectManagerRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
+type ProjectManagerRoleOverridesPatch = z.infer<typeof ProjectManagerRoleOverridesPatch>;
 
 /**
  * Operator edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
  * label's other fields (who may set it, gates, clearing rules) stay as they are. `null` removes the color
  * or the meaning. A label without a definition gets one; its name then defaults to its id.
  */
-const OperatorLabelPatch = z
+const ProjectManagerLabelPatch = z
   .object({
     name: LabelDefinition.shape.name.optional(),
     color: LabelColor.nullable().optional(),
     meaning: LabelDefinition.shape.meaning.unwrap().nullable().optional(),
   })
   .strict();
-type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
+type ProjectManagerLabelPatch = z.infer<typeof ProjectManagerLabelPatch>;
 
 /** Keyed by label id; the other labels, stages and columns of the pipeline stay unchanged. */
-const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
-type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
+const ProjectManagerLabelsPatch = z.record(LabelId, ProjectManagerLabelPatch);
+type ProjectManagerLabelsPatch = z.infer<typeof ProjectManagerLabelsPatch>;
 
-export const OperatorConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend({
-  roleOverrides: OperatorRoleOverridesPatch.optional(),
-  labels: OperatorLabelsPatch.optional(),
-});
-export type OperatorConfigPatch = z.infer<typeof OperatorConfigPatch>;
+export const ProjectManagerConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend(
+  {
+    roleOverrides: ProjectManagerRoleOverridesPatch.optional(),
+    labels: ProjectManagerLabelsPatch.optional(),
+  },
+);
+export type ProjectManagerConfigPatch = z.infer<typeof ProjectManagerConfigPatch>;
 
-function patchedLabels(labels: readonly LabelDefinition[], changes: OperatorLabelsPatch): LabelDefinition[] {
+function patchedLabels(
+  labels: readonly LabelDefinition[],
+  changes: ProjectManagerLabelsPatch,
+): LabelDefinition[] {
   const result = [...labels];
   for (const [id, change] of Object.entries(changes)) {
     const index = result.findIndex((label) => label.id === id);
@@ -206,7 +211,7 @@ function patchedLabels(labels: readonly LabelDefinition[], changes: OperatorLabe
 export function prepareOperatorConfigPatch(
   config: ProjectConfig,
   baseVersion: string,
-  patch: OperatorConfigPatch,
+  patch: ProjectManagerConfigPatch,
 ): PatchConfigRequest {
   const { roleOverrides: changes, labels: labelChanges, ...withoutTargeted } = patch;
   let rest: Omit<PatchConfigRequest, 'baseVersion'> = withoutTargeted;

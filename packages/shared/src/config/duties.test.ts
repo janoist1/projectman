@@ -18,7 +18,7 @@ import {
 import { labelHolders } from './labels';
 import {
   applyConfigPatch,
-  OperatorConfigPatch,
+  ProjectManagerConfigPatch,
   PatchConfigRequest,
   prepareOperatorConfigPatch,
 } from './edit';
@@ -83,7 +83,7 @@ describe('targeted Operator role patches', () => {
 
   it('replaces one complete bundle, preserves omitted roles and never mutates inputs', () => {
     const c = existing();
-    const patch = OperatorConfigPatch.parse({
+    const patch = ProjectManagerConfigPatch.parse({
       project: { name: 'New name' },
       roleOverrides: { developer: { duties: ['docs'], instructions: 'Replacement.' } },
     });
@@ -128,7 +128,7 @@ describe('targeted Operator role patches', () => {
   });
 
   it('validates targeted bundles and keeps the ordinary PATCH full-map replacement', () => {
-    expect(OperatorConfigPatch.parse({ roleOverrides: { developer: { duties: [] } } })).toEqual({
+    expect(ProjectManagerConfigPatch.parse({ roleOverrides: { developer: { duties: [] } } })).toEqual({
       roleOverrides: { developer: { duties: [], instructions: '' } },
     });
     for (const patch of [
@@ -144,7 +144,7 @@ describe('targeted Operator role patches', () => {
       { message: 'Not an operator field.' },
       { unknown: true },
     ])
-      expect(OperatorConfigPatch.safeParse(patch).success).toBe(false);
+      expect(ProjectManagerConfigPatch.safeParse(patch).success).toBe(false);
     const replacement = { developer: { duties: [], instructions: 'Only this remains.' } };
     expect(
       applyConfigPatch(existing(), { baseVersion: 'v1', roleOverrides: replacement }).team.roleOverrides,
@@ -158,7 +158,7 @@ describe('targeted Operator role patches', () => {
 describe('targeted Operator label patches', () => {
   it('changes one label field, keeps the rest of the pipeline and never mutates inputs', () => {
     const c = config();
-    const patch = OperatorConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });
+    const patch = ProjectManagerConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });
     const before = structuredClone({ c, patch });
     const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
     expect(prepared.pipeline).toEqual({
@@ -196,7 +196,7 @@ describe('targeted Operator label patches', () => {
     expect(reset.pipeline?.labels[0]).not.toHaveProperty('meaning');
     expect(reset.pipeline?.labels[0]?.setBy).toEqual(c.pipeline.labels[0]!.setBy);
     for (const label of [{ setBy: 'anyone' }, { color: 'chartreuse' }, { name: '' }])
-      expect(OperatorConfigPatch.safeParse({ labels: { bug: label } }).success).toBe(false);
+      expect(ProjectManagerConfigPatch.safeParse({ labels: { bug: label } }).success).toBe(false);
   });
 
   it('omits an absent or empty label patch', () => {

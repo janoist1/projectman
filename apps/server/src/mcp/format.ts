@@ -16,7 +16,7 @@ import type {
   Task,
   TimelineEvent,
   WorkItemRef,
-  OperatorSignal,
+  ProjectManagerSignal,
   StaleReason,
 } from '@projectman/shared';
 import {
@@ -256,8 +256,8 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
   ];
 }
 
-function signalLine(signal: OperatorSignal): string {
-  const explanations: Record<OperatorSignal['kind'], string> = {
+function signalLine(signal: ProjectManagerSignal): string {
+  const explanations: Record<ProjectManagerSignal['kind'], string> = {
     structural_pattern:
       'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:

@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { operatorKnowledgeApprovalOf } from '@projectman/shared';
-import type { InboxItem, OperatorRequestView, OperatorStep } from '@projectman/shared';
+import type { InboxItem, ProjectManagerRequestView, ProjectManagerStep } from '@projectman/shared';
 import { useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
@@ -18,7 +18,7 @@ import styles from './OperatorSteps.module.css';
 
 type Group = 'done' | 'queued' | 'awaiting' | 'refused';
 
-const GROUP_OF: Record<OperatorStep['status'], Group> = {
+const GROUP_OF: Record<ProjectManagerStep['status'], Group> = {
   done: 'done',
   queued: 'queued',
   approved: 'done',
@@ -50,7 +50,7 @@ function iconLabel(group: Group): string {
 }
 
 /** The note after a step's title: how the owner decided, or why the Operator did not do it. */
-function StepNote({ step, ownerHandle }: { step: OperatorStep; ownerHandle: string | null }) {
+function StepNote({ step, ownerHandle }: { step: ProjectManagerStep; ownerHandle: string | null }) {
   const { key } = useProject();
   if (step.status === 'approved') return <span className={styles.note}>{t('operator.steps.approved')}</span>;
   if (step.status === 'rejected') return <span className={styles.note}>{t('operator.steps.rejected')}</span>;
@@ -82,7 +82,7 @@ function StepNote({ step, ownerHandle }: { step: OperatorStep; ownerHandle: stri
 
 /** One step: its icon (with a text label for screen readers), the title and what it touched. */
 /** A recorded system feedback names itself; an older step or any other action has its action's name. */
-function stepTitle(step: OperatorStep): string {
+function stepTitle(step: ProjectManagerStep): string {
   const feedback = step.action === 'system_feedback' ? step.systemFeedback : null;
   if (!feedback) return t(`operator.steps.actions.${step.action}`);
   return feedback.occurrence > 1
@@ -96,7 +96,7 @@ function StepRow({
   titles,
   inboxItem,
 }: {
-  step: OperatorStep;
+  step: ProjectManagerStep;
   ownerHandle: string | null;
   titles: ReadonlyMap<string, string>;
   inboxItem: InboxItem | null;
@@ -159,7 +159,7 @@ export function OperatorSteps({
   request,
   titles,
 }: {
-  request: OperatorRequestView;
+  request: ProjectManagerRequestView;
   titles: ReadonlyMap<string, string>;
 }) {
   const { key, myHandle } = useProject();
@@ -178,7 +178,7 @@ export function OperatorSteps({
   }, [members, myHandle]);
   if (request.steps.length === 0) return null;
 
-  const groups: { group: Group; steps: OperatorStep[] }[] = (
+  const groups: { group: Group; steps: ProjectManagerStep[] }[] = (
     ['done', 'queued', 'awaiting', 'refused'] as const
   )
     .map((group) => ({ group, steps: request.steps.filter((step) => GROUP_OF[step.status] === group) }))

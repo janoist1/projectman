@@ -1,7 +1,7 @@
 import { seedOperatorRequest } from './helpers/operator-session';
 import { afterEach, expect, it } from 'vitest';
-import { OperatorKnowledgeDocument, routes } from '@projectman/shared';
-import type { HumanAccess, OperatorKnowledgeChange } from '@projectman/shared';
+import { ProjectManagerKnowledgeDocument, routes } from '@projectman/shared';
+import type { HumanAccess, ProjectManagerKnowledgeChange } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
@@ -40,7 +40,7 @@ it.each(['agreement', 'principle'] as const)(
       text: 'Propose shared knowledge',
       member: 'pm',
     });
-    const change: OperatorKnowledgeChange =
+    const change: ProjectManagerKnowledgeChange =
       kind === 'agreement'
         ? {
             kind: 'agreement_replace',
@@ -158,7 +158,7 @@ it('exposes shared knowledge only to owner/admin own logins and has no REST writ
     const response = await inject(h.app, 'GET', routes.operatorKnowledge('AR'), cookie, undefined);
     expect(response.statusCode).toBe(['owner', 'ada'].includes(handle) ? 200 : 403);
     if (response.statusCode === 200)
-      expect(OperatorKnowledgeDocument.parse(response.json()).revision).toBe(0);
+      expect(ProjectManagerKnowledgeDocument.parse(response.json()).revision).toBe(0);
     else expect(response.json().error.code).toBe('operator_owner_only');
   }
   const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });

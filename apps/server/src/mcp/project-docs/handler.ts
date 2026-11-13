@@ -5,7 +5,7 @@ import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolConte
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { ProjectService } from '../../core/projects';
-import type { OperatorSteps } from '../../services/coordination';
+import type { ProjectManagerSteps } from '../../services/coordination';
 import { docWindow, type DocWrites, type DecisionCandidates } from '../../services/project-docs';
 import {
   refusalOf,
@@ -31,7 +31,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: Pick<DomainContext, 'repos'>;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
+  private readonly operatorSteps: Pick<ProjectManagerSteps, 'record'>;
   private readonly docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
@@ -39,7 +39,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     calls: ToolCaller;
     ctx: Pick<DomainContext, 'repos'>;
     projects: Pick<ProjectService, 'config'>;
-    operatorSteps: Pick<OperatorSteps, 'record'>;
+    operatorSteps: Pick<ProjectManagerSteps, 'record'>;
     docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
     decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {

@@ -1,6 +1,6 @@
 import type { InboxKind, SessionState, TaskStartWaiting, WorkQueueReason } from '@projectman/shared';
-import type { OperatorSignal, OperatorWatch } from '@projectman/shared';
-export type { TaskStateReport, MessageStateReport, OperatorDiagnostics } from '@projectman/shared';
+import type { ProjectManagerSignal, ProjectManagerWatch } from '@projectman/shared';
+export type { TaskStateReport, MessageStateReport, ProjectManagerDiagnostics } from '@projectman/shared';
 
 export interface ReleaseStateReport {
   running: { version: string; commit: string | null; tag: string | null };
@@ -29,7 +29,7 @@ export interface ReleaseStateReport {
 }
 
 export interface ProjectStateReport {
-  operatorWatch: OperatorWatch;
+  operatorWatch: ProjectManagerWatch;
   paused: { project: boolean; instance: boolean };
   stages: Array<{ stageId: string; count: number }>;
   sessions: Array<{ id: string; member: string; taskKey: string | null; state: SessionState; since: string }>;
@@ -40,7 +40,7 @@ export interface ProjectStateReport {
     reason: TaskStartWaiting['reason'];
   }>;
   openOwnerItems: Array<{ id: string; kind: InboxKind; taskKey: string | null; title: string }>;
-  signals: OperatorSignal[];
+  signals: ProjectManagerSignal[];
   /** null: this instance does not release this project (no release target, or another project's). */
   release: ReleaseStateReport | null;
   /** The undelivered team messages of the AI members, per member; a member with none is left out. */

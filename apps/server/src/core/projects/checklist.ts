@@ -11,7 +11,7 @@ import type {
   SetChecklistItemStateRequest,
 } from '@projectman/shared';
 import { BASE_CHECKLIST, getLocale, getTemplate, summarizeTemplate, templates } from '@projectman/templates';
-import type { OperatorKnowledgeStore } from '../../contracts';
+import type { ProjectManagerKnowledgeStore } from '../../contracts';
 import { conflict, DomainError, KeyedMutex } from '../../kernel';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -34,7 +34,7 @@ export class ChecklistService {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    knowledge: OperatorKnowledgeStore;
+    knowledge: ProjectManagerKnowledgeStore;
     /** The project's engine reported the project in its hello (PM-1069); the runtime implements it. */
     engineHolds: (projectKey: string) => boolean;
   };
@@ -42,7 +42,7 @@ export class ChecklistService {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    knowledge: OperatorKnowledgeStore;
+    knowledge: ProjectManagerKnowledgeStore;
     engineHolds: (projectKey: string) => boolean;
   }) {
     this.deps = deps;

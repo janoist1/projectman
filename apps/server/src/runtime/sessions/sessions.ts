@@ -47,7 +47,7 @@ import type {
   MemberContextPreview,
   MemberHandle,
   MemberStatus,
-  OperatorPreferenceData,
+  ProjectManagerPreferenceData,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -188,7 +188,7 @@ export interface SessionOrchestratorDeps {
       member: string,
       workItem: WorkItemRef,
       cause: SessionStartCause | null,
-    ): Promise<OperatorPreferenceData | undefined>;
+    ): Promise<ProjectManagerPreferenceData | undefined>;
   };
   /**
    * The engines (PM-311): a session's worktrees, member workspaces, session folders, sandbox places

@@ -3,8 +3,8 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy } from '@projectman/shared';
 import type {
   ProjectManagerCorner,
-  OperatorRequestView,
-  OperatorSignal,
+  ProjectManagerRequestView,
+  ProjectManagerSignal,
   TeamMessage,
   MessageAttachmentRef,
   UiLocation,
@@ -34,7 +34,7 @@ import { OperatorSteps } from './OperatorSteps';
 import styles from './OperatorThread.module.css';
 
 /** A message that did not go out: the text stays visible so it can be sent again. */
-export interface FailedOperatorMessage {
+export interface FailedProjectManagerMessage {
   text: string;
   taskKey: string | null;
   attachments?: MessageAttachmentRef[];
@@ -44,21 +44,21 @@ export interface FailedOperatorMessage {
   clientRequestId?: string;
 }
 
-type OperatorEntry =
+type ProjectManagerEntry =
   | { type: 'message'; id: string; at: string; day: string | null; entry: ThreadEntry }
-  | { type: 'signals'; id: string; at: string; day: string | null; signals: OperatorSignal[] };
+  | { type: 'signals'; id: string; at: string; day: string | null; signals: ProjectManagerSignal[] };
 
 /** Keep signal runs within a calendar day and break message runs around them. */
-function operatorEntries(messages: TeamMessage[], signals: OperatorSignal[]): OperatorEntry[] {
-  const items: OperatorEntry[] = [
-    ...layoutThread(threadItems(messages, [], []), null).map((entry): OperatorEntry => ({
+function operatorEntries(messages: TeamMessage[], signals: ProjectManagerSignal[]): ProjectManagerEntry[] {
+  const items: ProjectManagerEntry[] = [
+    ...layoutThread(threadItems(messages, [], []), null).map((entry): ProjectManagerEntry => ({
       type: 'message',
       id: entry.item.id,
       at: entry.item.at,
       day: null,
       entry,
     })),
-    ...signals.map((signal): OperatorEntry => ({
+    ...signals.map((signal): ProjectManagerEntry => ({
       type: 'signals',
       id: signal.id,
       at: signal.raisedAt,
@@ -72,7 +72,7 @@ function operatorEntries(messages: TeamMessage[], signals: OperatorSignal[]): Op
       Number(a.type === 'signals') - Number(b.type === 'signals') ||
       a.id.localeCompare(b.id),
   );
-  const result: OperatorEntry[] = [];
+  const result: ProjectManagerEntry[] = [];
   let lastDay = '';
   for (const item of items) {
     const day = new Date(item.at).toDateString();
@@ -99,11 +99,11 @@ function operatorEntries(messages: TeamMessage[], signals: OperatorSignal[]): Op
  * that opened it, else (an answer, or a message past the page limit) at the end of the thread.
  */
 function stepAnchors(
-  requests: readonly OperatorRequestView[],
+  requests: readonly ProjectManagerRequestView[],
   messages: readonly TeamMessage[],
-): { byMessage: Map<string, OperatorRequestView[]>; trailing: OperatorRequestView[] } {
-  const byMessage = new Map<string, OperatorRequestView[]>();
-  const trailing: OperatorRequestView[] = [];
+): { byMessage: Map<string, ProjectManagerRequestView[]>; trailing: ProjectManagerRequestView[] } {
+  const byMessage = new Map<string, ProjectManagerRequestView[]>();
+  const trailing: ProjectManagerRequestView[] = [];
   const ids = new Set(messages.map((message) => message.id));
   for (const request of requests) {
     if (request.steps.length === 0) continue;
@@ -126,7 +126,7 @@ export function OperatorThread({
 }: {
   handle: string;
   channel: ProjectManagerCorner;
-  failed: FailedOperatorMessage | null;
+  failed: FailedProjectManagerMessage | null;
   /** The failed message is being sent again. */
   retrying?: boolean;
   onRetry: () => void;
@@ -150,7 +150,7 @@ export function OperatorThread({
   const messages = useMemo(() => conversation.data?.messages ?? [], [conversation.data]);
   const anchors = useMemo(() => stepAnchors(channel.requests, messages), [channel.requests, messages]);
   const signalByMessage = useMemo(() => {
-    const map = new Map<string, OperatorSignal[]>();
+    const map = new Map<string, ProjectManagerSignal[]>();
     for (const signal of channel.signals)
       if (signal.messageId) map.set(signal.messageId, [...(map.get(signal.messageId) ?? []), signal]);
     return map;

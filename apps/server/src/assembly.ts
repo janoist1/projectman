@@ -42,7 +42,7 @@ import {
   createSuperHandoffService,
   createSuperOperator,
 } from './services/super-operator';
-import type { OperatorAppOperations, SuperOperations } from './services/super-operator';
+import type { ProjectManagerAppOperations, SuperOperations } from './services/super-operator';
 import { createAlertNoticeSink, createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -86,7 +86,7 @@ import type {
   HistoryDocumentReader,
   MachineProbe,
   MemberMemoryStore,
-  OperatorKnowledgeStore,
+  ProjectManagerKnowledgeStore,
   MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
@@ -129,7 +129,7 @@ import {
   ProjectManagerKnowledge,
   ProjectManagerPreferences,
   ProjectManagerRequests,
-  OperatorSteps,
+  ProjectManagerSteps,
 } from './services/coordination';
 import {
   LoopTriages,
@@ -260,7 +260,7 @@ export interface DomainOptions {
   githubActions?: GithubActionsClient;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
-  operatorKnowledge: OperatorKnowledgeStore;
+  operatorKnowledge: ProjectManagerKnowledgeStore;
   worktrees: WorktreeManager;
   /**
    * The machines the sessions run on (PM-311). Absent: the one this server runs on, `local`, built from
@@ -662,7 +662,7 @@ export function createDomain(opts: DomainOptions) {
     requests: operatorRequests,
     store: opts.operatorKnowledge,
   });
-  const operatorSteps = new OperatorSteps({ ctx });
+  const operatorSteps = new ProjectManagerSteps({ ctx });
   const messages = new MessageService({ ctx, timeline, projects, coordinationRequests });
   const sharedOperatorKnowledge = new ProjectManagerKnowledge({
     ctx,
@@ -1632,7 +1632,7 @@ export function createDomain(opts: DomainOptions) {
     openQuestionLabel,
   });
   // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
-  let superPath: { operations: OperatorAppOperations; direct: SuperOperations } | null = null;
+  let superPath: { operations: ProjectManagerAppOperations; direct: SuperOperations } | null = null;
   const hostRequests = createHostRequestsService({
     ctx,
     host: () => opts.accounts.hostOwner(),

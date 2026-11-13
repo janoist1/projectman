@@ -15,7 +15,7 @@ import type {
 import type {
   IntegratorCredentialAuthority,
   IntegratorPrincipal,
-  OperatorAppSessions,
+  ProjectManagerAppSessions,
 } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { projectAccessFor } from '../../core/members';
@@ -59,7 +59,7 @@ export function createOperatorAppSessions(deps: {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   actingRequest(projectKey: string, sessionId: string): { source: string; fromHandle: string } | null;
-}): OperatorAppSessions {
+}): ProjectManagerAppSessions {
   return {
     active(principal) {
       if (principal.source !== 'app') return false;
@@ -80,7 +80,7 @@ export function createOperatorAppSessions(deps: {
   };
 }
 
-interface OperatorAppCredentials {
+interface ProjectManagerAppCredentials {
   /** What every consumer of the shared path asks: keys go to the stored-key authority, app principals to the sessions. */
   authority: IntegratorCredentialAuthority;
   /** The principal of a live Operator session; null when the project has no owner with an account. */
@@ -99,12 +99,12 @@ interface OperatorAppCredentials {
 
 export function createOperatorAppCredentials(deps: {
   base: IntegratorCredentialAuthority | undefined;
-  sessions: OperatorAppSessions;
+  sessions: ProjectManagerAppSessions;
   /** The request the session acts on, when there is one: where it came from decides what the session may start. */
   actingRequest(projectKey: string, sessionId: string): { source: string; fromHandle: string } | null;
   user(id: string): { email: string; name?: string } | null;
   userByEmail(email: string): { id: string; email: string } | null;
-}): OperatorAppCredentials {
+}): ProjectManagerAppCredentials {
   // Only principals made here are app principals: a copy or a forged object is never in the set.
   const live = new WeakSet<IntegratorPrincipal>();
   const approved = new WeakSet<IntegratorPrincipal>();
@@ -194,7 +194,7 @@ interface AppOperationInput {
  */
 export function createOperatorAppOperations(deps: {
   ctx: DomainContext;
-  credentials: OperatorAppCredentials;
+  credentials: ProjectManagerAppCredentials;
   superOperator: Pick<SuperOperator, 'access' | 'execute'>;
   superOperations: Pick<SuperOperations, 'operate' | 'operation'>;
   projects: Pick<ProjectService, 'config'>;
@@ -260,4 +260,4 @@ export function createOperatorAppOperations(deps: {
     },
   };
 }
-export type OperatorAppOperations = ReturnType<typeof createOperatorAppOperations>;
+export type ProjectManagerAppOperations = ReturnType<typeof createOperatorAppOperations>;

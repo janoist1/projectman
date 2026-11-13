@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import type { OperatorSignal, TeamMessage } from '@projectman/shared';
+import type { ProjectManagerSignal, TeamMessage } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { useDismissOperatorSignal, useSendTeamMessage } from '../../api/queries';
@@ -14,7 +14,7 @@ import { t } from '../../i18n/t';
 import styles from './OperatorSignalCard.module.css';
 
 /** The heading of a signal: its kind, with the card's key as a link where the kind names one. */
-export function SignalTitle({ signal, projectKey }: { signal: OperatorSignal; projectKey: string }) {
+export function SignalTitle({ signal, projectKey }: { signal: ProjectManagerSignal; projectKey: string }) {
   const marker = '\u0000';
   const text = t(`operator.signal.kinds.${signal.kind}`, { key: marker });
   const [before = '', after = ''] = text.split(marker);
@@ -31,7 +31,7 @@ export function SignalTitle({ signal, projectKey }: { signal: OperatorSignal; pr
 }
 
 /** What happened to a signal that is no longer open, with the time. */
-export function closedText(signal: OperatorSignal): string | null {
+export function closedText(signal: ProjectManagerSignal): string | null {
   switch (signal.state) {
     case 'accepted':
       return signal.decidedAt
@@ -63,7 +63,7 @@ export function OperatorSignalCard({
   onDismiss,
   unreadMark,
 }: {
-  signal: OperatorSignal;
+  signal: ProjectManagerSignal;
   /** The Operator's message that presented the signal, if the thread holds it. */
   message: TeamMessage | null;
   operatorHandle: string;

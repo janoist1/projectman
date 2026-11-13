@@ -8,9 +8,9 @@ import {
   RelayOwnerAnswerRequest,
   ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
-  OperatorAgreementData,
-  OperatorHandoff,
-  OperatorPrincipleData,
+  ProjectManagerAgreementData,
+  ProjectManagerHandoff,
+  ProjectManagerPrincipleData,
   questionPayloadOf,
   SuperOperateArgs,
 } from '@projectman/shared';
@@ -156,7 +156,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
           : result.items
               .map((item) => {
                 const todo = questionPayloadOf(item)?.screening?.todo;
-                const handoff = OperatorHandoff.safeParse(item.payload.operatorHandoff);
+                const handoff = ProjectManagerHandoff.safeParse(item.payload.operatorHandoff);
                 return [
                   `## ${item.id} · ${item.projectKey} · ${item.kind} · ${item.state}${item.taskKey ? ` · ${item.taskKey}` : ''}`,
                   item.title,
@@ -203,9 +203,9 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     hostOnly: true,
     input: {
       expected_revision: z.number().int().nonnegative(),
-      agreement: OperatorAgreementData.optional(),
+      agreement: ProjectManagerAgreementData.optional(),
       principles: z
-        .array(OperatorPrincipleData.extend({ id: OperatorPrincipleData.shape.id.optional() }))
+        .array(ProjectManagerPrincipleData.extend({ id: ProjectManagerPrincipleData.shape.id.optional() }))
         .max(20)
         .optional(),
     },

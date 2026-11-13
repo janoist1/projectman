@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { DEFAULT_OPERATOR_PREFERENCE, OperatorPreferenceDocument, routes } from '@projectman/shared';
-import type { OperatorPreferenceData, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
+import { DEFAULT_OPERATOR_PREFERENCE, ProjectManagerPreferenceDocument, routes } from '@projectman/shared';
+import type { ProjectManagerPreferenceData, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp/tools';
 import { createContextPackBuilder } from '../src/context';
@@ -89,7 +89,7 @@ describe('personal Operator preference authorization', () => {
       text: 'Change my style',
     });
   }
-  const set = (ctx: ToolContext, preference: OperatorPreferenceData = detailed, expectedRevision = 0) =>
+  const set = (ctx: ToolContext, preference: ProjectManagerPreferenceData = detailed, expectedRevision = 0) =>
     h.domain.teamTools.setOperatorPreference(ctx, { preference, expectedRevision });
 
   it('lets the PM change, reset and compare-and-swap the owner style, and nothing else', async () => {
@@ -500,7 +500,7 @@ describe('preference REST reads', () => {
     for (const [handle, cookie] of cookies) {
       const me = await inject(h.app, 'GET', routes.operatorPreferenceMe('AR'), cookie, undefined);
       expect(me.statusCode).toBe(200);
-      expect(OperatorPreferenceDocument.parse(me.json()).revision).toBe(handle === 'dana' ? 1 : 0);
+      expect(ProjectManagerPreferenceDocument.parse(me.json()).revision).toBe(handle === 'dana' ? 1 : 0);
       const all = await inject(h.app, 'GET', routes.operatorPreferences('AR'), cookie, undefined);
       expect(all.statusCode).toBe(handle === 'owner' || handle === 'ada' ? 200 : 403);
       if (all.statusCode === 200)

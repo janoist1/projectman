@@ -1,23 +1,25 @@
-import { OperatorAgreementData, OperatorPrincipleData } from '@projectman/shared';
-import type { OperatorKnowledgeDocument } from '@projectman/shared';
+import { ProjectManagerAgreementData, ProjectManagerPrincipleData } from '@projectman/shared';
+import type { ProjectManagerKnowledgeDocument } from '@projectman/shared';
 import { z } from 'zod';
-import type { OperatorKnowledgeStore } from '../../contracts';
+import type { ProjectManagerKnowledgeStore } from '../../contracts';
 import { invalid, newId } from '../../kernel';
 
 /** Who approved the instance knowledge: the connected owner, through the Operator's super key. */
 const APPROVED_BY = 'owner';
 
 /** A principle the Operator writes; the server gives a new one its id and keeps the id of an existing one. */
-const PrincipleInput = OperatorPrincipleData.extend({ id: OperatorPrincipleData.shape.id.optional() });
+const PrincipleInput = ProjectManagerPrincipleData.extend({
+  id: ProjectManagerPrincipleData.shape.id.optional(),
+});
 
 export const UpdateInstanceKnowledgeInput = z.strictObject({
   expectedRevision: z.number().int().nonnegative(),
-  agreement: OperatorAgreementData.optional(),
+  agreement: ProjectManagerAgreementData.optional(),
   principles: z.array(PrincipleInput).max(20).optional(),
 });
 export type UpdateInstanceKnowledgeInput = z.infer<typeof UpdateInstanceKnowledgeInput>;
 
-type Store = Pick<OperatorKnowledgeStore, 'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'>;
+type Store = Pick<ProjectManagerKnowledgeStore, 'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'>;
 
 /**
  * The instance-level knowledge of the global Operator (PM-1046): the same document as a project's, but one for
@@ -28,14 +30,17 @@ export async function updateInstanceKnowledge(
   store: Store,
   input: UpdateInstanceKnowledgeInput,
   at: string,
-): Promise<OperatorKnowledgeDocument> {
+): Promise<ProjectManagerKnowledgeDocument> {
   const parsed = UpdateInstanceKnowledgeInput.safeParse(input);
   if (!parsed.success) throw invalid('invalid_request', 'invalid instance knowledge update');
   const { expectedRevision, agreement, principles } = parsed.data;
   if (agreement === undefined && principles === undefined)
     throw invalid('invalid_request', 'give an agreement, principles or both');
   const previous = await store.readInstanceKnowledge();
-  const next: OperatorKnowledgeDocument = { ...structuredClone(previous), revision: expectedRevision + 1 };
+  const next: ProjectManagerKnowledgeDocument = {
+    ...structuredClone(previous),
+    revision: expectedRevision + 1,
+  };
   if (agreement !== undefined)
     next.agreement = {
       version: (previous.agreement?.version ?? 0) + 1,

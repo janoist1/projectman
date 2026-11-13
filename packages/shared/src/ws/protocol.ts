@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EngineStatusView } from '../domain/engine';
-import { MemberView, PlanUsage, OperatorSignal } from '../api/dto';
+import { MemberView, PlanUsage, ProjectManagerSignal } from '../api/dto';
 import { ChatItem } from '../chat/chat';
 import { DocumentSlug } from '../domain/document';
 import { TimelineEvent } from '../domain/event';
@@ -14,7 +14,7 @@ import { Task, TaskKey } from '../domain/task';
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project_checklist_changed'), projectKey: z.string() }),
-  z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
+  z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: ProjectManagerSignal }),
   /** `projectKey`: the change is a project–engine binding of that project (PM-1060); absent: the engine itself changed. */
   z.object({
     type: z.literal('engine_changed'),

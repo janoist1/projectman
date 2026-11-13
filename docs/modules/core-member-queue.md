@@ -16,7 +16,7 @@ from it (see "Driver" below).
   source id), unique, so enqueueing twice is a no-op. Columns: `kind` (`message`, `todo`, `fix_limit`, ...), the `place`
   the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
   (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the project manager's
-  outcome (`OperatorQueueOutcome`).
+  outcome (`ProjectManagerQueueOutcome`).
   The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
   `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of

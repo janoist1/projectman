@@ -1084,9 +1084,9 @@ export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): b
 }
 
 /** The Operator's part in a question the viewer did not see (the trail "Az Operátor intézte"). */
-export type OperatorTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
+export type ProjectManagerTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
 
-export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
+export function operatorTrailMark(item: InboxItem): ProjectManagerTrailMark {
   if (item.state === 'screening') return 'at';
   const screening = screeningOf(item);
   // A machine step that went to the technical decider (PM-1139) is forwarded, though its outcome is `todo`.

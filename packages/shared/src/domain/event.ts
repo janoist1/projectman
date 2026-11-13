@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { CommentAttachmentRef } from './attachment';
 import type { ConfigChangeRow } from '../config/operator';
-import type { OperatorKnowledgeChange } from './operator-knowledge';
+import type { ProjectManagerKnowledgeChange } from './operator-knowledge';
 import type { AcceptanceChange } from './acceptance';
 import type { ComplexityPoints } from './complexity';
 import type { ItemState } from './item-state';
@@ -815,7 +815,7 @@ export interface TimelineEventData {
   team_contact_changed: { handle: string; contact: boolean; version: string };
   operator_knowledge_changed: {
     proposalId: string;
-    kind: OperatorKnowledgeChange['kind'];
+    kind: ProjectManagerKnowledgeChange['kind'];
     revision: number;
     agreementVersion: number | null;
   };

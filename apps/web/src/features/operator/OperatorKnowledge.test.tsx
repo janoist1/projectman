@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { InboxItem, OperatorKnowledgeApprovalPayload } from '@projectman/shared';
+import type { InboxItem, ProjectManagerKnowledgeApprovalPayload } from '@projectman/shared';
 import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
 import { Route, Routes } from 'react-router';
 import { MeContext } from '../../app/contexts';
@@ -58,9 +58,9 @@ function renderView(project: ReturnType<typeof setup>, overrides = {}) {
 }
 function proposal(
   _project: ReturnType<typeof setup>,
-  change: OperatorKnowledgeApprovalPayload['change'],
+  change: ProjectManagerKnowledgeApprovalPayload['change'],
 ): InboxItem {
-  const payload: OperatorKnowledgeApprovalPayload = {
+  const payload: ProjectManagerKnowledgeApprovalPayload = {
     id: 'proposal-1',
     requestId: 'req-1',
     stepId: 'step-1',
@@ -186,7 +186,7 @@ describe('Operator knowledge approvals', () => {
   it('does not replay a proposal prefill after closing and reopening the panel', async () => {
     const project = setup();
     const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });
-    const payload = item.payload.operatorKnowledge as OperatorKnowledgeApprovalPayload;
+    const payload = item.payload.operatorKnowledge as ProjectManagerKnowledgeApprovalPayload;
     payload.stale = { reason: 'knowledge_changed', at: '2026-10-14T12:00:00.000Z' };
     item.options = [{ id: 'dismiss', label: 'Dismiss', style: 'secondary' }];
     project.backend.inbox = [item];
@@ -229,7 +229,7 @@ describe('Operator knowledge approvals', () => {
         extraCritical: ['Ask about release'],
       },
     });
-    const payload = item.payload.operatorKnowledge as OperatorKnowledgeApprovalPayload;
+    const payload = item.payload.operatorKnowledge as ProjectManagerKnowledgeApprovalPayload;
     payload.changes = [
       {
         area: 'member',
@@ -263,7 +263,7 @@ describe('Operator knowledge approvals', () => {
   it('shows a principle being recorded without active decision buttons', async () => {
     const project = setup();
     const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });
-    const payload = item.payload.operatorKnowledge as OperatorKnowledgeApprovalPayload;
+    const payload = item.payload.operatorKnowledge as ProjectManagerKnowledgeApprovalPayload;
     payload.applying = { by: 'owner', at: '2026-10-14T12:00:00.000Z' };
     const decide = vi.fn();
     project.render(
@@ -286,7 +286,7 @@ describe('Operator knowledge approvals', () => {
   it('lets an admin read the proposal without offering a decision', async () => {
     const project = setup();
     const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });
-    const payload = item.payload.operatorKnowledge as OperatorKnowledgeApprovalPayload;
+    const payload = item.payload.operatorKnowledge as ProjectManagerKnowledgeApprovalPayload;
     project.render(
       <OperatorKnowledgeActions
         item={item}

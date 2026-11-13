@@ -4,33 +4,33 @@ import {
   hasAccess,
   memberOf,
   operatorKnowledgeApprovalOf,
-  OperatorKnowledgeDocument,
+  ProjectManagerKnowledgeDocument,
   ownerHandles,
   OPERATOR_DISMISS_OPTION,
-  ProposeOperatorKnowledgeRequest,
+  ProposeProjectManagerKnowledgeRequest,
 } from '@projectman/shared';
 import type {
   InboxItem,
-  OperatorKnowledgeApprovalPayload,
+  ProjectManagerKnowledgeApprovalPayload,
   SessionStartCause,
   WorkItemRef,
 } from '@projectman/shared';
-import type { ContextPackInput, OperatorKnowledgeStore, ToolContext } from '../../contracts';
+import type { ContextPackInput, ProjectManagerKnowledgeStore, ToolContext } from '../../contracts';
 import { isoNow, type DomainContext } from '../../core/base';
 import { DECISION_OPTIONS, type InboxService, type Resolver } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
 import { conflict, forbidden, humanActor, invalid, newId } from '../../kernel';
-import type { ProjectManagerRequests, OperatorSteps } from './requests';
+import type { ProjectManagerRequests, ProjectManagerSteps } from './requests';
 
 /** Owner-approved shared knowledge. File writes and configuration commits share one project lock. */
 export class ProjectManagerKnowledge {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    store: OperatorKnowledgeStore;
+    store: ProjectManagerKnowledgeStore;
     requests: ProjectManagerRequests;
-    steps: OperatorSteps;
+    steps: ProjectManagerSteps;
     inbox: InboxService;
     timeline: TimelineService;
   };
@@ -38,12 +38,12 @@ export class ProjectManagerKnowledge {
     this.deps = deps;
   }
 
-  read(projectKey: string): Promise<OperatorKnowledgeDocument> {
+  read(projectKey: string): Promise<ProjectManagerKnowledgeDocument> {
     return this.deps.store.readKnowledge(projectKey);
   }
 
   /** MCP reads require an actual internal general session of the Operator or project manager. */
-  async get(ctx: ToolContext): Promise<OperatorKnowledgeDocument> {
+  async get(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument> {
     const config = await this.deps.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (!isProjectManager(member))
@@ -76,8 +76,8 @@ export class ProjectManagerKnowledge {
     return { revision, agreement, principles };
   }
 
-  async propose(ctx: ToolContext, input: ProposeOperatorKnowledgeRequest) {
-    const parsed = ProposeOperatorKnowledgeRequest.safeParse(input);
+  async propose(ctx: ToolContext, input: ProposeProjectManagerKnowledgeRequest) {
+    const parsed = ProposeProjectManagerKnowledgeRequest.safeParse(input);
     if (!parsed.success) throw invalid('invalid_request', 'invalid knowledge proposal');
     const args = parsed.data;
     return this.deps.projects.withConfigurationLock(ctx.projectKey, async (loaded) => {
@@ -103,7 +103,7 @@ export class ProjectManagerKnowledge {
         throw conflict('operator_knowledge_stale', 'shared knowledge changed');
       const change = structuredClone(args.change);
       if (change.kind === 'principle_put' && change.principle.id === null) change.principle.id = newId('olp');
-      const payload: OperatorKnowledgeApprovalPayload = {
+      const payload: ProjectManagerKnowledgeApprovalPayload = {
         id: newId('okp'),
         requestId: request.id,
         stepId: newId('ops'),
@@ -234,8 +234,8 @@ export class ProjectManagerKnowledge {
   }
 
   private next(
-    previous: OperatorKnowledgeDocument,
-    payload: OperatorKnowledgeApprovalPayload,
+    previous: ProjectManagerKnowledgeDocument,
+    payload: ProjectManagerKnowledgeApprovalPayload,
     by: string,
     at: string,
   ) {
@@ -261,7 +261,7 @@ export class ProjectManagerKnowledge {
     }
     next.revision++;
     next.appliedProposalIds.push(payload.id);
-    const parsed = OperatorKnowledgeDocument.safeParse(next);
+    const parsed = ProjectManagerKnowledgeDocument.safeParse(next);
     if (!parsed.success) throw invalid('invalid_request', 'knowledge document limit exceeded');
     return parsed.data;
   }
@@ -290,8 +290,8 @@ export class ProjectManagerKnowledge {
 
   private finish(
     item: InboxItem,
-    payload: OperatorKnowledgeApprovalPayload,
-    document: OperatorKnowledgeDocument,
+    payload: ProjectManagerKnowledgeApprovalPayload,
+    document: ProjectManagerKnowledgeDocument,
     note: string | null,
   ): void {
     const applying = payload.applying!;
@@ -319,7 +319,7 @@ export class ProjectManagerKnowledge {
     return closed;
   }
 
-  private update(item: InboxItem, payload: OperatorKnowledgeApprovalPayload): void {
+  private update(item: InboxItem, payload: ProjectManagerKnowledgeApprovalPayload): void {
     const updated = this.deps.ctx.repos.inbox.updateOperator(
       item.id,
       { ...item.payload, operatorKnowledge: payload },
@@ -332,7 +332,7 @@ export class ProjectManagerKnowledge {
 
   private stale(
     item: InboxItem,
-    payload: OperatorKnowledgeApprovalPayload,
+    payload: ProjectManagerKnowledgeApprovalPayload,
     reason: 'knowledge_changed' | 'config_changed',
   ): void {
     this.deps.ctx.unitOfWork(() => {

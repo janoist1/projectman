@@ -46,7 +46,7 @@ import type {
   ProjectConfig,
   TaskKey,
   UpdateMemberRequest,
-  OperatorMemberChanges,
+  ProjectManagerMemberChanges,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions, MemberRenameRuntime } from './ports';
@@ -386,7 +386,7 @@ export class MemberService {
   async update(
     projectKey: string,
     handle: string,
-    req: UpdateMemberRequest | OperatorMemberChanges,
+    req: UpdateMemberRequest | ProjectManagerMemberChanges,
     by: { actor: Actor; author: Author },
   ): Promise<MemberView> {
     await this.projects.update(projectKey, by, (draft) => this.prepareUpdate(draft, handle, req));
@@ -419,7 +419,7 @@ export class MemberService {
   prepareUpdate(
     draft: ProjectConfig,
     handle: string,
-    req: Omit<UpdateMemberRequest, 'permissionMode'> & Partial<OperatorMemberChanges>,
+    req: Omit<UpdateMemberRequest, 'permissionMode'> & Partial<ProjectManagerMemberChanges>,
   ): string {
     const member = memberOf(draft, handle);
     if (!member) throw notFound('member', handle);

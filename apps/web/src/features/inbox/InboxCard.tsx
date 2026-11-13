@@ -15,7 +15,7 @@ import {
   operatorKnowledgeApprovalOf,
   emailApprovalOf,
   questionPayloadOf,
-  OperatorHandoff as OperatorHandoffSchema,
+  ProjectManagerHandoff,
 } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -239,7 +239,7 @@ export function InboxCard({
     enabled: !!operationPayload && project?.isOwner === true && !project.me.via,
   });
   const ownerCommand = ownerCommandOf(operation.data?.operation);
-  const handoffResult = OperatorHandoffSchema.safeParse(item.payload.operatorHandoff);
+  const handoffResult = ProjectManagerHandoff.safeParse(item.payload.operatorHandoff);
   const handoff = handoffResult.success ? handoffResult.data : null;
   const fromOperator = isOperatorInboxRequest(item);
   const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;

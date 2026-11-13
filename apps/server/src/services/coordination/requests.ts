@@ -10,13 +10,13 @@ import {
 import type {
   ConfigChangeRow,
   ErrorCode,
-  OperatorAction,
-  OperatorRequestView,
-  OperatorStep,
-  OperatorStepStatus,
+  ProjectManagerAction,
+  ProjectManagerRequestView,
+  ProjectManagerStep,
+  ProjectManagerStepStatus,
   ProjectConfig,
 } from '@projectman/shared';
-import type { OperatorRequestRecord, OperatorStepRecord } from '../../db';
+import type { ProjectManagerRequestRecord, ProjectManagerStepRecord } from '../../db';
 import type { ProjectService } from '../../core/projects';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
@@ -107,9 +107,9 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * The step a refused write is logged as: the action the call would have been. A tool that is no
- * action of the Operator's (`OperatorAction`) is refused with no step.
+ * action of the Operator's (`ProjectManagerAction`) is refused with no step.
  */
-export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
+export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, ProjectManagerAction>> = {
   send_message: 'message',
   create_task: 'task_create',
   update_task: 'task_update',
@@ -127,7 +127,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   record_system_feedback: 'system_feedback',
 };
 
-interface OpenOperatorRequest {
+interface OpenProjectManagerRequest {
   projectKey: string;
   sessionId: string;
   source: 'message' | 'answer' | 'approval' | 'queue';
@@ -154,7 +154,7 @@ export class ProjectManagerRequests {
   }
 
   /** Opens a request and closes the session's previous ones. */
-  open(input: OpenOperatorRequest): OperatorRequestRecord {
+  open(input: OpenProjectManagerRequest): ProjectManagerRequestRecord {
     const { repos } = this.ctx;
     const now = isoNow(this.ctx);
     return this.ctx.unitOfWork(() => {
@@ -181,7 +181,7 @@ export class ProjectManagerRequests {
     });
   }
 
-  approvalFor(config: ProjectConfig, request: OperatorRequestRecord, operator: string) {
+  approvalFor(config: ProjectConfig, request: ProjectManagerRequestRecord, operator: string) {
     if (request.source !== 'approval' || !request.inboxItemId || !request.messageId) return null;
     const message = this.ctx.repos.messages.get(request.messageId);
     const item = this.ctx.repos.inbox.get(request.inboxItemId);
@@ -218,8 +218,8 @@ export class ProjectManagerRequests {
   }
 
   /** The request the session works on now: the newest one that is not closed and not past its time. */
-  openFor(sessionId: string): OperatorRequestRecord | null {
-    let found: OperatorRequestRecord | null = null;
+  openFor(sessionId: string): ProjectManagerRequestRecord | null {
+    let found: ProjectManagerRequestRecord | null = null;
     for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId)) {
       if (this.expire(request) || request.source === 'signal') continue;
       found ??= request;
@@ -232,14 +232,14 @@ export class ProjectManagerRequests {
    * It holds the steps on system signals, and (PM-1287) the PM's steps on its own authority, which carry no
    * signal. It authorizes nothing: `openFor` never returns it; `CoordinationRequests.actingRequest` does.
    */
-  roundFor(sessionId: string): OperatorRequestRecord | null {
+  roundFor(sessionId: string): ProjectManagerRequestRecord | null {
     for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId))
       if (request.source === 'signal' && !this.expire(request)) return request;
     return null;
   }
 
   /** The session's signal round, opened by the first step on a signal. */
-  openRound(projectKey: string, sessionId: string): OperatorRequestRecord {
+  openRound(projectKey: string, sessionId: string): ProjectManagerRequestRecord {
     const open = this.roundFor(sessionId);
     if (open) return open;
     const request = {
@@ -269,7 +269,7 @@ export class ProjectManagerRequests {
    * The latest requests that these members made with their steps, the newest last; the ones past their
    * time are closed first. The owners' channel lists the owners' requests, a guest's their own (PM-475).
    */
-  views(projectKey: string, fromHandles: string[], recipient?: string): OperatorRequestView[] {
+  views(projectKey: string, fromHandles: string[], recipient?: string): ProjectManagerRequestView[] {
     const { operatorRequests } = this.ctx.repos;
     for (const request of operatorRequests.openOfProject(projectKey)) this.expire(request);
     return operatorRequests
@@ -285,7 +285,7 @@ export class ProjectManagerRequests {
   }
 
   /** Closes the request when its time is up, at the moment it ran out; true when it is closed. */
-  private expire(request: OperatorRequestRecord): boolean {
+  private expire(request: ProjectManagerRequestRecord): boolean {
     const until = Date.parse(request.openedAt) + OPERATOR_REQUEST_TTL_MS;
     if (this.ctx.now().getTime() < until) return false;
     this.ctx.repos.operatorRequests.close(request.id, new Date(until).toISOString());
@@ -294,7 +294,7 @@ export class ProjectManagerRequests {
 }
 
 /** The PM's requests use separate session rows and never inherit an Operator request or signal round. */
-interface OpenCoordinationRequest extends OpenOperatorRequest {}
+interface OpenCoordinationRequest extends OpenProjectManagerRequest {}
 
 export class CoordinationRequests extends ProjectManagerRequests {
   private readonly coordinationCtx: DomainContext;
@@ -306,7 +306,7 @@ export class CoordinationRequests extends ProjectManagerRequests {
     this.projects = deps.projects;
   }
 
-  override open(input: OpenCoordinationRequest): OperatorRequestRecord {
+  override open(input: OpenCoordinationRequest): ProjectManagerRequestRecord {
     if (!this.isCoordinationSession(input.sessionId, input.projectKey))
       throw forbidden('project_manager_only', 'coordination requires the selected PM internal conversation');
     if (input.source === 'approval' && !this.validApproval(input))
@@ -314,7 +314,7 @@ export class CoordinationRequests extends ProjectManagerRequests {
     return super.open(input);
   }
 
-  override openFor(sessionId: string): OperatorRequestRecord | null {
+  override openFor(sessionId: string): ProjectManagerRequestRecord | null {
     const request = this.isCoordinationSession(sessionId) ? super.openFor(sessionId) : null;
     if (
       request?.source === 'approval' &&
@@ -337,7 +337,7 @@ export class CoordinationRequests extends ProjectManagerRequests {
    * under `outside_owner_only` and in the PM's own internal general conversation (never a guest's), the session's
    * own round: the PM acts on its own authority, and its steps hang on the round without a signal. Else null.
    */
-  actingRequest(projectKey: string, sessionId: string): OperatorRequestRecord | null {
+  actingRequest(projectKey: string, sessionId: string): ProjectManagerRequestRecord | null {
     const request = this.openFor(sessionId);
     if (request) return request;
     const config = this.projects.cachedConfig(projectKey);
@@ -385,7 +385,7 @@ export class CoordinationRequests extends ProjectManagerRequests {
   }
 }
 
-function stepView(step: OperatorStepRecord): OperatorStep {
+function stepView(step: ProjectManagerStepRecord): ProjectManagerStep {
   return {
     ...step,
     agreementVersion: step.agreementVersion ?? null,
@@ -396,13 +396,13 @@ function stepView(step: OperatorStepRecord): OperatorStep {
   };
 }
 
-interface OperatorStepInput {
+interface ProjectManagerStepInput {
   agreementVersion?: number | null;
   approvalMode?: 'click' | 'waived' | null;
   id?: string;
   requestId: string;
-  action: OperatorAction;
-  status: OperatorStepStatus;
+  action: ProjectManagerAction;
+  status: ProjectManagerStepStatus;
   taskKey?: string | null;
   member?: string | null;
   changes?: ConfigChangeRow[];
@@ -418,15 +418,15 @@ interface OperatorStepInput {
 }
 
 /** What the Operator did for a request, one step per call, the refused ones too. */
-export class OperatorSteps {
+export class ProjectManagerSteps {
   private readonly ctx: DomainContext;
 
   constructor(deps: { ctx: DomainContext }) {
     this.ctx = deps.ctx;
   }
 
-  record(input: OperatorStepInput): OperatorStepRecord {
-    const step: OperatorStepRecord = {
+  record(input: ProjectManagerStepInput): ProjectManagerStepRecord {
+    const step: ProjectManagerStepRecord = {
       agreementVersion: input.agreementVersion ?? null,
       approvalMode: input.approvalMode ?? null,
       id: input.id ?? newId('ops'),
@@ -449,7 +449,7 @@ export class OperatorSteps {
   }
 
   /** The steps the Operator took on a signal, the oldest first. */
-  ofSignal(signalId: string): OperatorStepRecord[] {
+  ofSignal(signalId: string): ProjectManagerStepRecord[] {
     return this.ctx.repos.operatorRequests.stepsOfSignal(signalId);
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
-import { applyConfigPatch, OperatorConfigPatch, prepareOperatorConfigPatch } from './edit';
+import { applyConfigPatch, ProjectManagerConfigPatch, prepareOperatorConfigPatch } from './edit';
 import {
   actorMoveRefusal,
   coordinationActorRefusal,
@@ -186,7 +186,7 @@ describe('projectManagerMoveRefusal', () => {
     const patch = prepareOperatorConfigPatch(
       config,
       'v1',
-      OperatorConfigPatch.parse({ projectManagerMoves: 'start_only' }),
+      ProjectManagerConfigPatch.parse({ projectManagerMoves: 'start_only' }),
     );
     const restricted = applyConfigPatch(config, patch);
     expect(projectManagerMoveRefusal(restricted, 'ideas', 'ready')).toBe('project_manager_move_refused');

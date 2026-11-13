@@ -14,18 +14,18 @@ export const PatternFacts = z.strictObject({
 });
 export type PatternFacts = z.infer<typeof PatternFacts>;
 
-export const OperatorStructuralReview = z.strictObject({
+export const ProjectManagerStructuralReview = z.strictObject({
   signalId: z.string(),
   evidence: PatternFacts.nullable(),
   milestoneKey: TaskKey.nullable(),
   note: z.string().min(1).max(2000),
   member: MemberHandle.nullable(),
 });
-export type OperatorStructuralReview = z.infer<typeof OperatorStructuralReview>;
+export type ProjectManagerStructuralReview = z.infer<typeof ProjectManagerStructuralReview>;
 
 export function structuralReviewOf(item: Pick<InboxItem, 'kind' | 'payload'>) {
   if (item.kind !== 'question') return null;
-  const parsed = OperatorStructuralReview.safeParse(item.payload.operatorStructuralReview);
+  const parsed = ProjectManagerStructuralReview.safeParse(item.payload.operatorStructuralReview);
   return parsed.success ? parsed.data : null;
 }
 

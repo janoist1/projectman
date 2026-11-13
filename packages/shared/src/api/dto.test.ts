@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { BoardView, Me, OperatorMemberChanges, PlanUsage, RoleView, UpdateMemberRequest } from './dto';
+import { BoardView, Me, ProjectManagerMemberChanges, PlanUsage, RoleView, UpdateMemberRequest } from './dto';
 
 it('drops the five-hour fields of an older engine answer and keeps the weekly ones (PM-1293)', () => {
   const old = {
@@ -18,7 +18,7 @@ it('drops the five-hour fields of an older engine answer and keeps the weekly on
 
 it.each([
   ['a member update', UpdateMemberRequest],
-  ['an Operator member change', OperatorMemberChanges],
+  ['an Operator member change', ProjectManagerMemberChanges],
 ] as const)('refuses a separate mailbox name in %s, naming the card (PM-1039)', (_name, schema) => {
   const result = schema.safeParse({ email: { enabled: true, mailbox: 'builder' } });
   expect(result.success).toBe(false);

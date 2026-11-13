@@ -17,8 +17,8 @@ import {
 } from '@projectman/shared';
 import type {
   ErrorCode,
-  OperatorAction,
-  OperatorOperation,
+  ProjectManagerAction,
+  ProjectManagerOperation,
   ProjectConfig,
   ProjectDoc,
   Session,
@@ -37,7 +37,11 @@ import {
   OPERATOR_TOOL_ACTIONS,
   PM_CARD_TOOLS,
 } from '../services/coordination';
-import type { CoordinationRequests, ProjectManagerRequests, OperatorSteps } from '../services/coordination';
+import type {
+  CoordinationRequests,
+  ProjectManagerRequests,
+  ProjectManagerSteps,
+} from '../services/coordination';
 import type { Viewer } from '../core/projects';
 import type { ProjectManagerSignals } from '../services/coordination';
 import type { ProjectService } from '../core/projects';
@@ -166,7 +170,7 @@ export class ToolCaller {
   private readonly tasks: Pick<TaskService, 'find' | 'get'>;
   private readonly operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
   private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
-  private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
+  private readonly operatorSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
   private readonly operatorSignals: Pick<
     ProjectManagerSignals,
     'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
@@ -182,7 +186,7 @@ export class ToolCaller {
     tasks: Pick<TaskService, 'find' | 'get'>;
     operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
     coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
-    operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
+    operatorSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
     operatorSignals: Pick<
       ProjectManagerSignals,
       'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
@@ -257,7 +261,7 @@ export class ToolCaller {
     tool: string,
     signal?: { ids: string[]; to: string[] },
     signalStep?: SignalStep,
-    operation?: OperatorOperation,
+    operation?: ProjectManagerOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     // The PM's conversation with someone who is not an owner (PM-1080): the guest tools alone, whatever
@@ -450,7 +454,7 @@ export class ToolCaller {
   async recorded<T>(
     { config, request, signalId, holdsSignalStep, beforeWrite }: CallerWithRequest,
     step: {
-      action: OperatorAction;
+      action: ProjectManagerAction;
       taskKey?: string | null;
       member?: string | null;
       /** The task the call made, when the step names it only afterwards. */

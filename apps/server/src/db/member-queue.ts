@@ -4,7 +4,7 @@ import type {
   MemberQueueItemKind,
   MemberQueueSource,
   MemberQueueState,
-  OperatorQueueOutcome,
+  ProjectManagerQueueOutcome,
   WorkItemRef,
 } from '@projectman/shared';
 import type { Db } from './database';
@@ -73,7 +73,7 @@ interface MemberQueueClose {
   at: string;
   /** Close only this member's item of the source; default: every member's. */
   member?: string;
-  outcome?: OperatorQueueOutcome | null;
+  outcome?: ProjectManagerQueueOutcome | null;
 }
 
 /** The task a place needs the workspace of; a place without one (a conversation, the desk) has none. */
@@ -100,7 +100,7 @@ const toItem = (row: ItemRow): StoredMemberQueueItem => ({
   sessionId: row.session_id,
   wait: row.wait_code && row.wait_at ? { code: row.wait_code, at: row.wait_at } : null,
   waitDetails: parseJson<MemberQueueWaitDetails | null>(row.wait_details, null),
-  outcome: parseJson<OperatorQueueOutcome | null>(row.outcome, null),
+  outcome: parseJson<ProjectManagerQueueOutcome | null>(row.outcome, null),
 });
 
 /**

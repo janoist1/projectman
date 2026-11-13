@@ -4,8 +4,13 @@ import { integratorConfigRefusal } from './integrator';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { OPERATOR_WATCH_LEVELS, operatorWatchOf } from './operator-watch';
 import { ownerOnlyChanges } from './owner-only';
-import { ConfigChangeRow, OperatorLevel, operatorAutonomousLevel, operatorConfigVerdict } from './operator';
-import type { OperatorConfigVerdict } from './operator';
+import {
+  ConfigChangeRow,
+  ProjectManagerLevel,
+  operatorAutonomousLevel,
+  operatorConfigVerdict,
+} from './operator';
+import type { ProjectManagerConfigVerdict } from './operator';
 import { actorMoveRefusal } from './project-manager';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
@@ -147,7 +152,7 @@ function verdict(edit: (next: ProjectConfig) => void, base: () => ProjectConfig 
   return { previous, next, result: operatorConfigVerdict(previous, next, { operator: 'operator' }) };
 }
 
-type Case = [string, (next: ProjectConfig) => void, OperatorLevel];
+type Case = [string, (next: ProjectConfig) => void, ProjectManagerLevel];
 
 /** The fields of an AI member the integrator rule covers but the owner wants to go straight through. */
 const FOUR = ['model', 'effort', 'capacity', 'schedule'];
@@ -615,8 +620,8 @@ describe('operator levels', () => {
   });
 
   it('level names parse', () => {
-    expect(OperatorLevel.options).toEqual(['now', 'approval', 'never']);
-    const verdictShape: OperatorConfigVerdict = { level: 'now', changes: [] };
+    expect(ProjectManagerLevel.options).toEqual(['now', 'approval', 'never']);
+    const verdictShape: ProjectManagerConfigVerdict = { level: 'now', changes: [] };
     expect(verdictShape.changes).toEqual([]);
   });
 });

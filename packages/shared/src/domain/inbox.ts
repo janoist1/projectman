@@ -9,7 +9,7 @@ import { ItemRouteRecord } from './item-route';
 import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
 import { FixLimitAssessment, FixLimitOptionId, FixRoundHistoryEntry } from './fix-limit';
 import { LabelId } from './label';
-import { OperatorHandoffReason } from './member-queue';
+import { ProjectManagerHandoffReason } from './member-queue';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { ObligationRef } from './obligation';
@@ -1064,14 +1064,14 @@ export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload'
 }
 
 /** `payload.operatorHandoff` of an item the Operator passed on (PM-885). */
-export const OperatorHandoff = z.object({
+export const ProjectManagerHandoff = z.object({
   queueItemId: z.string(),
-  reason: OperatorHandoffReason,
+  reason: ProjectManagerHandoffReason,
   action: z.string().max(300),
   detail: z.string().max(2000).nullable(),
   operationId: z.string().nullable(),
 });
-export type OperatorHandoff = z.infer<typeof OperatorHandoff>;
+export type ProjectManagerHandoff = z.infer<typeof ProjectManagerHandoff>;
 
 export const QuestionPayload = z.object({
   requestedRecipient: QuestionRecipient.optional(),
@@ -1126,7 +1126,7 @@ export const QuestionPayload = z.object({
   /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
   obligation: ObligationRef.optional(),
   /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
-  operatorHandoff: OperatorHandoff.optional(),
+  operatorHandoff: ProjectManagerHandoff.optional(),
   /** The system signal this question was asked about (PM-455): the question closes when the signal's case ends. */
   signalId: z.string().optional(),
 });

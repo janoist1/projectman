@@ -10,8 +10,8 @@ import type {
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
-  OperatorPreferenceData,
-  OperatorKnowledgeDocument,
+  ProjectManagerPreferenceData,
+  ProjectManagerKnowledgeDocument,
   PausePoint,
   PreviousConversationReason,
   ProjectConfig,
@@ -78,9 +78,9 @@ export interface ContextPackInput {
   /** The member's own durable memory (markdown). */
   memory: string;
   /** Only the current human's enumerated conversational style; never authorization. */
-  operatorPreference?: OperatorPreferenceData;
+  operatorPreference?: ProjectManagerPreferenceData;
   /** Approved shared data only; application markers and preferences never cross this port. */
-  operatorKnowledge?: Pick<OperatorKnowledgeDocument, 'revision' | 'agreement' | 'principles'>;
+  operatorKnowledge?: Pick<ProjectManagerKnowledgeDocument, 'revision' | 'agreement' | 'principles'>;
   /**
    * The task's readable attachments (metadata only, oldest first), listed in the kick-off brief.
    * Omitted (or empty) when the task has none or the work item is not a task.

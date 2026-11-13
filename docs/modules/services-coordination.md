@@ -29,7 +29,7 @@ older events and messages name it.
   authority limits and the procedure index; the procedures are read on demand from the role guide.
 - **Configuration changes.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
   (`packages/shared/src/config/operator.ts`) compares the end results of a configuration change and returns the rows
-  (`ConfigChangeRow`: area, target, field, before, after, level) and the highest `OperatorLevel`: `now`, `never` or
+  (`ConfigChangeRow`: area, target, field, before, after, level) and the highest `ProjectManagerLevel`: `now`, `never` or
   `approval`. Everything not named is `approval`, so a new configuration field is closed until a rule opens it.
   `integratorConfigRefusal` and `ownerOnlyChanges` name more that is at least `approval`. The rules run on the
   server. (The approval waiver setting `team.operatorApprovalWaiver`, with the verdict's `waiverEligible`, was
@@ -188,7 +188,7 @@ other members, hand-overs, merges and release proposals are not coordination too
 it found on to the step log, so a request expiring between the two cannot leave a write without its step. Its
 `ask_human` goes to the owners only. Rules live in the one place `caller`; a new tool must name itself there.
 
-**Step log** (`operator_steps`, `OperatorSteps.record`). One tool call is one step of the open request, done or refused
+**Step log** (`operator_steps`, `ProjectManagerSteps.record`). One tool call is one step of the open request, done or refused
 (`update_task`: `task_move` > `task_labels` > `task_priority` > `task_update`; `create_task`: `task_create`;
 `send_message` to anyone but an owner: `message`; `attach_file`, `delete_attachment` and `link_pull_request` are
 `task_update`; the map is `OPERATOR_TOOL_ACTIONS`). A move that waits for a human's approval is `awaiting_approval`. A

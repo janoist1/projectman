@@ -1,4 +1,4 @@
-import type { OperatorSessions } from './ports';
+import type { ProjectManagerSessions } from './ports';
 import {
   answerStallEvidence,
   conditionHolds,
@@ -22,7 +22,7 @@ import {
   operatorSignalStepAllowed,
   operatorSignalStepGapMs,
   operatorWatchOf,
-  OperatorSignal,
+  ProjectManagerSignal,
   LoopTriageFacts,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   isOnLeave,
@@ -42,9 +42,9 @@ import type {
   AnswerEvidence,
   AnswerStalledFacts,
   ObligationOverdueFacts,
-  OperatorSignalKind,
-  OperatorSignalStepTargets,
-  OperatorWatch,
+  ProjectManagerSignalKind,
+  ProjectManagerSignalStepTargets,
+  ProjectManagerWatch,
   ProjectConfig,
   SeniorWaitDecisionPayload,
   StartBlockedReason,
@@ -53,7 +53,7 @@ import type {
   TimelineEvent,
   WorkOutageAlert,
 } from '@projectman/shared';
-import type { OperatorSignalRecord } from '../../db';
+import type { ProjectManagerSignalRecord } from '../../db';
 import {
   StructuralPatterns,
   STRUCTURAL_KINDS,
@@ -80,7 +80,7 @@ type SignalHold = 'interval' | 'unready';
 
 type SignalInput = {
   projectKey: string;
-  kind: OperatorSignalKind;
+  kind: ProjectManagerSignalKind;
   caseKey: string;
   taskKey?: string | null;
   subject?: string | null;
@@ -88,14 +88,14 @@ type SignalInput = {
 };
 
 /** The kinds raised and closed from the board's facts (PM-547), not from an event. */
-const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set(['merge_blocked', 'answer_stalled']);
+const BOARD_KINDS: ReadonlySet<ProjectManagerSignalKind> = new Set(['merge_blocked', 'answer_stalled']);
 
 /**
  * `unreleased` is retired by PM-1333: the `release_due` integrator todo carries the case, so an open row an
  * older build left is resolved by the sweep (state, event and the questions asked about it, as for any ended
  * case).
  */
-const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set(['unreleased']);
+const RETIRED_KINDS: ReadonlySet<ProjectManagerSignalKind> = new Set(['unreleased']);
 
 /** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
 const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
@@ -131,7 +131,7 @@ const WAKE_SENIOR =
   'A senior_wait signal is your decision at every level, and the owners are not asked about it unless it costs money: a card waits for a developer whose limit reaches its points. Read get_task and the facts, then call decide_senior_wait (task_key, decision "wait" to keep waiting for the Senior or "any" to let a free developer take the card, and a reason). When the choice needs more capacity (a paid plan, a temp worker), ask the owners with ask_human, the topic cost and the signal_id, and decide when they answer.';
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
-const WAKE_HEADERS: Record<OperatorWatch, string> = {
+const WAKE_HEADERS: Record<ProjectManagerWatch, string> = {
   report: `${WAKE_CHECK} The signal itself changes nothing: your authority line says what you may do. ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
   unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
   drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
@@ -167,7 +167,9 @@ export function relationCheckCase(
   return { caseKey: `relation_check:${taskKey}:${subject}`, subject };
 }
 
-function relationCheckFacts(signal: OperatorSignalRecord): { relations: { kind: string; key: string }[] } {
+function relationCheckFacts(signal: ProjectManagerSignalRecord): {
+  relations: { kind: string; key: string }[];
+} {
   return {
     relations: (signal.subject ?? '')
       .split(',')
@@ -206,7 +208,7 @@ export class ProjectManagerSignals {
   constructor(privateDeps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: OperatorSessions;
+    sessions: ProjectManagerSessions;
     queue: Pick<MemberQueue, 'add'>;
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
@@ -225,7 +227,7 @@ export class ProjectManagerSignals {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: OperatorSessions;
+    sessions: ProjectManagerSessions;
     /** The coordinator's work queue: a pending signal is an item of it. */
     queue: Pick<MemberQueue, 'add'>;
     /** Works the member's queue (the driver's `ensure`). */
@@ -252,11 +254,11 @@ export class ProjectManagerSignals {
     return this.cardReader.readSchedulingTasks(projectKey, { kind: 'open' });
   }
 
-  raise(input: SignalInput): OperatorSignalRecord {
+  raise(input: SignalInput): ProjectManagerSignalRecord {
     const { ctx } = this.deps;
     const existing = ctx.repos.operatorSignals.openByCase(input.projectKey, input.caseKey);
     if (existing) return existing;
-    const signal: OperatorSignalRecord = {
+    const signal: ProjectManagerSignalRecord = {
       ...input,
       id: newId('ops'),
       state: 'pending',
@@ -352,7 +354,7 @@ export class ProjectManagerSignals {
     );
   }
 
-  presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
+  presentation(projectKey: string, id: string, by?: string): ProjectManagerSignalRecord {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
@@ -388,7 +390,7 @@ export class ProjectManagerSignals {
     });
   }
 
-  dismissByOperator(projectKey: string, id: string, by: string, note: string): OperatorSignal {
+  dismissByOperator(projectKey: string, id: string, by: string, note: string): ProjectManagerSignal {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
@@ -412,10 +414,10 @@ export class ProjectManagerSignals {
       decisionNote: note,
     };
     this.save(updated);
-    return OperatorSignal.parse(updated);
+    return ProjectManagerSignal.parse(updated);
   }
 
-  decision(projectKey: string, id: string, by: string, accepted: boolean): OperatorSignal {
+  decision(projectKey: string, id: string, by: string, accepted: boolean): ProjectManagerSignal {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (
       !signal ||
@@ -433,7 +435,7 @@ export class ProjectManagerSignals {
       decidedAt: isoNow(this.deps.ctx),
     };
     this.save(updated);
-    return OperatorSignal.parse(updated);
+    return ProjectManagerSignal.parse(updated);
   }
 
   /**
@@ -443,7 +445,7 @@ export class ProjectManagerSignals {
   async stepTargets(
     projectKey: string,
     signalId: string,
-  ): Promise<{ signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets }> {
+  ): Promise<{ signal: ProjectManagerSignalRecord; allowed: ProjectManagerSignalStepTargets }> {
     await this.deps.projects.config(projectKey);
     return this.currentStepTargets(projectKey, signalId);
   }
@@ -452,7 +454,7 @@ export class ProjectManagerSignals {
   currentStepTargets(
     projectKey: string,
     signalId: string,
-  ): { signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets } {
+  ): { signal: ProjectManagerSignalRecord; allowed: ProjectManagerSignalStepTargets } {
     const { ctx, projects } = this.deps;
     const signal = ctx.repos.operatorSignals.get(signalId);
     if (!signal || signal.projectKey !== projectKey)
@@ -470,7 +472,10 @@ export class ProjectManagerSignals {
   }
 
   /** The targets by the case alone, whether or not the signal is open for the coordinator yet. */
-  private stepTargetsOf(config: ProjectConfig, signal: OperatorSignalRecord): OperatorSignalStepTargets {
+  private stepTargetsOf(
+    config: ProjectConfig,
+    signal: ProjectManagerSignalRecord,
+  ): ProjectManagerSignalStepTargets {
     const { ctx, taskWaits } = this.deps;
     const projectKey = signal.projectKey;
     const startable = (handles: readonly string[]) =>
@@ -478,7 +483,7 @@ export class ProjectManagerSignals {
         const member = memberOf(config, handle);
         return member?.kind === 'ai' && !isOnLeave(member);
       });
-    const allowed: OperatorSignalStepTargets = { startTask: null, members: [], taskKey: null };
+    const allowed: ProjectManagerSignalStepTargets = { startTask: null, members: [], taskKey: null };
     const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
     if (signal.kind === 'obligation_overdue' && task) {
       // The step is the responsible's: a work step is a start of the card, any other one a start of the member.
@@ -543,7 +548,10 @@ export class ProjectManagerSignals {
    * The facts of a `start_blocked` signal while its case stands, else null. The git error text is not among
    * them: a remote URL in it may carry credentials, and the server log has it.
    */
-  private startBlockedFacts(config: ProjectConfig, signal: OperatorSignalRecord): StartBlockedFacts | null {
+  private startBlockedFacts(
+    config: ProjectConfig,
+    signal: ProjectManagerSignalRecord,
+  ): StartBlockedFacts | null {
     const { ctx } = this.deps;
     const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
     const waiting = task ? this.deps.startWaitingOf(task) : undefined;
@@ -572,7 +580,7 @@ export class ProjectManagerSignals {
   }
 
   /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
-  private stepOf(level: OperatorWatch, config: ProjectConfig, signal: OperatorSignalRecord) {
+  private stepOf(level: ProjectManagerWatch, config: ProjectConfig, signal: ProjectManagerSignalRecord) {
     if (!operatorSignalStepAllowed(level, signal.kind)) return null;
     const allowed = this.stepTargetsOf(config, signal);
     if (allowed.startTask) return { tool: 'start_task' as const, task_key: allowed.startTask, members: [] };
@@ -589,7 +597,7 @@ export class ProjectManagerSignals {
   }
 
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
-  active(projectKey: string): OperatorSignal[] {
+  active(projectKey: string): ProjectManagerSignal[] {
     return this.deps.ctx.repos.operatorSignals
       .listOpen(projectKey)
       .filter(
@@ -597,10 +605,10 @@ export class ProjectManagerSignals {
           s.deliveredAt !== null && s.resolvedAt === null && (s.state === 'pending' || s.state === 'open'),
       )
       .sort((a, b) => a.raisedAt.localeCompare(b.raisedAt))
-      .map((s) => OperatorSignal.parse(s));
+      .map((s) => ProjectManagerSignal.parse(s));
   }
 
-  channel(projectKey: string): { signals: OperatorSignal[]; openSignals: number } {
+  channel(projectKey: string): { signals: ProjectManagerSignal[]; openSignals: number } {
     const { operatorSignals } = this.deps.ctx.repos;
     const since = new Date(this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000).toISOString();
     // Only the last week is read; the open count comes from the open signals, however old.
@@ -608,7 +616,7 @@ export class ProjectManagerSignals {
       signals: operatorSignals
         .listSince(projectKey, since)
         .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state !== 'pending')
-        .map((s) => OperatorSignal.parse(s)),
+        .map((s) => ProjectManagerSignal.parse(s)),
       openSignals: operatorSignals
         .listOpen(projectKey)
         .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state === 'open').length,
@@ -616,7 +624,7 @@ export class ProjectManagerSignals {
   }
 
   /** Server-produced evidence, reconstructed from the original timeline window and checked against now. */
-  structuralFacts(signal: OperatorSignalRecord): StructuralFacts {
+  structuralFacts(signal: ProjectManagerSignalRecord): StructuralFacts {
     const config = this.deps.projects.cachedConfig(signal.projectKey);
     return config ? new StructuralPatterns(this.deps.ctx).evaluate(config).facts(signal) : null;
   }
@@ -925,7 +933,7 @@ export class ProjectManagerSignals {
                   now,
                 );
           return JSON.stringify({
-            ...OperatorSignal.parse(s),
+            ...ProjectManagerSignal.parse(s),
             facts: structuralKind(s.kind)
               ? structural()!.facts(s)
               : s.kind === 'loop_suspected'
@@ -1005,8 +1013,8 @@ export class ProjectManagerSignals {
       open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey),
       resolve = true,
       board: known,
-    }: { open?: OperatorSignalRecord[]; resolve?: boolean; board?: BoardRead } = {},
-  ): OperatorSignalRecord[] {
+    }: { open?: ProjectManagerSignalRecord[]; resolve?: boolean; board?: BoardRead } = {},
+  ): ProjectManagerSignalRecord[] {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined = known?.cases;
@@ -1055,7 +1063,7 @@ export class ProjectManagerSignals {
   /** Whether the case of the signal still stands, read from the cards, merges, sessions and releases now. */
   private caseHolds(
     config: ProjectConfig | undefined,
-    s: OperatorSignalRecord,
+    s: ProjectManagerSignalRecord,
     board: () => Map<string, SignalInput> = () =>
       config ? this.boardRead(config, this.openCards(s.projectKey)).cases : new Map(),
     structural = this.lazyStructuralEvaluation(config),
@@ -1261,7 +1269,7 @@ export class ProjectManagerSignals {
   }
 
   /** What the project manager needs to weigh an overdue step: the row's clock, not the reasons it stands. */
-  private obligationOverdueFacts(signal: OperatorSignalRecord): ObligationOverdueFacts | null {
+  private obligationOverdueFacts(signal: ProjectManagerSignalRecord): ObligationOverdueFacts | null {
     const row = this.deps.ctx.repos.obligations.get(signal.subject ?? '');
     if (!row) return null;
     return {
@@ -1281,7 +1289,7 @@ export class ProjectManagerSignals {
   /** What the project manager weighs about a card that waits for a Senior: the wait, its points and the developers it waits for. */
   private seniorWaitFacts(
     config: ProjectConfig,
-    signal: OperatorSignalRecord,
+    signal: ProjectManagerSignalRecord,
   ): SeniorWaitDecisionPayload | null {
     const row = this.deps.ctx.repos.obligations.get(signal.subject ?? '');
     const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
@@ -1297,7 +1305,7 @@ export class ProjectManagerSignals {
     };
   }
 
-  private answerStalledFacts(signal: OperatorSignalRecord): AnswerStalledFacts | null {
+  private answerStalledFacts(signal: ProjectManagerSignalRecord): AnswerStalledFacts | null {
     const member = answerStalledMember(signal.caseKey);
     const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
     if (!member || !task) return null;
@@ -1318,7 +1326,7 @@ export class ProjectManagerSignals {
    * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds; a
    * structural signal also waits while one was delivered in the last day. Read once, asked per signal.
    */
-  private wakeLine(projectKey: string): (signal: OperatorSignalRecord) => boolean {
+  private wakeLine(projectKey: string): (signal: ProjectManagerSignalRecord) => boolean {
     const signals = this.deps.ctx.repos.operatorSignals;
     const now = this.deps.ctx.now().getTime();
     const due = (last: string | null, wait: number) => last === null || now - Date.parse(last) >= wait;
@@ -1344,13 +1352,13 @@ export class ProjectManagerSignals {
         (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)
       );
   }
-  private save(signal: OperatorSignalRecord, publish = true): void {
+  private save(signal: ProjectManagerSignalRecord, publish = true): void {
     this.deps.ctx.repos.operatorSignals.save(signal);
     if (publish && signal.deliveredAt && signal.state !== 'pending')
       this.deps.ctx.bus.publish({
         type: 'operator_signal',
         projectKey: signal.projectKey,
-        signal: OperatorSignal.parse(signal),
+        signal: ProjectManagerSignal.parse(signal),
       });
   }
 }

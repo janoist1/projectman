@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { operatorKnowledgeApprovalOf, ProposeOperatorKnowledgeRequest } from '@projectman/shared';
-import type { OperatorKnowledgeChange, OperatorOperation, Session } from '@projectman/shared';
+import { operatorKnowledgeApprovalOf, ProposeProjectManagerKnowledgeRequest } from '@projectman/shared';
+import type { ProjectManagerKnowledgeChange, ProjectManagerOperation, Session } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
@@ -21,7 +21,7 @@ import { seedOperatorRequest } from './helpers/operator-session';
 let h: DomainHarness;
 let ctx: ToolContext;
 const owner = { handle: 'owner', access: 'owner' as const };
-const agreement: OperatorKnowledgeChange = {
+const agreement: ProjectManagerKnowledgeChange = {
   kind: 'agreement_replace',
   agreement: {
     summary: 'Ask before critical steps. PRIVATE_AGREEMENT',
@@ -29,7 +29,7 @@ const agreement: OperatorKnowledgeChange = {
     extraCritical: ['Release'],
   },
 };
-const principle: OperatorKnowledgeChange = {
+const principle: ProjectManagerKnowledgeChange = {
   kind: 'principle_put',
   principle: {
     id: null,
@@ -38,7 +38,11 @@ const principle: OperatorKnowledgeChange = {
     effect: 'Explain partial results',
   },
 };
-const immediate: OperatorOperation = { op: 'member_update', handle: 'dev-1', changes: { model: 'sonnet' } };
+const immediate: ProjectManagerOperation = {
+  op: 'member_update',
+  handle: 'dev-1',
+  changes: { model: 'sonnet' },
+};
 afterEach(async () => {
   vi.restoreAllMocks();
   await h?.cleanup();
@@ -73,7 +77,7 @@ async function setup(persistent = false) {
   const { session } = seedOperatorRequest(h, 'AR', { text: 'Propose an agreement', member: 'pm' });
   ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
-function propose(change = agreement, operations: OperatorOperation[] = [], revision = 0) {
+function propose(change = agreement, operations: ProjectManagerOperation[] = [], revision = 0) {
   return h.domain.teamTools.proposeOperatorKnowledge(ctx, {
     expected_revision: revision,
     title: 'Proposed knowledge',
@@ -316,7 +320,7 @@ describe('owner-approved Operator knowledge', () => {
     expect(h.repos.inbox.listOpen('approval')).toHaveLength(0);
     expect((await document()).revision).toBe(0);
     expect(
-      ProposeOperatorKnowledgeRequest.safeParse({
+      ProposeProjectManagerKnowledgeRequest.safeParse({
         expected_revision: 0,
         title: 'Proposal',
         change: { ...agreement, approvedBy: 'owner' },
@@ -441,7 +445,7 @@ describe('shared knowledge session boundaries', () => {
     await flush();
     const session = await waitForSession(h.domain, { member: 'pm' });
     const pm: ToolContext = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
-    const proposeAs = (operations: OperatorOperation[]) =>
+    const proposeAs = (operations: ProjectManagerOperation[]) =>
       h.domain.teamTools.proposeOperatorKnowledge(pm, {
         expected_revision: 0,
         title: 'PM proposal',

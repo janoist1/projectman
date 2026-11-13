@@ -1325,6 +1325,13 @@ socket operation any more (`scripts/live/watch.ts` and `release-test` are gone).
   writes nothing and shows the tag, the cards and the text; it stays open to an AI member who holds the
   project's `deployment` duty. The tool is on the connected Claude's endpoint (`super` mode), together
   with `get_release_status`.
+- A further owner account's connected AI cannot publish releases or run production compute jobs
+  (PM-1428). `publish_release` is host-only on the bearer endpoint: it is omitted from the tool list
+  and direct calls receive `host_only`. The authenticated execution scope also carries the host-owner
+  check into `assertReleaseAuthority`, protecting publication and production jobs at domain entry.
+  Non-production compute jobs and integrator todos remain available within the key's own projects.
+  `release_due` todos are raised only where the host is a project owner; existing todos elsewhere
+  are settled by the next sweep.
 - The publication is serialized per repository (`KeyedMutex`), recorded in `release_publications` and
   resumable. It tags a merge commit that has landed on the default branch, pushes the tag through the
   repository's engine, and makes the public GitHub release through the GitHub engine

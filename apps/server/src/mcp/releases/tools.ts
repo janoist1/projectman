@@ -74,6 +74,7 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
       external: {
         access: 'write',
         modes: ['super'],
+        hostOnly: true,
         async run({ ctx, args, handler }) {
           const result = await handler.publishRelease(ctx, publishArgs(args));
           return { structured: { release: result }, text: formatPublished(result) };

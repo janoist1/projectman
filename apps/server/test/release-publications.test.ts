@@ -214,6 +214,15 @@ describe('publish_release', () => {
       });
     });
 
+    it('refuses a further owner’s live scope even when the actor owns the project', async () => {
+      await setup();
+      const claude = connectedClaude();
+      await expect(
+        inIntegratorExecution(claude, () => publish({ by: claude }), { hostOwner: false }),
+      ).rejects.toMatchObject({ code: 'host_only' });
+      refusedWithNothingWritten();
+    });
+
     it('refuses a bound actor outside an authenticated execution', async () => {
       await setup();
 

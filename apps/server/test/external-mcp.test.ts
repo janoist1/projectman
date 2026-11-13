@@ -418,6 +418,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       expect(hostTools).toContain(name);
     }
     expect(tenantTools).toContain('list_integrator_inbox');
+    expect(hostOnly).toContain('publish_release');
+    const publish = await call(tenantKey.secret, 'publish_release', {
+      project_key: 'BR',
+      summary: 'Release changes',
+    });
+    expect(publish.structuredContent?.errorCode).toBe('host_only');
     const instructionsOf = async (secret: string) =>
       (
         await post(
@@ -431,6 +437,38 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       ).json().result.instructions as string;
     expect(await instructionsOf(key('super').secret)).toContain('get_operator_instance_knowledge');
     expect(await instructionsOf(tenantKey.secret)).not.toContain('get_operator_instance_knowledge');
+  });
+
+  it('refuses production compute jobs through a further owner’s authenticated MCP scope', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    await h.app.projectman.domain.projects.update(
+      'BR',
+      { actor: humanActor('owner'), author: OWNER_LOGIN },
+      (draft) => {
+        draft.project.repos[0]!.computeJobs = [
+          {
+            id: 'deploy',
+            workflow: 'projectman-deploy.yml',
+            command: 'npm run deploy',
+            runsOn: 'ubuntu-24.04',
+            outputs: ['deploy.json'],
+            timeoutMinutes: 30,
+          },
+        ];
+        return 'Configure the production job';
+      },
+    );
+    const secret = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    }).secret;
+    const result = await call(secret, 'run_compute_job', {
+      project_key: 'BR',
+      job: 'deploy',
+      commit: 'a'.repeat(40),
+    });
+    expect(result.structuredContent?.errorCode).toBe('host_only');
+    expect(h.app.projectman.repos.computeJobRuns.list('BR', { limit: 10 })).toEqual([]);
   });
 
   it('keeps a further owner’s queue to their own projects, and the host’s to theirs (PM-1063)', async () => {

@@ -323,6 +323,7 @@ describe('super-mode origin and audit (PM-757)', () => {
         return runIntegratorExecution(
           {
             active: true,
+            hostOwner: true,
             context: { ...context, principal: { ...context.principal, source: 'app', requestOrigin } },
             actorFor: () => context.actor,
             assertAccess: (config) => memberOf(config, 'owner') as HumanMemberConfig,

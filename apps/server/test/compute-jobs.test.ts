@@ -292,6 +292,24 @@ describe('compute jobs', () => {
       expect(git.prepare).not.toHaveBeenCalled();
     };
 
+    it('refuses a further owner’s connected AI a production job before creating a run', async () => {
+      await setup();
+      const claude = connectedClaude();
+      await expect(
+        inIntegratorExecution(claude, () => start({ job: 'cloud-deploy', by: claude }), { hostOwner: false }),
+      ).rejects.toMatchObject({ code: 'host_only' });
+      refusedWithNoRun();
+    });
+
+    it('keeps non-production jobs available to a further owner’s connected AI', async () => {
+      await setup();
+      const claude = connectedClaude();
+      await expect(
+        inIntegratorExecution(claude, () => start({ by: claude }), { hostOwner: false }),
+      ).resolves.toMatchObject({ job: 'cloud-image', requestedBy: 'owner' });
+      await running();
+    });
+
     it.each([
       ['the devops', DEVOPS],
       ['the owner’s Claude on a queue item the devops issued', connectedClaude('owner', 'devops')],

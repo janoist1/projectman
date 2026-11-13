@@ -44,6 +44,7 @@ const OWNER_INSTRUCTIONS =
   'current project: list_projects names the projects of this key, and every other tool takes project_key. ' +
   'A refused call answers {errorCode, message}; the code is the domain’s own. ' +
   'You are the connected Claude of the key’s owner, and you work only on the owner’s own projects (list_projects). ' +
+  'Releases and production jobs are unavailable to you; release_due todos belong to the host owner. ' +
   'Work your queue with list_integrator_inbox (without project_key: every project of yours) and ' +
   'resolve_integrator_todo. Machine work (installing the engine, Node, git, preparing the GitHub login, updates) ' +
   'runs on the owner’s own machine, with the owner’s approval and your client’s own permission prompt; the ' +

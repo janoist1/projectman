@@ -2614,6 +2614,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   there is no classification and the failure stays a failure. The merge-test is unchanged and runs every
   file. **Remote engine:** it runs where the member's session runs (the card's engine); the probe and the
   classification stay in one process, with no server-engine crossing.
+  PM-1411: `scripts/merge-test/npm.ts` gives each child its own environment copy and removes
+  `PROJECTMAN_TEST_RUN_FACTS` unless that call requests `runFacts: true`, so nested checks do not
+  inherit the enclosing hand-over check's reporter opt-in. This adds no OS assumption or remote crossing.
   Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine:** `full_test.run/cancel` executes on the card's engine with its

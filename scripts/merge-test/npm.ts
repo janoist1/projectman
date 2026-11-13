@@ -32,13 +32,16 @@ export function runNpm(
         ]
       : args;
     // Reuse the guard's process-group cleanup, including when this controller is killed.
+    const env = { ...process.env };
+    // Each caller opts in independently, including calls nested inside a hand-over check.
+    if (runFacts) env[RUN_FACTS_VARIABLE] = '1';
+    else delete env[RUN_FACTS_VARIABLE];
     const child = spawn(
       process.execPath,
       [fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.url)), 'npm', ...command],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        // The reporter prints its structured failure facts only for this variable (the hand-over check asks).
-        ...(runFacts ? { env: { ...process.env, [RUN_FACTS_VARIABLE]: '1' } } : {}),
+        env,
       },
     );
     const kept = new OutputTail();

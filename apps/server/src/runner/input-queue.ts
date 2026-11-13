@@ -34,6 +34,11 @@ export interface InputQueueHost {
   /** The CLI is ready for input and idle. */
   isIdle(): boolean;
   /**
+   * The session is not idle only because a subagent's hooks said so (the main agent has not run since): that
+   * says nothing about a typed message, which the CLI may not have taken at all (PM-1364).
+   */
+  subagentOnlyBusy?(): boolean;
+  /**
    * The last check before a message is typed: 0 to type it now, a number of milliseconds to
    * check again after, or null to hold the queue until the next pump (e.g. a dialog covers the
    * prompt; the session pumps again once it is gone).
@@ -265,7 +270,7 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
             const outcome = waiter
               ? pending.command
                 ? 'not_taken'
-                : s.turnActivity || !host.isIdle()
+                : s.turnActivity || (!host.isIdle() && !host.subagentOnlyBusy?.())
                   ? 'taken_unconfirmed'
                   : 'waiting_late'
               : null;
@@ -292,7 +297,11 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
             host.onChange?.();
             return;
           }
-          if (!pending.command && pending.retries < timing.maxEnterRetries && host.isIdle()) {
+          if (
+            !pending.command &&
+            pending.retries < timing.maxEnterRetries &&
+            (host.isIdle() || host.subagentOnlyBusy?.())
+          ) {
             pending.retries += 1;
             host.write(ENTER_KEY);
           }

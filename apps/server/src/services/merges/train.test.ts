@@ -809,7 +809,10 @@ describe('merge train execution', () => {
       failedFiles,
       outputTail: 'Group failure',
     });
-    /** The group check fails; each lone run answers by the member (1-based card number) its candidate holds. */
+    /**
+     * The group check fails; each lone run answers by the member (1-based card number) its candidate holds,
+     * and the run of the default branch alone (no merge commit of a member) answers as card 0.
+     */
     function script(group: FullTestResult, lone: (card: number) => FullTestResult) {
       let groups = 0;
       vi.mocked(executor.run).mockImplementation(async (spec, _signal, started) => {
@@ -820,8 +823,8 @@ describe('merge train execution', () => {
           return group;
         }
         const mergeCommit = merger.checkoutForCheck.mock.calls.at(-1)![1].mergeCommit;
-        const card = Number.parseInt(merger.parents.get(mergeCommit)![1]!, 16);
-        return lone(card);
+        const parents = merger.parents.get(mergeCommit);
+        return lone(parents ? Number.parseInt(parents[1]!, 16) : 0);
       });
     }
     const queuedKeys = () => h.repos.taskMerges.list('queued').map((r) => r.taskKey);
@@ -907,13 +910,35 @@ describe('merge train execution', () => {
 
     it('blames every member that fails alone', async () => {
       await setup(3, true, filesCommand);
-      script(groupFailed(['a.test.ts']), (card) => (card === 3 ? passed : groupFailed(['a.test.ts'])));
+      script(groupFailed(['a.test.ts']), (card) =>
+        card === 3 || card === 0 ? passed : groupFailed(['a.test.ts']),
+      );
       pump();
       await vi.waitFor(() => expect(row('AR-2')?.state).toBe('failed'));
       await settled();
       expect(row('AR-1')?.state).toBe('failed');
       expect(row('AR-3')?.state).toBe('queued');
       expect(row('AR-3')?.diagnostic).toBeUndefined();
+      // The files run once on the default branch alone before the cards were failed; it passed.
+      expect(loneCalls()).toHaveLength(4);
+    });
+
+    it('blocks the train and blames nobody when the default branch fails the same files alone', async () => {
+      await setup(3, true, filesCommand);
+      script(groupFailed(['a.test.ts']), (card) => (card === 3 ? passed : groupFailed(['a.test.ts'])));
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
+      await settled();
+      expect(loneCalls()).toHaveLength(4);
+      for (const key of ['AR-1', 'AR-2', 'AR-3']) {
+        expect(row(key)).toMatchObject({ state: 'blocked', block: { reason: 'check_error' } });
+        expect(row(key)?.block?.message).toContain('default branch');
+        expect(row(key)?.failure).toBeUndefined();
+        expect(
+          h.domain.timeline.list('AR', { taskKey: key }).filter((e) => e.type === 'task_merge_failed'),
+        ).toHaveLength(0);
+      }
+      expect(h.repos.db.prepare("SELECT id FROM merge_trains WHERE state = 'blocked'").all()).toHaveLength(1);
     });
 
     it.each([

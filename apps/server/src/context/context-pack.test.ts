@@ -3614,14 +3614,14 @@ describe('repositories without GitHub', () => {
         task: localTask({ stageId: 'qa' }),
       });
       expect(steps).toBe(
-        '1. The task is past development (now in QA (`qa`)). Fix what teammates report on the same branch and commit the fixes; never push, because the repository is local-only (the owner has not allowed publishing from it). Then ask the reporter for a re-review or a retest with send_message, naming the new commits.',
+        '1. The task is past development (now in QA (`qa`)). Fix what teammates report on the same branch and commit the fixes; never push, because the repository is local-only (the owner has not allowed publishing from it). Then ask the reporter for a re-review or a retest with send_message kind action, naming the new commits; only that starts the next round on the latest commit, a note or an info message starts none.',
       );
     });
 
     it('fixes what teammates report in the same pull request when the repository is on GitHub', () => {
       const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'qa' }) });
       expect(steps).toBe(
-        '1. The task is past development (now in QA (`qa`)). Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.',
+        '1. The task is past development (now in QA (`qa`)). Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message kind action, naming the new commits; only that starts the next round on the latest commit, a note or an info message starts none.',
       );
     });
   });

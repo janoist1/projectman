@@ -1,5 +1,15 @@
-import { LIVE_SESSION_STATES, isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
-import type { Session } from '@projectman/shared';
+import {
+  LIVE_SESSION_STATES,
+  cardStageOwners,
+  isOpenTask,
+  isReturnedWorkLabel,
+  isTheme,
+  labelDefinition,
+  memberOf,
+  reviewReturnedWork,
+  stageOf,
+} from '@projectman/shared';
+import type { ProjectConfig, Session, Task } from '@projectman/shared';
 import type { Messaging } from '../../core/messages';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
@@ -7,6 +17,24 @@ import type { SessionOrchestrator } from '../sessions';
 import { stopStageReviewers, workStageBefore } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
+
+/** What a check of one task may do besides sending it back. */
+interface CheckOptions {
+  /** Remind the developer of the unasked new round (the check follows the end of their session). */
+  remindUnaskedRound?: boolean;
+}
+
+/** The reminder text for a developer whose fix commits were not handed over (PM-1405). */
+function unaskedRoundText(
+  taskKey: string,
+  stageName: string,
+  labels: string[],
+  pin: { branch: string; commit: string },
+  head: string,
+  reviewers: string[],
+): string {
+  return `Task ${taskKey}: ${stageName} gave the work back (${labels.join(', ')}), and your branch ${pin.branch} has moved on from the commit it judged (${pin.commit}) to ${head}, but no new round was requested, so ${stageName} still waits on the old commit. A note or an info message does not start a new round. If the fix is finished, send a message of kind action to ${reviewers.join(', ')} naming the new commits: that pins ${head} for the next round. If you are still working or waiting for an answer, carry on; this reminder comes once per commit.`;
+}
 
 /**
  * Reviews and tests work on the commit that was handed over (PM-183): the task's review pin. This
@@ -20,6 +48,11 @@ import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
  * is it when the review already gave the work back (`reviewReturnedWork`): the developer's fixes are
  * the expected commits, and their message asking for a re-review pins the new head. Only an approved
  * or not yet judged branch must not move unnoticed.
+ *
+ * A request for a new round is the only thing that pins the head: a note or an info message does not
+ * (PM-1405). When the developer's round ends with commits after the work was given back and no such
+ * request, the developer gets one system reminder per commit (`remindUnaskedRound`, only from the session's
+ * end, as the periodic check may find a developer still at work); the system never pins the head itself.
  */
 export class ReviewWatch {
   private readonly ctx: DomainContext;
@@ -30,6 +63,8 @@ export class ReviewWatch {
   private readonly locks = new KeyedMutex();
   private readonly safetyNetMs: number;
   private lastFullCheckAt = 0;
+  /** The head commit the developer was last reminded about, per task (in memory: a restart may repeat one). */
+  private readonly remindedCommits = new Map<string, string>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -83,7 +118,7 @@ export class ReviewWatch {
     if (!this.ctx.repos.reviewPins.get(taskKey)) return;
     if (this.tasks.find(session.projectKey, taskKey)?.assignee !== session.member) return;
     try {
-      await this.checkTask(session.projectKey, taskKey);
+      await this.checkTask(session.projectKey, taskKey, { remindUnaskedRound: true });
     } catch (err) {
       this.ctx.logger.warn({ err, taskKey }, 'could not check the pinned review commit');
     }
@@ -101,11 +136,47 @@ export class ReviewWatch {
   }
 
   /** Whether the task was sent back because its branch moved. */
-  checkTask(projectKey: string, taskKey: string): Promise<boolean> {
-    return this.locks.run(taskKey, () => this.sendBackIfMoved(projectKey, taskKey));
+  checkTask(projectKey: string, taskKey: string, options: CheckOptions = {}): Promise<boolean> {
+    return this.locks.run(taskKey, () => this.sendBackIfMoved(projectKey, taskKey, options));
   }
 
-  private async sendBackIfMoved(projectKey: string, taskKey: string): Promise<boolean> {
+  /**
+   * The developer's round ended with commits on the branch after the review gave the work back, and no
+   * request for a new round (PM-1405): a note or an info message does not pin the head. The developer is
+   * reminded once per commit; whether the fix is finished is theirs to say, so nothing is pinned here.
+   */
+  private async remindUnaskedRound(
+    projectKey: string,
+    task: Task,
+    config: ProjectConfig,
+    pin: { branch: string; commit: string },
+    head: string,
+  ): Promise<void> {
+    if (!task.assignee || this.remindedCommits.get(task.key) === head) return;
+    const stage = stageOf(config, task.stageId);
+    if (!stage) return;
+    // A message can only ask an AI member for a round.
+    const reviewers = cardStageOwners(config, stage, task).filter((h) => memberOf(config, h)?.kind === 'ai');
+    if (reviewers.length === 0) return;
+    this.remindedCommits.set(task.key, head);
+    const labels = task.labels.filter((id) => isReturnedWorkLabel(labelDefinition(config, id)));
+    await this.messaging.send(
+      projectKey,
+      'system',
+      {
+        to: [task.assignee],
+        taskKey: task.key,
+        text: unaskedRoundText(task.key, stage.name, labels, pin, head, reviewers),
+      },
+      { actor: SYSTEM_ACTOR },
+    );
+  }
+
+  private async sendBackIfMoved(
+    projectKey: string,
+    taskKey: string,
+    options: CheckOptions,
+  ): Promise<boolean> {
     const task = this.tasks.find(projectKey, taskKey);
     const pin = this.ctx.repos.reviewPins.get(taskKey);
     // A pin of a stage the task left is stale, whatever the branch does.
@@ -117,7 +188,11 @@ export class ReviewWatch {
     if (this.ctx.repos.reviewPins.get(taskKey)?.commit === head.commit) return false;
     // The review already gave the work back ("changes needed", "failed"): the commits on the branch
     // are the expected fixes, and the developer's message asking for a new round pins the new head.
-    if (reviewReturnedWork(config, task)) return false;
+    if (reviewReturnedWork(config, task)) {
+      if (options.remindUnaskedRound)
+        await this.remindUnaskedRound(projectKey, task, config, pin, head.commit);
+      return false;
+    }
 
     const stage = stageOf(config, task.stageId);
     const back = workStageBefore(config, task.stageId);

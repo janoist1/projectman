@@ -308,10 +308,10 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
       const past = `The task is past development (now in ${stageLabel(current)}).`;
       return [
         localOnly
-          ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
+          ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message kind action, naming the new commits; only that starts the next round on the latest commit, a note or an info message starts none.`
           : mergeRepo
-            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
-            : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
+            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message kind action, naming the new commits; only that starts the next round on the latest commit, a note or an info message starts none. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
+            : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message kind action, naming the new commits; only that starts the next round on the latest commit, a note or an info message starts none.`,
         ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];
     }

@@ -279,6 +279,80 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
   });
 
+  it('reminds the developer once per commit when the fix is only reported in an info message (PM-1405)', async () => {
+    await setup();
+    const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');
+    await toReview();
+    await startedCount(2);
+    const review = reviewerSession();
+    h.runner.setState(review.sessionId, 'idle');
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-changes'] }, aiActor('cr'), {
+      comment: 'Fix the login.',
+    });
+    const workItem = { type: 'task' as const, taskKey: 'AR-1' };
+    const reminders = () =>
+      h.domain.messages
+        .list('AR', { taskKey: 'AR-1' })
+        .filter((m) => m.from === 'system' && m.to.includes('dev-1') && m.body.includes('no new round'));
+
+    // Nothing moved yet: no reminder.
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
+    expect(reminders()).toHaveLength(0);
+
+    const fixed = await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.messaging.send(
+      'AR',
+      'dev-1',
+      { to: ['cr'], text: 'Fixed.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1'), kind: 'info' },
+    );
+    // The periodic check does not remind: the developer may still be working.
+    await h.domain.reviewWatch.check();
+    expect(reminders()).toHaveLength(0);
+
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
+    expect(reminders()).toHaveLength(1);
+    expect(reminders()[0]?.body).toContain(fixed);
+    expect(reminders()[0]?.body).toContain(handedOver);
+    expect(reminders()[0]?.body).toContain('cr');
+    // Nothing else changed: the pin, the stage and the reviewer's session stay.
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(task).toMatchObject({ stageId: 'code_review' });
+    expect(task.reviewPin?.commit).toBe(handedOver);
+    expect(h.runner.stopped).not.toContain(review.sessionId);
+
+    // The same head is not reminded twice; a new commit is.
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
+    expect(reminders()).toHaveLength(1);
+    await commitFile(dev1, 'login.txt', 'v3\n');
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
+    expect(reminders()).toHaveLength(2);
+  });
+
+  it('sends no reminder when the developer asked for the new round with an action message (PM-1405)', async () => {
+    await setup();
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    await toReview();
+    await startedCount(2);
+    h.runner.setState(reviewerSession().sessionId, 'idle');
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-changes'] }, aiActor('cr'), {
+      comment: 'Fix the login.',
+    });
+    await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.messaging.send(
+      'AR',
+      'dev-1',
+      { to: ['cr'], text: 'Fixed, please look again.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1') },
+    );
+    await h.domain.reviewWatch.sessionStopped({
+      projectKey: 'AR',
+      member: 'dev-1',
+      workItem: { type: 'task', taskKey: 'AR-1' },
+    });
+    expect(h.domain.messages.list('AR', { taskKey: 'AR-1' }).some((m) => m.from === 'system')).toBe(false);
+  });
+
   it('ignores the pin of a stage the task left, and a task without a pin', async () => {
     await setup();
     await commitFile(dev1, 'login.txt', 'v1\n');

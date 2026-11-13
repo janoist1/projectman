@@ -3,9 +3,8 @@ import { expect, it } from 'vitest';
 import {
   BASELINE_RELEASE,
   BASELINE_VERSION,
-  LATEST_SCHEMA_VERSION,
+  latestSchemaVersion,
   migrate,
-  migrations,
   schemaVersion,
 } from '../src/db';
 import { BASELINE_SQL } from '../src/db/schema/baseline-0152';
@@ -32,8 +31,8 @@ it('initializes fresh databases at the latest version with independent generatio
   try {
     const generations = databases.map((db) => {
       db.pragma('foreign_keys = ON');
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
+      expect(schemaVersion(db)).toBe(latestSchemaVersion());
       const row = db
         .prepare("SELECT value FROM instance_meta WHERE key = 'project_change_generation'")
         .get() as { value: string };
@@ -91,8 +90,8 @@ it('upgrades an existing baseline database through the later migrations without 
     db.exec(BASELINE_SQL);
     db.pragma(`user_version = ${BASELINE_VERSION}`);
     const before = db.prepare('SELECT * FROM instance_meta').all();
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(migrate(db)).toBe(latestSchemaVersion());
+    expect(schemaVersion(db)).toBe(latestSchemaVersion());
     expect(db.prepare('SELECT * FROM instance_meta').all()).toEqual(before);
   } finally {
     db.close();
@@ -105,15 +104,9 @@ it('leaves a database already at the latest version untouched', () => {
     migrate(db);
     db.exec("INSERT INTO instance_meta VALUES ('preserved', 'keep');");
     const before = db.serialize();
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(migrate(db)).toBe(latestSchemaVersion());
     expect(db.serialize().equals(before)).toBe(true);
   } finally {
     db.close();
   }
-});
-
-it('numbers migrations consecutively after the baseline', () => {
-  expect(migrations.map((m) => m.version)).toEqual(
-    migrations.map((_, index) => BASELINE_VERSION + index + 1),
-  );
 });

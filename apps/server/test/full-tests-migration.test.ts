@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
+import { createRepositories, latestSchemaVersion, migrate, schemaVersion } from '../src/db';
 
 describe('full-tests baseline schema', () => {
   it('preserves stored rows when reopened and supports repository writes', () => {
@@ -15,8 +15,8 @@ describe('full-tests baseline schema', () => {
           .map((row) => row.name)
           .sort();
 
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
+      expect(schemaVersion(db)).toBe(latestSchemaVersion());
       expect(tables()).toContain('full_test_runs');
       const repos = createRepositories(db);
       // Nothing is inferred from what was there: no card gets a run.
@@ -42,7 +42,7 @@ describe('full-tests baseline schema', () => {
         finishedAt: '2026-01-02T00:00:02.000Z',
       });
       // A second run applies nothing and keeps what was stored.
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
       expect(repos.fullTestRuns.get('ftr_1')).toMatchObject({
         status: 'failed',
         commit: 'c1',
@@ -63,7 +63,7 @@ describe('full-tests baseline schema', () => {
         VALUES ('tsk_example', 'AR', 'AR-1', 1, 'Example task', 'An example', 'code_review', 'active', 'internal', 'owner', '2026-01-01', '2026-01-01');
         INSERT INTO full_test_runs (id, project_key, task_key, repo, branch, commit_sha, status, created_at)
         VALUES ('old', 'AR', 'AR-1', 'web', 'task/AR-1', 'c1', 'passed', '2026-01-02T00:00:00.000Z');`);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
       const repos = createRepositories(db);
       expect(repos.fullTestRuns.get('old')).toMatchObject({ runner: 'engine', externalUrl: null });
 

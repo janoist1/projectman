@@ -52,13 +52,13 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   `handoff`, `operation`. No row is deleted automatically (a journal that forgets cannot tell a reader
   that it missed something).
 - **Atomic with the change.** SQLite triggers on the state tables (`apps/server/src/db/change-triggers.ts`,
-  the list in `CHANGE_TRIGGER_TABLES`) write the row in the transaction of the very statement. Many
+  the list in `changeTriggerTables()`) write the row in the transaction of the very statement. Many
   facades publish to the websocket after their write and outside a unit of work, so a row written from
   the bus would not be atomic; a trigger covers every write path (a facade, a sweep, the recovery of an
   interrupted configuration commit, which ends in the `projects` record update). A rollback, also of a
   nested unit of work, takes the row with it. A trigger writes only the metadata (project, kind, entity id,
   time), never a rule and never content.
-- **Coverage matrix.** `CHANGE_TRIGGER_TABLES` lists the tables the card's read model is made of, with the
+- **Coverage matrix.** `changeTriggerTables()` lists the tables the card's read model is made of, with the
   statements that announce, the project and the entity: the card and its side tables (links, attachments,
   covers, fix limits, hand-ons and hand-overs, review pins, loops, deferred starts, full-test runs)
   name the card key in kind `task` (a link names the card's project through the card, a
@@ -66,12 +66,14 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the project manager's requests (`operator_requests`) and
   their steps (the step names its request and the request's project), the super-operation audit,
   merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
-  instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
+  instance is written for every project. `unjournaledTables()` names every other table with the reason
   (credentials, login, usage, machine-local bookkeeping, coordination bookkeeping, the journal itself).
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
   stale, so a new table makes someone decide. A migration that rebuilds a covered table drops its
-  triggers and must create them again (the same test); a new state table needs a migration that calls
-  `changeTriggerSql(entry)` and a new entry in the list. PM-1381 freezes the existing
+  triggers and must declare their journal entry in the sibling `NNNN-name.meta.json` (the same test).
+  `migrate()` renders these entries with `changeTriggerSql(table, entry)` inside the SQL transaction.
+  The registries combine frozen baseline classifications with metadata in version order; `journal.none`
+  records an exclusion reason, `handles` adds or removes handle columns, and `dropped: true` clears a table. PM-1381 freezes the existing
   triggers in `db/schema/baseline-0152.ts`; historical version-specific trigger lists
   are no longer replayed.
 - **Configuration.** The configuration is git's; the `projects` record carries its version

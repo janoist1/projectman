@@ -1,68 +1,33 @@
-import type { ProjectChangeKind } from '@projectman/shared';
+import { migrationFiles } from './migration-files';
+import type { JournalEntry, MigrationFile, MigrationMeta } from './migration-files';
 
-type Row = 'NEW' | 'OLD';
-type Statement = 'INSERT' | 'UPDATE' | 'DELETE';
-
-/**
- * A table whose rows are durable state a project change names (PM-761). An SQLite trigger writes
- * the journal entry in the transaction of the very statement, so no write path (a facade, a sweep, a
- * recovery) can change the state without it, and a rollback takes the entry back. Only the entity
- * is named (project key, kind, entity id, time), never the content, and no rule: what a row means is
- * decided in the domain, not in SQL.
- *
- * A new table needs a migration that calls `changeTriggerSql(entry)` and an entry in this list.
- * A migration that rebuilds one of these tables drops its
- * triggers; `project-change-journal.test.ts` fails until the rebuild creates them again, and also when
- * a table is in neither this list nor `UNJOURNALED_TABLES`.
- */
-interface ChangeTriggerTable {
-  table: string;
-  kind: ProjectChangeKind;
-  /** Which statements announce. */
-  on: ReadonlyArray<Statement>;
-  /** The project key column (or expression) of the row. */
-  project: (row: Row) => string;
-  /** The entity the entry names (an expression; `'NULL'` for none). */
-  entity: (row: Row) => string;
-  /** Where `project` and `entity` are read when they are not columns of the row itself. */
-  from?: (row: Row) => string;
-  /** A condition under which the statement announces (an UPDATE that changes nothing a reader sees stays quiet). */
-  when?: Partial<Record<Statement, string>>;
-}
-
-const ownProject = (row: Row) => `${row}.project_key`;
-const column = (name: string) => (row: Row) => `${row}.${name}`;
 const ALL = ['INSERT', 'UPDATE', 'DELETE'] as const;
 const WRITES = ['INSERT', 'UPDATE'] as const;
 
 const ofProject = (
   table: string,
-  kind: ProjectChangeKind,
+  kind: JournalEntry['kind'],
   entity: string,
-  on: ReadonlyArray<Statement> = ALL,
-): ChangeTriggerTable => ({
-  table,
-  kind,
-  on,
-  project: ownProject,
-  entity: column(entity),
-});
+  on: JournalEntry['on'] = ALL,
+): { table: string; entry: JournalEntry } => ({ table, entry: { kind, entity, on } });
 
 /**
  * The coverage matrix of the card's read model. Kind `task`: the card and every durable table its
  * view or the board reads; the entity is the card key. A card deleted by a cascade is announced by the
  * card row itself.
  */
-export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+const baselineEntries: { table: string; entry: JournalEntry }[] = [
   ofProject('tasks', 'task', 'key'),
   {
     // A link belongs to the card; once the card is gone (a cascade) there is no project to name.
     table: 'task_links',
-    kind: 'task',
-    on: ALL,
-    project: () => 'project_key',
-    entity: () => 'key',
-    from: (row) => `tasks WHERE id = ${row}.task_id`,
+    entry: {
+      kind: 'task',
+      on: ALL,
+      project: 'project_key',
+      entity: 'key',
+      from: 'tasks WHERE id = {row}.task_id',
+    },
   },
   ofProject('attachments', 'task', 'task_key'),
   ofProject('task_covers', 'task', 'task_key'),
@@ -82,20 +47,24 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
     // The configuration is git's; the project record carries its version. Only a new version (or a new
     // project) is a change, so a recovery that finds the record already at the version stays quiet.
     table: 'projects',
-    kind: 'configuration',
-    on: WRITES,
-    project: column('key'),
-    entity: () => 'NULL',
-    when: { UPDATE: 'OLD.config_version IS NOT NEW.config_version' },
+    entry: {
+      kind: 'configuration',
+      on: WRITES,
+      project: 'key',
+      entity: null,
+      when: { UPDATE: 'OLD.config_version IS NOT NEW.config_version' },
+    },
   },
   {
     // The pause of the whole instance belongs to every project.
     table: 'pauses',
-    kind: 'pause',
-    on: WRITES,
-    project: () => 'key',
-    entity: column('id'),
-    from: (row) => `projects WHERE ${row}.project_key IS NULL OR key = ${row}.project_key`,
+    entry: {
+      kind: 'pause',
+      on: WRITES,
+      project: 'key',
+      entity: '{row}.id',
+      from: 'projects WHERE {row}.project_key IS NULL OR key = {row}.project_key',
+    },
   },
   ofProject('session_pauses', 'pause', 'pause_id', WRITES),
   ofProject('task_handoffs', 'handoff', 'id', WRITES),
@@ -103,11 +72,13 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   {
     // A step belongs to its request, which names the project.
     table: 'operator_steps',
-    kind: 'operation',
-    on: WRITES,
-    project: () => 'project_key',
-    entity: column('request_id'),
-    from: (row) => `operator_requests WHERE id = ${row}.request_id`,
+    entry: {
+      kind: 'operation',
+      on: WRITES,
+      project: 'project_key',
+      entity: '{row}.request_id',
+      from: 'operator_requests WHERE id = {row}.request_id',
+    },
   },
   ofProject('super_operation_audit', 'operation', 'id', ['INSERT']),
   ofProject('task_merges', 'operation', 'id', WRITES),
@@ -119,22 +90,23 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_check_runs', 'operation', 'id', WRITES),
   {
     table: 'task_acceptance_items',
-    kind: 'task',
-    on: ALL,
-    project: () => 'project_key',
-    entity: () => 'key',
-    from: (row) => `tasks WHERE id = ${row}.task_id`,
+    entry: {
+      kind: 'task',
+      on: ALL,
+      project: 'project_key',
+      entity: 'key',
+      from: 'tasks WHERE id = {row}.task_id',
+    },
   },
 ];
 
 /**
- * Tables with no trigger, and why. Every table is in this list or in `CHANGE_TRIGGER_TABLES`
+ * Frozen baseline tables with no trigger, and why. New classifications belong in metadata.
  * (`project-change-journal.test.ts`), so a new table makes someone decide.
  */
-export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
+const BASELINE_UNJOURNALED: Readonly<Record<string, string>> = {
   project_checklists: 'Private owner/admin checklist; announced through project_checklist_changed.',
   project_checklist_items: 'Private owner/admin checklist; announced through project_checklist_changed.',
-  start_failures: 'the hub’s retry counters of failed session starts (PM-1335), not project state',
   web_push_devices: 'personal notification settings, not project state',
   web_push_settings: 'personal notification settings, not project state',
   web_push_items: 'personal notification settings, not project state',
@@ -220,19 +192,62 @@ export function changeTriggerName(table: string, statement: string): string {
   return `${table}_change_${statement.toLowerCase()}`;
 }
 
-/** The triggers of one table. */
-export function changeTriggerSql(entry: ChangeTriggerTable): string {
-  return entry.on
+/** Frozen classifications of baseline-0152. New classifications belong in migration metadata. */
+const BASELINE_JOURNAL: Readonly<Record<string, JournalEntry>> = Object.fromEntries(
+  baselineEntries.map(({ table, entry }) => [table, entry]),
+);
+
+function journalRegistry(files: readonly MigrationFile[]) {
+  const journal = { ...BASELINE_JOURNAL };
+  const none = { ...BASELINE_UNJOURNALED };
+  for (const file of [...files].sort((a, b) => a.version - b.version))
+    for (const [table, meta] of Object.entries(file.meta?.tables ?? {})) {
+      if ('dropped' in meta || meta.journal) {
+        delete journal[table];
+        delete none[table];
+      }
+      if (!('dropped' in meta) && meta.journal) {
+        if ('none' in meta.journal) none[table] = meta.journal.none;
+        else journal[table] = meta.journal;
+      }
+    }
+  return { journal, none };
+}
+export function changeTriggerTables(files: readonly MigrationFile[] = migrationFiles()) {
+  return Object.entries(journalRegistry(files).journal).map(([table, entry]) => ({ table, entry }));
+}
+export function unjournaledTables(
+  files: readonly MigrationFile[] = migrationFiles(),
+): Record<string, string> {
+  return journalRegistry(files).none;
+}
+export function journalTriggersSql(meta: MigrationMeta): string {
+  return Object.entries(meta.tables)
+    .flatMap(([table, value]) =>
+      !('dropped' in value) && value.journal && !('none' in value.journal)
+        ? [changeTriggerSql(table, value.journal)]
+        : [],
+    )
+    .join('\n');
+}
+
+/** Render the same SQL frozen into the baseline. */
+export function changeTriggerSql(table: string, entry: JournalEntry): string {
+  return (entry.on ?? ALL)
     .map((statement) => {
-      const row: Row = statement === 'DELETE' ? 'OLD' : 'NEW';
+      const row = statement === 'DELETE' ? 'OLD' : 'NEW';
+      const render = (value: string) => value.replaceAll('{row}', row);
+      const project = entry.from ? render(entry.project!) : `${row}.${entry.project ?? 'project_key'}`;
+      const entity =
+        entry.entity === null ? 'NULL' : entry.from ? render(entry.entity) : `${row}.${entry.entity}`;
       const when = entry.when?.[statement];
-      return `CREATE TRIGGER ${changeTriggerName(entry.table, statement)} AFTER ${statement} ON ${entry.table}${
+      return `CREATE TRIGGER ${changeTriggerName(table, statement)} AFTER ${statement} ON ${table}${
         when ? `\n      WHEN ${when}` : ''
       }
       BEGIN
         INSERT INTO project_change_events (project_key, kind, entity_id, at)
-        SELECT ${entry.project(row)}, '${entry.kind}', ${entry.entity(row)}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')${
-          entry.from ? ` FROM ${entry.from(row)}` : ''
+        SELECT ${project}, '${entry.kind}', ${entity}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')${
+          entry.from ? ` FROM ${render(entry.from)}` : ''
         };
       END;`;
     })

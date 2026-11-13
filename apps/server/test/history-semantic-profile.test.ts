@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -619,6 +620,7 @@ describe('a run against a real server bundle', () => {
     symlinkSync(join(root, 'node_modules'), join(bundleDir, 'node_modules'));
     const server = join(bundleDir, 'history-semantic-profile.js');
     await bundle('src/history-semantic-profile.ts', server, true);
+    cpSync(join(root, 'apps/server/src/db/migrations'), join(bundleDir, 'migrations'), { recursive: true });
     const i = { ...inputs(), server };
     // The words of the questions are in the sources, so the text search of the baseline finds something.
     writeFileSync(

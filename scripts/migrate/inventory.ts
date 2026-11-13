@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import {
   BASELINE_VERSION,
-  LATEST_SCHEMA_VERSION,
+  latestSchemaVersion,
   hasSchemaObjects,
   schemaRefusal,
 } from '../../apps/server/src/db';
@@ -351,7 +351,7 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
     inUse,
     sideFiles,
     schemaVersion: null,
-    buildSchemaVersion: LATEST_SCHEMA_VERSION,
+    buildSchemaVersion: latestSchemaVersion(),
     integrity: null,
     foreignKeyViolations: null,
     counts: {},
@@ -387,7 +387,7 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
       if (refusal)
         add(
           'blocker',
-          database.schemaVersion > LATEST_SCHEMA_VERSION
+          database.schemaVersion > latestSchemaVersion()
             ? 'schema_newer'
             : database.schemaVersion < BASELINE_VERSION && database.schemaVersion > 0
               ? 'schema_before_baseline'
@@ -395,12 +395,12 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
           'db.sqlite',
           refusal,
         );
-      else if (database.schemaVersion < LATEST_SCHEMA_VERSION)
+      else if (database.schemaVersion < latestSchemaVersion())
         add(
           'info',
           'schema_older',
           'db.sqlite',
-          `the database is at schema ${database.schemaVersion}; the new build migrates it to ${LATEST_SCHEMA_VERSION} in the copy only`,
+          `the database is at schema ${database.schemaVersion}; the new build migrates it to ${latestSchemaVersion()} in the copy only`,
         );
       database.integrity = String(db.pragma('integrity_check', { simple: true }));
       if (database.integrity !== 'ok')

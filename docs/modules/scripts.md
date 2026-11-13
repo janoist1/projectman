@@ -222,7 +222,9 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   `existsSync`) is not named by a rule, or a rule names no existing test. The `CLAUDE.md` Commands
   lines of the form "run this test after changing that" are rules too (`web-get-contracts`, the
   merge-test watchdog, `start-offer` and the `golden-path-*` tests). The tool-definition snapshot and the
-  `*-migration` tests need no rule: the shared export analysis and the import graph reach them. A rule
+  migration folder (`apps/server/src/db/migrations/`) has a `SELECTION_RULES` path rule selecting
+  loader, baseline, database, journal, handle, history and retained migration tests: SQL and metadata
+  have no import edge. Merge impact treats these data files as changes to the `db` module. A rule
   with `broad: true` has sources so wide that matching one does not make a file "mapped" (the
   not-mapped list). **Documents a test reads (PM-1337).** `TEST_READ_DOCS`
   (`scripts/merge-test/scope.ts`) maps the documents tests read by path (`docs/HYBRID.md`,

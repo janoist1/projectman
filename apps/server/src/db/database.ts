@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
-import { LATEST_SCHEMA_VERSION, migrations } from './migrations';
+import { latestSchemaVersion, migrationFiles } from './migration-files';
+import type { MigrationFile } from './migration-files';
+import { journalTriggersSql } from './change-triggers';
 import { BASELINE_RELEASE, BASELINE_SQL, BASELINE_VERSION } from './schema/baseline-0152';
 
 export type Db = Database.Database;
@@ -68,9 +70,9 @@ export function openAuxiliaryDatabase(path: string): Db {
  * Initializes an empty database from the baseline, then applies newer migrations.
  * Refuses pre-baseline, foreign unversioned and newer-build databases before writing.
  */
-export function migrate(db: Db): number {
+export function migrate(db: Db, files: readonly MigrationFile[] = migrationFiles()): number {
   let current = schemaVersion(db);
-  const refusal = schemaRefusal(current, hasSchemaObjects(db));
+  const refusal = schemaRefusal(current, hasSchemaObjects(db), files.at(-1)?.version ?? BASELINE_VERSION);
   if (refusal) throw new Error(refusal);
   if (current === 0) {
     db.transaction(() => {
@@ -79,10 +81,11 @@ export function migrate(db: Db): number {
     })();
     current = BASELINE_VERSION;
   }
-  const pending = [...migrations].filter((m) => m.version > current).sort((a, b) => a.version - b.version);
+  const pending = [...files].filter((m) => m.version > current).sort((a, b) => a.version - b.version);
   for (const migration of pending) {
     db.transaction(() => {
       db.exec(migration.sql);
+      if (migration.meta) db.exec(journalTriggersSql(migration.meta));
       db.pragma(`user_version = ${migration.version}`);
     })();
     current = migration.version;
@@ -100,11 +103,15 @@ export function hasSchemaObjects(db: Db): boolean {
 }
 
 /** Shared, read-only refusal for runtime startup and migration tools. */
-export function schemaRefusal(version: number, hasObjects: boolean): string | null {
-  if (version > LATEST_SCHEMA_VERSION)
+export function schemaRefusal(
+  version: number,
+  hasObjects: boolean,
+  latest = latestSchemaVersion(),
+): string | null {
+  if (version > latest)
     return (
       `The database is at schema version ${version}, but this build of projectman knows only up to ` +
-      `${LATEST_SCHEMA_VERSION}. Run a newer build, or restore a backup made by this one.`
+      `${latest}. Run a newer build, or restore a backup made by this one.`
     );
   if (version > 0 && version < BASELINE_VERSION)
     return `The database is at schema version ${version}, but this build of projectman starts only from version ${BASELINE_VERSION}: older migrations were replaced by a baseline. Start projectman ${BASELINE_RELEASE} on this database once (it upgrades it to version ${BASELINE_VERSION} or later), then this build. See docs/DEPLOY.md, "A database from before the baseline".`;

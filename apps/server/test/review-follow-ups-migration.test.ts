@@ -1,19 +1,19 @@
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
-import { migrations } from '../src/db/migrations';
-import { BASELINE_SQL } from '../src/db/schema/baseline-0152';
+import { createRepositories, latestSchemaVersion, migrate } from '../src/db';
+import { migrationFiles } from '../src/db/migration-files';
 
 it('carries the operator signals over unchanged and takes the review_follow_ups kind (PM-1362)', () => {
   const db = new Database(':memory:');
   try {
-    db.exec(BASELINE_SQL);
-    for (const migration of migrations.filter((m) => m.version < 155)) db.exec(migration.sql);
-    db.pragma('user_version = 154');
+    migrate(
+      db,
+      migrationFiles().filter((m) => m.version < 155),
+    );
     db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
       INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, raised_at, delivered_at, delivered_to, decision_note)
       VALUES ('ops_old', 'AR', 'relation_check', 'relation_check:AR-1:prerequisite:AR-2', 'dismissed', 0, 'AR-1', 'prerequisite:AR-2', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', 'pm', 'Checked.');`);
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(migrate(db)).toBe(latestSchemaVersion());
     const repo = createRepositories(db).operatorSignals;
     expect(repo.get('ops_old')).toMatchObject({
       kind: 'relation_check',

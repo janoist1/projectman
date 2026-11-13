@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
+import { createRepositories, latestSchemaVersion, migrate } from '../src/db';
 
 const pause = {
   id: 'pau_1',
@@ -23,8 +23,8 @@ describe('pauses baseline schema', () => {
       db.exec(
         `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`,
       );
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(31);
+      expect(migrate(db)).toBe(latestSchemaVersion());
+      expect(latestSchemaVersion()).toBeGreaterThanOrEqual(31);
       const { pauses } = createRepositories(db);
       expect(pauses.open()).toEqual([]);
 
@@ -57,7 +57,7 @@ describe('pauses baseline schema', () => {
          INSERT INTO pauses (id, scope, project_key, kind, source, reason, requested_by, requested_at, force_after_ms)
            VALUES ('pau_1', 'project', 'AR', 'manual', 'app', NULL, NULL, '2026-10-03T08:00:00.000Z', 300000);`,
       );
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
       const { pauses } = createRepositories(db);
       expect(pauses.findOpen('project', 'AR')?.id).toBe('pau_1');
       expect(pauses.get('pau_1')).toMatchObject({ scope: 'project', engineId: null });

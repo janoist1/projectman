@@ -196,7 +196,11 @@ takes the individual `check_failed` path (`MergeSteps.fail`: `base` = the train'
 id and command, the intersecting files, its output tail, the `task_merge_failed` event and
 notification). The others (green or unknown) are requeued with no `diagnostic`, so they keep their
 queue place and may join any train, each with a timeline note. If no member is blamed (an interaction,
-or every lone run was unknown or red elsewhere), the train halves as before. Members keep the step
+or every lone run was unknown or red elsewhere), the train halves as before. When every member is
+blamed, or two or more are blamed with the same files, the same files first run once on `onto` alone
+(PM-1371): if that run fails all the blamed files too, the train is blocked with `check_error` (the
+message names the default branch) and no card is failed; a green or unknown base run changes nothing.
+Members keep the step
 `checking`; a restart during the lone runs finds the stored red group check and halves. All of it runs
 through the engine link's `build`, `checkoutForCheck`, `releaseCheck` and the full test executor, so
 nothing machine-dependent is new.

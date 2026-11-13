@@ -5,7 +5,7 @@
  *
  * The disposable instance has no mailer, so the browser answers the setup status and the two password
  * routes itself (`page.route`, like the operator scenario); the states that need a limit or an outage
- * (429, 503) are staged the same way. The wording comes from hu.ts through Vite.
+ * (429, 503) are staged the same way. The wording comes from the hu locale (apps/web/src/i18n/hu/) through Vite.
  */
 const ADDRESS = 'kata@client.test';
 const CODE = '123456';

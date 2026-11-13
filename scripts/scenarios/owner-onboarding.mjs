@@ -19,7 +19,7 @@ const WIDTHS = [1512, 390];
 const DEMO_KEY = 'pme_DEMO_not_a_real_key';
 const NOW = () => new Date().toISOString();
 
-// The texts of the Hungarian UI the scenario waits for or clicks (apps/web/src/i18n/hu.ts).
+// The texts of the Hungarian UI the scenario waits for or clicks (apps/web/src/i18n/hu/).
 const TEXT = {
   invite: 'Tulajdonosi meghívó',
   invalid: 'Ez a meghívó már nem érvényes',

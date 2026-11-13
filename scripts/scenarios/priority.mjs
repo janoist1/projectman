@@ -6,7 +6,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   const cards = new Map();
   const select = (scope) => scope.locator('select:has(option[value="urgent"])');
   let page = await open({ path: boardPath });
-  // Load the actual locale through Vite; UI wording stays in hu.ts.
+  // Load the actual locale through Vite; UI wording stays in the hu locale.
   const ui = await page.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const drawer = () => page.getByRole('complementary', { name: ui.task.drawerLabel });
   await page.getByRole('heading', { name: ui.board.title, exact: true }).waitFor();

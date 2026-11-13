@@ -18,7 +18,7 @@ const DEMO_KEY = 'pmi_DEMO_not_a_real_key';
 const NOW = () => new Date().toISOString();
 const MINUTES_AGO = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
 
-// The texts of the Hungarian UI the scenario waits for or clicks (apps/web/src/i18n/hu.ts).
+// The texts of the Hungarian UI the scenario waits for or clicks (apps/web/src/i18n/hu/).
 const TEXT = {
   yours: 'Gépeid',
   projectMachines: 'Ezeken a gépeken fut a projekt',

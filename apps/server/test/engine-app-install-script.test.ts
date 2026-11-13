@@ -36,6 +36,8 @@ exit 3`,
   xattr: `if [ "$1" = -rl ] && [ "$FAKE_QUARANTINE" = 1 ]; then echo "$2: ${QUARANTINE}: 0083;6735a1b2;Safari;"; fi`,
   uname: `case $1 in -s) echo Darwin ;; -m) echo arm64 ;; esac`,
   sw_vers: 'echo 15.1',
+  mv: `case $1 in */.projectman-install.*/"${APP}") [ "$FAKE_MV_FAIL" != 1 ] || exit 1 ;; esac
+exec /bin/mv "$@"`,
 };
 
 let directory: string;
@@ -90,7 +92,10 @@ function writeManifest(change: { tag?: string; sha256?: string }): void {
 
 function install(args: string[] = ['--tag', TAG]) {
   const result = spawnSync('/bin/sh', [SCRIPT, ...args], { env, encoding: 'utf8' });
-  const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
+  // `mv` is a stand-in only to fail on demand; its calls are not part of the order under test.
+  const calls = (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : []).filter(
+    (call) => !call.startsWith('mv '),
+  );
   return { ...result, calls };
 }
 
@@ -122,6 +127,7 @@ beforeEach(() => {
     FAKE_ATTEST_FAIL: '',
     FAKE_SIGNED_ID: IDENTIFIER,
     FAKE_QUARANTINE: '0',
+    FAKE_MV_FAIL: '0',
   };
   writeRelease();
 });
@@ -191,6 +197,48 @@ describe.skipIf(process.platform !== 'darwin')('install-engine-app.sh', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(xattrCalls(result.calls).filter((call) => call.startsWith('xattr -d'))).toEqual([]);
     expect(fs.existsSync(installed())).toBe(true);
+  });
+
+  it('ends with the NEXT guide and exit 0 without a here-document, which bash 3.2 writes to /tmp', () => {
+    const result = install();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('NEXT');
+    // /tmp cannot be made unwritable here, so the cause is checked: no here-document or here-string in the code.
+    const code = fs
+      .readFileSync(SCRIPT, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'));
+    expect(code.filter((line) => line.includes('<<'))).toEqual([]);
+  });
+
+  it('keeps the previous install when the new app cannot be moved into place', () => {
+    fs.mkdirSync(installed(), { recursive: true });
+    fs.writeFileSync(path.join(installed(), 'previous-marker'), 'old');
+    env.FAKE_MV_FAIL = '1';
+    const result = install();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('REFUSED [copy_failed]');
+    expect(fs.readFileSync(path.join(installed(), 'previous-marker'), 'utf8')).toBe('old');
+    expect(fs.readdirSync(path.join(home, 'Applications'))).toEqual([APP]);
+  });
+
+  it('replaces the previous install when the new app is moved into place', () => {
+    fs.mkdirSync(installed(), { recursive: true });
+    fs.writeFileSync(path.join(installed(), 'previous-marker'), 'old');
+    const result = install();
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(path.join(installed(), 'previous-marker'))).toBe(false);
+    expect(fs.existsSync(path.join(installed(), 'Contents/Info.plist'))).toBe(true);
+    expect(fs.readdirSync(path.join(home, 'Applications'))).toEqual([APP]);
+  });
+
+  it('warns when the test tool directory is set, and only then', () => {
+    const warned = install();
+    expect(warned.stderr).toContain('WARNING PROJECTMAN_INSTALL_TEST_BIN is set');
+    delete env.PROJECTMAN_INSTALL_TEST_BIN;
+    const quiet = install(['--tag', 'not-a-tag']);
+    expect(quiet.stderr).toContain('REFUSED [usage]');
+    expect(quiet.stderr).not.toContain('WARNING');
   });
 
   it('runs the same checks on a pair downloaded by hand', () => {

@@ -98,17 +98,17 @@ has no link to a hub. The app's window then says it waits for the setup (step 4)
 shows nothing yet. **[FRIEND]** only needs to click _Install_ if the app asks for the Xcode command
 line tools, and to leave the app running (its icon is in the menu bar).
 
-Check: `"$engine" status --json` prints one JSON line with `"overall":"not_initialised"`. (`package`
-is still `null` and no service exists: the app installs the service in step 4.)
-
 From here on, two commands matter, and the app does not put them on `PATH`; always use their
 absolute paths. Below, `$engine` and `$client` stand for them; each shell command is a separate
-process, so set them in the same command you use them in:
+process, so set them at the top of every command that uses them:
 
 ```sh
 engine="$HOME/Library/Application Support/projectman/engine/bin/projectman-engine"
 client="$HOME/Library/Application Support/projectman/engine/bin/projectman"
 ```
+
+Check: `"$engine" status --json` prints one JSON line with `"overall":"not_initialised"`. (`package`
+is still `null` and `service.installed` is `false`: the app installs the service in step 4.)
 
 ## 4. Connecting the engine to the hub
 
@@ -128,11 +128,13 @@ client="$HOME/Library/Application Support/projectman/engine/bin/projectman"
    friend confirms they want to replace the old engine link. Ask the friend to clear their
    clipboard afterwards (copy any harmless text).
 
-3. **[FRIEND]** tells you the key of the project (and, if the project's folder is not there yet,
-   creates it in the web app) and which folder on this Mac holds the project's code. If the friend
+3. **[FRIEND]** tells you the key of their project in the web app (the hub's owner may have created
+   it already; if not, the friend creates it there and assigns it to the engine of step 4.1) and
+   which folder on this Mac holds the project's code. If the friend
    has no folder yet, agree on one, for example `~/projects/<name>`; create it, and run `git init`
    in it if it is empty.
-4. **[AI]** bind the project:
+4. **[AI]** bind the project right after `init`. First note whether the engine already runs
+   (`"$engine" status --json`, `service.running`), then:
 
    ```sh
    "$engine" project set <KEY> <absolute folder path>
@@ -140,18 +142,18 @@ client="$HOME/Library/Application Support/projectman/engine/bin/projectman"
 
 5. Once `init` has run, the app notices it within seconds, installs the engine's service
    (LaunchAgent) and opens _System Settings → General → Login Items_. **[FRIEND]** switches
-   **projectman motor** on there (macOS asks for this once; the app starts the engine as soon as it
-   is on). Then **[AI]** wait for the service, then restart it so the engine reports the new project
-   to the hub (it learns of a `project set` only at its start):
+   **projectman motor** on there when the app asks (macOS asks for this once; the app starts the
+   engine as soon as it is on). **[AI]** poll `"$engine" status --json` every few seconds until
+   `service.installed` and `service.running` are both `true`. The engine reports its projects when
+   it starts, so:
+   - if it started **after** `project set` (the usual case: the friend's approval takes longer),
+     nothing more is needed;
+   - if it was already running when you ran `project set` (step 4), run
+     `"$engine" service restart` once it is.
 
-   ```sh
-   "$engine" service status      # exit 0 only when the service runs; repeat every few seconds
-   "$engine" service restart
-   ```
-
-   If the service is still not installed about a minute after `init` and the app shows no
+   If `service.installed` is still `false` about a minute after `init` and the app shows no
    progress, run `"$engine" service install` yourself (it installs and starts the service; macOS
-   may still ask for the Login Items approval above) and skip the restart.
+   may still ask for the Login Items approval above) instead.
 
    (Further steps, such as adding a repository with `repo add`, are in
    [docs/HYBRID.md](docs/HYBRID.md#connecting-the-engine).)

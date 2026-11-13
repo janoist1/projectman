@@ -1,0 +1,35 @@
+{
+  "name": "list_compute_jobs",
+  "title": "List compute job runs",
+  "description": "The project's compute job runs, newest first; filter by repository or job.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "repo": {
+        "description": "The repository name in the project; default: the only repository (required with several).",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "job": {
+        "description": "Only the runs of this job.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,39}$"
+      },
+      "limit": {
+        "description": "How many runs (default 20).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List compute job runs",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

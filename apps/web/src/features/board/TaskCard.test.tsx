@@ -64,6 +64,37 @@ function renderCard(key: string, selected = false) {
 }
 
 describe('TaskCard', () => {
+  it('folds the process labels of a done card into a +n chip and keeps its area labels', () => {
+    const task = { ...taskByKey('AC-16'), labels: ['checkout', 'code-review-ok', 'qa-ok'] };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/task"
+        labels={labelViews}
+      />,
+    );
+    const card = screen.getByRole('link');
+    expect(card.querySelector('[data-label="checkout"]')).not.toBeNull();
+    expect(card.querySelector('[data-label="code-review-ok"]')).toBeNull();
+    expect(within(card).getByText(t('taskCard.processLabelsMore', { count: 2 }))).toBeTruthy();
+  });
+
+  it('shows every label of a card that is still in progress', () => {
+    const task = { ...taskByKey('AC-24'), labels: ['code-review-ok', 'qa-ok'] };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/task"
+        labels={labelViews}
+      />,
+    );
+    expect(screen.getByRole('link').querySelectorAll('[data-label]')).toHaveLength(2);
+  });
+
   it.each(['urgent', 'high', 'normal', 'low'] as const)(
     'names the %s mark accessibly on the card link',
     (priority) => {

@@ -207,6 +207,11 @@ export class AgentSession {
    */
   private turnEnded = false;
   /**
+   * A subagent's tool call moved an idle session to working and the main agent has not run since: the
+   * state is no proof that a message typed meanwhile was taken (PM-1364).
+   */
+  private subagentOnlyBusy = false;
+  /**
    * Main-agent tool calls whose PreToolUse came while `turnEnded` and was dropped, by tool_use id. A
    * ghost call (the CLI loading a deferred tool) has no transcript entry and stays here unused; a
    * call the transcript later shows as part of a new turn (a background task's notification starts
@@ -247,6 +252,7 @@ export class AgentSession {
       // behind a swallowed command would start a turn the give-up must not mistake for idleness.
       isIdle: () =>
         !this.hasExited && this.ready && this.current.state === 'idle' && this.compaction?.phase !== 'typed',
+      subagentOnlyBusy: () => this.subagentOnlyBusy && this.current.state === 'working',
       checkBeforeTyping: () => this.checkBeforeTyping(),
       write: (data) => this.write(data),
       onChange: () => this.evaluatePause(),
@@ -813,9 +819,20 @@ export class AgentSession {
       void this.readSubagentUsage(payload.agent_transcript_path);
     }
     if (!subagent) this.noteProviderSessionId(payload);
-    // The main agent working shows the CLI took a typed message it did not report (PM-1205); Notification
-    // says the CLI is idle and a subagent may run in the background, so neither counts.
-    if (!subagent && TURN_HOOKS.has(payload.hook_event_name)) this.input.noteTurnActivity();
+    // The main agent working on a turn begun after the typing shows the CLI took a typed message it did not
+    // report (PM-1205). Notification says the CLI is idle, and a subagent (Claude Code marks it only with
+    // agent_id), a call dropped as late and a Stop of a session already idle belong to an earlier turn or to
+    // background work: none of them counts (PM-1364).
+    if (
+      !subagent &&
+      !payload.agent_id &&
+      !this.turnEnded &&
+      TURN_HOOKS.has(payload.hook_event_name) &&
+      !(payload.hook_event_name === 'Stop' && (this.current.state === 'idle' || this.subagentOnlyBusy))
+    ) {
+      this.subagentOnlyBusy = false;
+      this.input.noteTurnActivity();
+    }
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
       this.authFailed(authError);
@@ -962,6 +979,7 @@ export class AgentSession {
           const p = this.pauseState;
           if (p?.phase === 'stopping' && p.regularEsc) p.halt = { point: 'interrupted', tool: name };
         }
+        if (payload.agent_id && this.current.state === 'idle') this.subagentOnlyBusy = true;
         this.apply({
           kind: 'pre_tool',
           activity: toolActivity(name, payload.tool_input, this.spec.cwd),
@@ -1608,6 +1626,9 @@ export class AgentSession {
   private apply(signal: SessionSignal): void {
     // Once the process is gone only the final exit transition may change the state.
     if (this.hasExited && signal.kind !== 'exit') return;
+    if (signal.kind === 'prompt_submit' || signal.kind === 'compact_start' || signal.kind === 'stop') {
+      this.subagentOnlyBusy = false;
+    }
     if (signal.kind === 'prompt_submit' || signal.kind === 'compact_start') {
       this.turnEnded = false;
       this.lateTools.clear();

@@ -1,0 +1,32 @@
+{
+  "name": "request_structural_review",
+  "title": "Request an occasional architecture review",
+  "description": "Request an occasional architecture review on a delivered structural_pattern or milestone_closed signal; the server starts a technical_direction holder. Without your own open owner request it only proposes an owner approval: on approval call again with the same signal_id. Steps: role guide.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "signal_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "Your short reason, after weighing the signal."
+      }
+    },
+    "required": [
+      "signal_id",
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Request an occasional architecture review",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

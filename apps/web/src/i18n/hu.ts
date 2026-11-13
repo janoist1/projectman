@@ -2759,6 +2759,7 @@ export const hu = {
 
   taskCard: {
     stageRows: 'Ellenőrzések',
+    processLabelsMore: '{count} további folyamatcímke',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
     columnSteps: '{column} lépései',
     stepState: {
@@ -3019,6 +3020,9 @@ export const hu = {
       add: 'Címke hozzáadása',
       none: 'Nincs',
       remove: '{label} levétele',
+      foldedShow: '+{count} folyamatcímke ▾',
+      foldedHide: '{count} folyamatcímke ▴',
+      pickerAll: 'Minden felvett címke',
       free: 'Új címke',
       freeHint: 'Szabad címke, külön jelentés nélkül.',
       comment: 'Indoklás: {label}',
@@ -3029,6 +3033,7 @@ export const hu = {
         humans_only: 'csak ember teheti rá',
         owner_approval: 'csak a tulajdonos adhatja meg a saját bejelentkezésével',
         not_holder: 'nem a te feladatköröd',
+        small_cards_only: 'csak a neked jutott, ebben a lépésben álló kis kártyán módosíthatod',
         self_review: 'saját munkádra nem',
       },
     },
@@ -3605,6 +3610,9 @@ export const hu = {
         lifecycleNone: 'Kiosztást, megszakítást és újranyitást önállóan nem végezhet.',
         override: 'Nyitott előfeltétel esetén is elindíthatja a kártyát.',
         noOverride: 'Nyitott előfeltétel esetén nem indíthatja el a kártyát.',
+        involve:
+          'Szerep nélküli tagot is bevonhat egy kártyára, indoklással; a bevont tag ettől nem kap jóváhagyási jogot.',
+        noInvolve: 'Tagot nem vonhat be a kártyára; ezt ember teheti meg az üzenetével.',
         actions: {
           assign: 'felelőst jelölhet ki vagy cserélhet',
           cancel: 'megszakíthat kártyát',
@@ -6987,8 +6995,8 @@ export const hu = {
   },
 
   messages: {
-    readFailed: 'Nem sikerült olvasottnak jelölni.',
     new: 'Új üzenet',
+    readFailed: 'Nem sikerült olvasottnak jelölni.',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
     managerOnlyHint: 'Csak a projektmenedzsernek írhatsz.',
@@ -7831,6 +7839,21 @@ export const hu = {
         value: {
           people: 'Csak ember',
           people_and_project_manager: 'Ember és a Projektmenedzser, kifejezett jelzéssel',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Tag bevonása a kártyára',
+        help: 'Ember mindig bevonhat bárkit egy kártyára: az üzenete elindítja a tagot. Egy AI-tag üzenete csak azt indítja el, akinek szerepe van a kártyán. A bevont tag nem kap jóváhagyási jogot.',
+        question: 'Ki vonhat még be tagot?',
+        project_manager: 'Projektmenedzser, indoklással',
+        covers: 'Érintett tag: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        humansOnly: 'Most csak ember vonhat be tagot a kártyára.',
+        readOnlyLabel: 'Ki vonhat be tagot a kártyára?',
+        value: {
+          people: 'Csak ember',
+          people_and_project_manager: 'Ember és a Projektmenedzser, indoklással',
         },
       },
       /** Who besides people may set a card's priority (PM-1096). */

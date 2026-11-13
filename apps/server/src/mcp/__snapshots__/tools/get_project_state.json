@@ -1,0 +1,29 @@
+{
+  "name": "get_project_state",
+  "title": "Read project state",
+  "description": "The source of facts about the running system: running version and release, why a card waits, what became of a start or a message, or the overview (stages, sessions, waiting starts, pauses, open owner inbox items). Needs no owner request; explain the result in the project language.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "description": "A card in this project; omit for the overview. Not together with message_id.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "message_id": {
+        "description": "A team message of this project (the id send_message answered with): what became of it for each recipient. Not together with task_key.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read project state",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

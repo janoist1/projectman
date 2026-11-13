@@ -1,0 +1,27 @@
+{
+  "name": "get_compute_job",
+  "title": "Read a compute job run",
+  "description": "Read one run of a compute job: its state, times, cost (GitHub billable time), run link, the declared outputs with their digests, the artifact and the tail of the log.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "The run id run_compute_job answered."
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read a compute job run",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

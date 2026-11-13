@@ -1,0 +1,78 @@
+{
+  "name": "operate",
+  "title": "Operate the project",
+  "description": "Propose a configuration, member, session, message or pause operation on your own authority (an owner request only under owner_request). Immediate changes run, restricted ones ask the owner, forbidden ones are refused. Rules and fields: get_guide with topic \"operations\".",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120,
+        "description": "The result, in the project language."
+      },
+      "operation": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "config_patch",
+              "member_update",
+              "member_hire",
+              "member_retire",
+              "member_rename",
+              "config_revert",
+              "session_stop",
+              "project_pause",
+              "project_resume",
+              "message_send"
+            ]
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": {},
+        "description": "The operation: op plus its fields; the fields of each op are in get_guide with topic \"operations\"."
+      },
+      "plan": {
+        "description": "Required for session_stop and message_send.",
+        "type": "object",
+        "properties": {
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "reversible": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "why",
+          "impact",
+          "reversible"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "title",
+      "operation"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Operate the project",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

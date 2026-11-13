@@ -24,3 +24,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A name that may break onto more lines (the drawer lists the folded labels in full). */
+.wrap {
+  border-radius: var(--radius-lg);
+}
+
+.wrap .name {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

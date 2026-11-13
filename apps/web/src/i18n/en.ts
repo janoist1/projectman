@@ -1564,6 +1564,7 @@ export const en = {
   },
   taskCard: {
     stageRows: 'Checks',
+    processLabelsMore: '{count|# more process label|# more process labels}',
     stageProgress: 'Progress: {stage}, stage {index} of {total}',
     columnSteps: 'Steps of {column}',
     stepState: { done: 'done', current: 'in progress here', todo: 'to do', finished: 'done' },
@@ -1798,6 +1799,9 @@ export const en = {
       add: 'Add label',
       none: 'None',
       remove: 'Remove {label}',
+      foldedShow: '+{count|# process label|# process labels} ▾',
+      foldedHide: '{count|# process label|# process labels} ▴',
+      pickerAll: 'All applied labels',
       free: 'New label',
       freeHint: 'A free label, with no special meaning.',
       comment: 'Reason: {label}',
@@ -1808,6 +1812,7 @@ export const en = {
         humans_only: 'only a person can set it',
         owner_approval: 'only the owner can grant it with their own login',
         not_holder: 'not your duty',
+        small_cards_only: 'you can only change it on a small card assigned to you in this stage',
         self_review: 'not on your own work',
       },
     },
@@ -2630,6 +2635,9 @@ export const en = {
         lifecycleNone: 'It can’t assign, cancel or reopen on its own.',
         override: 'It can start a card even with an open prerequisite.',
         noOverride: 'It can’t start a card with an open prerequisite.',
+        involve:
+          'It can bring a member without a role in on a card, with a reason; this gives the member no right to approve.',
+        noInvolve: 'It can’t bring a member in on a card; a person can, with a message.',
         actions: {
           assign: 'assign or change the assignee',
           cancel: 'cancel a card',
@@ -4491,8 +4499,8 @@ export const en = {
   },
 
   messages: {
-    readFailed: "Couldn't mark as read.",
     new: 'New message',
+    readFailed: "Couldn't mark as read.",
     recipients: 'To',
     contactsOnlyHint: 'You can only write to contacts.',
     managerOnlyHint: 'You can only write to the project manager.',
@@ -7793,6 +7801,21 @@ export const en = {
         value: {
           people: 'Only a person',
           people_and_project_manager: 'A person and the project manager, with an explicit flag',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Bringing a member in on a card',
+        help: 'A person can always bring anyone in on a card: their message starts the member. An AI member’s message only starts members who have a role on the card. A member brought in gets no right to approve.',
+        question: 'Who else can bring a member in?',
+        project_manager: 'Project manager, with a reason',
+        covers: 'Member concerned: {names}',
+        noProjectManager: 'There is no project manager in the team now.',
+        humansOnly: 'Now only a person can bring a member in on a card.',
+        readOnlyLabel: 'Who can bring a member in on a card?',
+        value: {
+          people: 'Only a person',
+          people_and_project_manager: 'A person and the project manager, with a reason',
         },
       },
       /** Who besides people may set a card’s priority (PM-1096). */

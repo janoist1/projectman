@@ -1,0 +1,31 @@
+{
+  "name": "cancel_task",
+  "title": "Cancel a task",
+  "description": "Close a card as cancelled (sessions stop; assignee, stage and files stay), with a reason on its timeline under your name. Closed cards and themes are refused; deleting stays with the owners. Only if the project settings let the PM cancel cards; that also allows marking a duplicate (duplicate_of).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "required": [
+      "task_key",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Cancel a task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

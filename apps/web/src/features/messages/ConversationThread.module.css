@@ -188,6 +188,7 @@
 }
 
 .unreadMark {
+  font-size: var(--text-xs);
   font-weight: 800;
   color: var(--c-accent-text);
 }

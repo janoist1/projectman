@@ -3,6 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import Fastify from 'fastify';
+import { readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, SERVER_INFO, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
@@ -320,19 +321,19 @@ describe('tool audience', () => {
 });
 
 describe('team tool definitions', () => {
+  it('has exactly one snapshot file for each registered tool', async () => {
+    const files = await readdir(new URL('./__snapshots__/tools/', import.meta.url));
+    expect(files.sort()).toEqual(TEAM_TOOL_NAMES.map((name) => `${name}.json`).sort());
+  });
+
   it('preserves the public tool definitions across module moves', async () => {
     const { tools } = await listToolsFor(fullAudience);
-    expect(
-      tools
-        .map(({ name, title, description, inputSchema, annotations }) => ({
-          name,
-          title,
-          description,
-          inputSchema,
-          annotations,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    ).toMatchSnapshot();
+    for (const { name, title, description, inputSchema, annotations } of tools) {
+      const definition = { name, title, description, inputSchema, annotations };
+      await expect(`${JSON.stringify(definition, null, 2)}\n`).toMatchFileSnapshot(
+        `__snapshots__/tools/${name}.json`,
+      );
+    }
   });
 });
 

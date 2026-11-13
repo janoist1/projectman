@@ -1,0 +1,49 @@
+{
+  "name": "read_history_source",
+  "title": "Read a source of the project history",
+  "description": "Read one source a search_history hit named (a team message, a closed question or a document; cards and notes: get_task), in lines. A source you may not read gives not_found, like a missing one.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "source_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "The source_id of a search_history hit."
+      },
+      "project_key": {
+        "description": "Project key; defaults to the project of this session.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}$"
+      },
+      "from_line": {
+        "description": "First line to return, from 1 (default 1).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "line_count": {
+        "description": "How many lines, 1–200 (default 80).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200
+      },
+      "commit": {
+        "description": "A document only: the commit the hit named. history_source_changed: the stored copy is newer, search again.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "required": [
+      "source_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read a source of the project history",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

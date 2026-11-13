@@ -61,11 +61,26 @@ export function pickStageOwners(
   const small: StageOwnerPick = { stageId: stage.id, small: true, reason: { code: 'small', points } };
   if (rule.centralPaths.length === 0) return small;
   if (changed === undefined) return main({ code: 'no_branch' });
-  if (changed === null) return main({ code: 'unreadable' });
+  const reason = centralFilesReason(rule, changed);
+  return reason ? main(reason) : small;
+}
+
+/** A review round only escalates for central or unreadable files; it does not repeat entry eligibility. */
+export function repinStageOwners(stage: Stage, changed: ChangedFiles): StageOwnerPick | null {
+  if (!stage.smallCards) return null;
+  const reason = centralFilesReason(stage.smallCards, changed);
+  return reason ? { stageId: stage.id, small: false, reason } : null;
+}
+
+function centralFilesReason(
+  rule: NonNullable<Stage['smallCards']>,
+  changed: ChangedFiles,
+): StageOwnerPick['reason'] | null {
+  if (changed === null) return { code: 'unreadable' };
   const central = changed.paths.filter((path) => rule.centralPaths.some((p) => matchesPathPattern(p, path)));
   if (central.length > 0)
-    return main({ code: 'central_files', files: central.slice(0, NAMED_FILES), count: central.length });
-  return changed.truncated ? main({ code: 'unreadable' }) : small;
+    return { code: 'central_files', files: central.slice(0, NAMED_FILES), count: central.length };
+  return changed.truncated ? { code: 'unreadable' } : null;
 }
 
 /**

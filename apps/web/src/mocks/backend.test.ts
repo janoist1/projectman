@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ProjectChecklistView,
-  ProvidersView,
-  RETIRED_OPERATOR_HANDLE,
-  validateProjectConfig,
-} from '@projectman/shared';
+import { ProjectChecklistView, ProvidersView, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 
 const role = {
@@ -82,7 +77,7 @@ describe('integrator credential policy in the fake (PM-759)', () => {
       ...backend.inbox[0]!,
       id: 'own_question',
       kind: 'question' as const,
-      source: RETIRED_OPERATOR_HANDLE,
+      source: backend.viewerHandle,
       sessionId: null,
       state: 'open' as const,
       assignees: [backend.viewerHandle],
@@ -161,28 +156,6 @@ describe('integrator credential policy in the fake (PM-759)', () => {
 const RESOLVE_PARITY_CASES = [
   {
     mode: 'own',
-    kind: 'approval',
-    assignees: [null],
-    payload: {
-      operator: {
-        requestId: 'opr_fixture',
-        stepId: 'ops_fixture',
-        quote: 'Pause the team',
-        action: 'project_pause',
-        operation: { op: 'project_pause' },
-        changes: [],
-        consequence: 'project_pause',
-        baseVersion: null,
-        session: null,
-        stale: null,
-      },
-    },
-    request: { optionId: 'approve' },
-    status: 409,
-    code: 'inbox_item_closed',
-  },
-  {
-    mode: 'own',
     kind: 'decision',
     assignees: ['someone-else'],
     payload: {},
@@ -228,7 +201,7 @@ const RESOLVE_PARITY_CASES = [
   },
 ] satisfies {
   mode: 'own' | 'super' | 'read';
-  kind: 'approval' | 'decision' | 'question' | 'permission';
+  kind: 'decision' | 'question' | 'permission';
   assignees: (string | null)[];
   payload: Record<string, unknown>;
   request: { optionId: string; note?: string };

@@ -20,7 +20,6 @@ import {
   boardCard,
   hasBoundOrigin,
   waitingForOthers,
-  operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   wasIntegratorInboxItem,
   PROJECT_MANAGER_ROLE,
@@ -213,8 +212,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       (event.type === 'session_upserted' && involvesManager(client, key, [event.session.member])) ||
       ((event.type === 'team_message' || event.type === 'team_message_updated') &&
         involvesManager(client, key, [event.message.from, ...event.message.to])) ||
-      (event.type === 'inbox_upserted' &&
-        Boolean(operatorApprovalOf(event.item) || operatorKnowledgeApprovalOf(event.item)));
+      (event.type === 'inbox_upserted' && Boolean(operatorKnowledgeApprovalOf(event.item)));
     if (cornerChanged) invalidate(queryKeys.projectManager(key));
   }
   switch (event.type) {

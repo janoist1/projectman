@@ -608,7 +608,7 @@ describe('Operator system signals', () => {
     config.pipeline.labels.push({ id: 'unowned', name: 'Unowned', setBy: { members: ['ghost'] } });
     config.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'unowned' }] };
     await h.domain.operatorSignals.sweep('AR');
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'nobody')).toEqual([]);
+    expect(h.repos.operatorSignals.list('AR')).toEqual([]);
   });
 
   it('connects outage and stalled events and resolves released input', async () => {

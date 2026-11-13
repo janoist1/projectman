@@ -12,7 +12,6 @@ import {
   isIntegratorInboxItem,
   alertPayloadOf,
   handOnRequestOf,
-  operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   emailApprovalOf,
   questionPayloadOf,
@@ -62,7 +61,6 @@ import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
 import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/OperatorKnowledgeApproval';
 import styles from './InboxCard.module.css';
 import { MentionInbox } from './MentionInbox';
@@ -227,7 +225,6 @@ export function InboxCard({
   onReplied,
   onReplySending,
 }: InboxCardProps) {
-  const operatorApproval = operatorApprovalOf(item);
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
   const project = useContext(ProjectContext);
@@ -630,63 +627,6 @@ export function InboxCard({
         ) : null}
       </article>
     );
-  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
-  if (operatorApproval) {
-    const isStale = operatorApproval.stale !== null || stale;
-    return (
-      <article
-        id={inboxItemDomId(item.id)}
-        className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
-        data-kind={item.kind}
-        data-operator-approval=""
-      >
-        <div className={styles.head}>
-          <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
-          {isStale ? <Chip tone="warn">{t('operator.approval.stale')}</Chip> : null}
-          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
-          <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
-          <span className={styles.spacer} />
-          <time className={styles.time} dateTime={item.createdAt}>
-            {formatAgo(item.createdAt)}
-          </time>
-        </div>
-        {taskRow}
-        <Heading className={styles.title}>{item.title}</Heading>
-        <OperatorApprovalBody payload={operatorApproval} stale={stale} open={item.state === 'open'} />
-        {assignedToOthers ? (
-          <p className={styles.others}>
-            <Icon name="user" size={14} />
-            {t('inbox.assignedTo', { names: joinNames(namesOf(item.assignees, members, myHandle)) })}
-          </p>
-        ) : (
-          <div className={styles.actions}>
-            <OperatorApprovalActions
-              item={item}
-              payload={operatorApproval}
-              size={buttonSize}
-              pending={pending}
-              stale={stale}
-              onDecide={onResolve}
-            />
-            {detailsHref && !mobile ? (
-              <>
-                <span className={styles.spacer} />
-                <Link to={detailsHref} className={styles.details}>
-                  <span>{t('inbox.details')}</span>
-                  <Icon name="arrowRight" size={14} strokeWidth={2.2} />
-                </Link>
-              </>
-            ) : null}
-          </div>
-        )}
-        {error ? (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        ) : null}
-      </article>
-    );
-  }
 
   return (
     <article
@@ -960,7 +900,7 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers || item.kind === 'release' ? null : emailItem ? (
+      {assignedToOthers ? null : emailItem ? (
         <ApprovalInboxActions
           item={item}
           size={buttonSize}

@@ -4353,70 +4353,13 @@ export const hu = {
       },
     },
     approval: {
-      plan: 'A terv',
-      planWhy: 'Miért',
-      planImpact: 'Hatás',
-      planReversible: 'Visszavonható?',
-      reversibleYes: 'Igen, visszafordítható',
-      reversibleNo: 'Nem vonható vissza',
-      recipients: 'Kinek',
-      guest: '· vendég',
-      message: 'Az üzenet',
-      messageExact: 'Pontosan ez megy ki, a csatlakoztatott Claude nevében.',
-      messageExactTask: 'Pontosan ez megy ki, a csatlakoztatott Claude nevében, a {key} kártyáról.',
-      expires: 'Lejár: {time}. Ha addig nem döntesz, nem történik semmi.',
-      expiresSoon: '{minutes} perc múlva lejár. Ha addig nem döntesz, nem történik semmi.',
-      send: 'Elküldöm',
-      asked: 'Kérted: „{quote}”',
-      quoteMore: 'Az egész idézet',
-      quoteLess: 'Rövidebben',
       changes: 'Mi változik',
       more: '+{count} további változás',
       less: 'Kevesebb',
       approve: 'Jóváhagyom',
       reject: 'Elvetem',
-      stop: 'Leállítom',
-      pause: 'Szüneteltetem',
       ok: 'Rendben',
-      stale: 'Elavult',
-      staleReasons: {
-        expired:
-          'Lejárt, mert 24 órán belül nem döntöttél róla, ezért nem történt semmi. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
-        interrupted:
-          'A végrehajtás megszakadt, és biztonsági okból nem indul újra. Nézd meg, megtörtént-e; ha még kell, kérd újra a csatlakoztatott Claude-tól.',
-        config_changed:
-          'Közben megváltozott a beállítás, ezért ez a kérés már nem futtatható. Szóltam a csatlakoztatott Claude-nak; ha még kell, kérd újra tőle.',
-        session_changed:
-          'Közben a munkamenet már leállt, vagy máshol tart, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
-        pause_changed:
-          'Közben megváltozott a projekt szüneteltetése, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
-      },
-      approved: 'Jóváhagyva: {title}',
       rejected: 'Elvetve, semmi nem változott.',
-      consequences: {
-        message_send:
-          'Jóváhagyás után az üzenet egyszer megy ki. Ha elveted, nem megy ki semmi, és a címzett nem kap értesítést.',
-        operator_watch:
-          'A már kiadott jelzések nem változnak; a csatlakoztatott Claude a következő ébredésétől e szerint lép jelzésre.',
-        network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
-        permission_mode: 'A futó munkamenetek nem változnak; az engedélymód az újonnan indulókra érvényes.',
-        pipeline: 'A kártyák helye nem változik, a szabály a következő mozgatástól érvényes.',
-        labels: 'A már felkerült címkék nem változnak, a szabály a következő döntéstől érvényes.',
-        member_hire: 'Az új tag a mentés után azonnal munkát kaphat.',
-        member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
-        member_rename:
-          'A tag azonosítója az új névre vált, a korábbi bejegyzések a régi névvel maradnak; a levelezési címe is az új azonosítót követi.',
-        member_other: 'A tag futó munkamenetei nem változnak.',
-        locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
-        review_test:
-          'A már futó tesztek nem változnak; az új beállítás a következő teljes teszttől érvényes.',
-        fix_limit: 'A már zajló javítási körök nem változnak.',
-        session_stop: 'A munkamenet leáll; a kártya a megszokott módon folytatható.',
-        project_pause: 'A futó munkamenetek befejezik az aktuális lépésüket, újak nem indulnak.',
-        project_resume: 'A várakozó munkák újra indulhatnak.',
-        project: 'A projekt beállítása változik, a munkák helye nem.',
-        other: 'A változás a megjelölt beállításra vonatkozik.',
-      },
     },
     signal: {
       pending: '{count} nyitott jelzés',
@@ -4448,18 +4391,13 @@ export const hu = {
         loop_suspected: '{key}: körbejárás gyanúja',
         outage: 'Kiesés: a munka egy része áll',
         process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
-        nobody: '{key}: senki nem viheti',
         stalled: '{key}: válaszra vár a munkamenet',
         silent: '{key}: a munkamenet nem ad jelet',
-        idle: '{key}: senki nem dolgozik rajta',
-        merge_waiting: '{key}: beolvasztásra vár',
         merge_blocked: '{key}: elakadt a beolvasztás',
         unreleased: 'Kiadásra váró munka',
-        ready_waiting: 'Indítható kártyák várnak',
         answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
         structural_pattern: 'Több kártyán ismétlődő szerkezeti minta',
         milestone_closed: 'Lezárult szakasz',
-        refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
         relation_check: '{key}: a kártya új kapcsolatokat kapott',
@@ -4471,20 +4409,14 @@ export const hu = {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a PM kezeli, az érintett kártyákon látszik.',
         process_cleanup_failed:
           'Egy véget ért ülés háttérfolyamatai a leállítás után is futnak; a munkaterülete foglalt marad. A Gép panelen leállíthatók.',
-        nobody: 'A kártyát most egy tag sem viheti a beállítások szerint.',
         stalled: 'A munkamenet egy ideje bemenetre vár.',
         silent: 'A munkamenet dolgozik, de egy ideje nem ad jelet.',
-        idle: 'A kártyának van felelőse, de fél órája nem fut rajta munka.',
-        merge_waiting: 'A beolvasztást fél órája kérték, de a beolvasztó még nem kezdte el.',
         merge_blocked: 'A beolvasztás ütközés, elbukott ellenőrzés vagy hiba miatt áll.',
         unreleased: 'A fő ágon egy napnál régebben beolvasztott munka vár kiadásra.',
-        ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
         answer_stalled:
           'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
         structural_pattern: 'Konkrét bizonyíték alapján érdemes lehet egy rövid architektúraszemlét kérni.',
         milestone_closed: 'Egy téma vagy gyűjtőkártya lezárult; a PM mérlegeli egy alkalmi szemle hasznát.',
-        refinement_stalled:
-          'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
         start_blocked:
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
         obligation_overdue:
@@ -4911,7 +4843,6 @@ export const hu = {
       question: 'Kérdés',
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
-      release: 'Kiadás',
       mention: 'Említés',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'Teendő',
@@ -4924,7 +4855,6 @@ export const hu = {
       question: 'kérdés',
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
-      release: 'kiadás',
       mention: 'említés',
       todo: 'teendő',
     },
@@ -5267,7 +5197,6 @@ export const hu = {
         'Ha írhat neki, nézd meg, kér-e e-mailt (Beállítások › E-mail) és kapcsolattartó-e (Beállítások › Csapat), aztán kérd meg, hogy küldje újra.',
     },
     release: {
-      title: 'Korábbi kiadás',
       newTab: '(új lapon nyílik)',
     },
     handOn: {

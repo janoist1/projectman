@@ -1,22 +1,4 @@
 /* The release items of the inbox (PM-492) use the card's frame; these are the parts only they have. */
-.cardLine {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--c-ink-3);
-  min-width: 0;
-}
-
-.cardLine a {
-  color: inherit;
-}
-
-.key {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  margin-right: 6px;
-}
-
 .version {
   display: flex;
   flex-wrap: wrap;

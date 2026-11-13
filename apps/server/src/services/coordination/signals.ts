@@ -91,19 +91,11 @@ type SignalInput = {
 const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set(['merge_blocked', 'answer_stalled']);
 
 /**
- * The kinds of the stall detectors PM-1152 and PM-1226 removed: nothing raises them any more (the `next_step`
- * obligation ladder carries those stalls), so an open row an older build left is resolved by the sweep (state,
- * event and the questions asked about it, as for any ended case). `unreleased` is retired by PM-1333: the
- * `release_due` integrator todo carries the case.
+ * `unreleased` is retired by PM-1333: the `release_due` integrator todo carries the case, so an open row an
+ * older build left is resolved by the sweep (state, event and the questions asked about it, as for any ended
+ * case).
  */
-const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
-  'unreleased',
-  'idle',
-  'merge_waiting',
-  'ready_waiting',
-  'refinement_stalled',
-  'nobody',
-]);
+const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set(['unreleased']);
 
 /** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
 const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([

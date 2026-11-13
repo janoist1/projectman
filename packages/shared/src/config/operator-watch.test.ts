@@ -144,15 +144,10 @@ describe('operatorSignalStepRefusal', () => {
     }
   });
 
-  it('lets the overdue obligation be dismissed and stepped on, and gives the retired stall kinds neither', () => {
+  it('lets the overdue obligation be dismissed and stepped on', () => {
     expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('obligation_overdue');
     for (const level of ['unblock', 'drive'] as const)
       expect(OPERATOR_SIGNAL_STEP_KINDS[level]).toContain('obligation_overdue');
-    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const) {
-      expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).not.toContain(kind);
-      for (const level of ['unblock', 'drive'] as const)
-        expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain(kind);
-    }
   });
 
   it('refuses a tool the signal gives no target for, and a wrong card or member', () => {

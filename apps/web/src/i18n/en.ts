@@ -4795,7 +4795,6 @@ export const en = {
       question: 'Question',
       approval: 'Approval',
       alert: 'Alert',
-      release: 'Release',
       mention: 'Mention',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'To-do',
@@ -4808,7 +4807,6 @@ export const en = {
       question: 'question',
       approval: 'approval',
       alert: 'alert',
-      release: 'release',
       mention: 'mention',
       todo: 'to-do',
     },
@@ -5153,7 +5151,6 @@ export const en = {
         'If they may write to them, check whether they ask for email (Settings › Email) and are a contact (Settings › Team), then ask them to send it again.',
     },
     release: {
-      title: 'Earlier release',
       newTab: '(opens in a new tab)',
     },
     handOn: {
@@ -5879,71 +5876,13 @@ export const en = {
       },
     },
     approval: {
-      plan: 'The plan',
-      planWhy: 'Why',
-      planImpact: 'Impact',
-      planReversible: 'Can it be undone?',
-      reversibleYes: 'Yes, it can be reversed',
-      reversibleNo: 'It can’t be undone',
-      recipients: 'To',
-      guest: '· guest',
-      message: 'The message',
-      messageExact: 'Exactly this goes out, in the connected Claude’s name.',
-      messageExactTask: 'Exactly this goes out, in the connected Claude’s name, about card {key}.',
-      expires: 'Expires: {time}. If you don’t decide by then, nothing happens.',
-      expiresSoon: 'Expires in {minutes} min. If you don’t decide by then, nothing happens.',
-      send: 'Send',
-      asked: 'You asked: “{quote}”',
-      quoteMore: 'The whole quote',
-      quoteLess: 'Shorter',
       changes: 'What changes',
       more: '{count|# more change|# more changes}',
       less: 'Less',
       approve: 'Approve',
       reject: 'Reject',
-      stop: 'Stop',
-      pause: 'Pause',
       ok: 'OK',
-      stale: 'Out of date',
-      staleReasons: {
-        expired:
-          'It expired because you didn’t decide within 24 hours, so nothing happened. If you still need it, ask the connected Claude again.',
-        interrupted:
-          'The execution was interrupted and, for safety, isn’t restarted. Check whether it happened; if you still need it, ask the connected Claude again.',
-        config_changed:
-          'The setting changed in the meantime, so this request can’t be run any more. I told the connected Claude; if you still need it, ask them again.',
-        session_changed:
-          'The session has stopped in the meantime, or is somewhere else now, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
-        pause_changed:
-          'The project’s pause changed in the meantime, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
-      },
-      approved: 'Approved: {title}',
       rejected: 'Rejected, nothing changed.',
-      consequences: {
-        message_send:
-          'After approval the message goes out once. If you reject it, nothing goes out and the recipient isn’t notified.',
-        operator_watch:
-          'Signals already raised don’t change; from its next wake-up the connected Claude acts on signals this way.',
-        network:
-          'Running sessions don’t change; the network rule applies to sessions that start from now on.',
-        permission_mode:
-          'Running sessions don’t change; the permission mode applies to sessions that start from now on.',
-        pipeline: 'Cards stay where they are; the rule applies from the next move.',
-        labels: 'Labels already on cards don’t change; the rule applies from the next decision.',
-        member_hire: 'The new member can get work right after saving.',
-        member_retire: 'The member’s running sessions stop, and the team takes over their work.',
-        member_rename:
-          'The member’s handle changes to the new name, earlier entries keep the old name; their email address follows the new handle too.',
-        member_other: 'The member’s running sessions don’t change.',
-        locations: 'Running sessions don’t change; sessions that start from now on use the new location.',
-        review_test: 'Tests already running don’t change; the new setting applies from the next full test.',
-        fix_limit: 'Fix rounds already under way don’t change.',
-        session_stop: 'The session stops; the card can carry on the usual way.',
-        project_pause: 'Running sessions finish their current step; no new ones start.',
-        project_resume: 'Waiting work can start again.',
-        project: 'The project’s setting changes, the location of the work doesn’t.',
-        other: 'The change applies to the setting named.',
-      },
     },
     signal: {
       pending: '{count|# open signal|# open signals}',
@@ -5976,18 +5915,13 @@ export const en = {
         loop_suspected: '{key}: suspected going in circles',
         outage: 'Outage: part of the work is stuck',
         process_cleanup_failed: '{key}: a session’s processes didn’t stop',
-        nobody: '{key}: nobody can take it',
         stalled: '{key}: the session is waiting for a reply',
         silent: '{key}: the session isn’t giving any sign',
-        idle: '{key}: nobody is working on it',
-        merge_waiting: '{key}: waiting to be merged',
         merge_blocked: '{key}: the merge is stuck',
         unreleased: 'Work waiting for a release',
-        ready_waiting: 'Cards ready to start are waiting',
         answer_stalled: '{key}: the answer arrived, but the member isn’t carrying on',
         structural_pattern: 'A structural pattern repeating on several cards',
         milestone_closed: 'A closed stage',
-        refinement_stalled: '{key}: the refinement turn ended without the label',
         start_blocked: '{key}: the start is quietly waiting',
         obligation_overdue: '{key}: the step is still stuck after the reminder',
         relation_check: '{key}: the card got new relations',
@@ -5999,21 +5933,15 @@ export const en = {
         outage: 'A provider or an engine isn’t reachable; the PM handles it, and the affected cards show it.',
         process_cleanup_failed:
           'The background processes of a session that ended are still running after it stopped; its workspace stays busy. You can stop them on the Machine panel.',
-        nobody: 'According to the settings, no member can take the card right now.',
         stalled: 'The session has been waiting for input for a while.',
         silent: 'The session is working, but hasn’t given a sign for a while.',
-        idle: 'The card has an assignee, but no work has been running on it for half an hour.',
-        merge_waiting: 'The merge was requested half an hour ago, but the merger hasn’t started it yet.',
         merge_blocked: 'The merge is stuck because of a conflict, a failed check or an error.',
         unreleased: 'Work merged into the main branch more than a day ago is waiting for a release.',
-        ready_waiting: 'A card ready to start is waiting, and there is a free developer.',
         answer_stalled:
           'A reply or message was already delivered to the member, but they haven’t taken a step since.',
         structural_pattern: 'On concrete evidence, it may be worth asking for a short architecture review.',
         milestone_closed:
           'A theme or collector card closed; the PM weighs whether an occasional review is worth it.',
-        refinement_stalled:
-          'The refinement turn ended, but its label isn’t on the card, and the member isn’t carrying on.',
         start_blocked:
           'The card’s start is waiting for a repository choice or a stuck workspace. The PM sorts out what a member can; when the cause is gone, the signal closes by itself.',
         obligation_overdue:

@@ -317,7 +317,7 @@ describe('super command classification (PM-762)', () => {
       AiMemberConfig.parse({
         handle,
         kind: 'ai',
-        displayName: 'Retired built-in member',
+        displayName: 'Project manager',
         role,
         sponsor: 'owner',
       }),

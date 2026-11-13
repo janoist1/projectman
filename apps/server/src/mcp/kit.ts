@@ -248,6 +248,8 @@ export type ExternalRegisteredTool = ExternalTool | ExternalProjectlessTool;
 /** What a shared tool definition declares to be served externally; see `defineTool`. */
 interface ExternalBinding<Args> {
   access: ExternalAccess;
+  /** Offered and callable only with the host owner's key. */
+  hostOnly?: true;
   /** The description the bearer endpoint shows when the member one speaks of who may call it. */
   description?: string;
   /** Parameters of the member schema the bearer endpoint does not take (session file paths, PM-only signals). */
@@ -408,6 +410,7 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
             },
             access: external.access,
             modes: external.modes ?? EXTERNAL_MODES[external.access],
+            ...(external.hostOnly ? { hostOnly: true as const } : {}),
             projectless: false,
             run: async (call: ExternalToolRun<Record<string, unknown>>) =>
               external.run(call as ExternalToolRun<ToolInput<Shape>>),

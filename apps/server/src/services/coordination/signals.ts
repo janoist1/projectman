@@ -26,6 +26,7 @@ import {
   LoopTriageFacts,
   PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS,
   isOnLeave,
+  hostOutsideOwners,
   isWorkingSession,
   isWorkPaused,
   memberOf,
@@ -221,6 +222,7 @@ export class ProjectManagerSignals {
     startAttempting: (task: Task) => boolean;
     /** The work merged since each repository's last release (PM-1201); reads only. */
     unreleased: (projectKey: string) => UnreleasedWork[];
+    hostOwnerEmail: () => string | null;
   }) {
     this.deps = privateDeps;
   }
@@ -242,6 +244,7 @@ export class ProjectManagerSignals {
     startAttempting: (task: Task) => boolean;
     /** The work merged since each repository's last release (PM-1201); reads only. */
     unreleased: (projectKey: string) => UnreleasedWork[];
+    hostOwnerEmail: () => string | null;
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -774,7 +777,7 @@ export class ProjectManagerSignals {
         this.resolve(key, signal.caseKey);
     }
     await this.closeLeftQuestions(key);
-    this.releaseDue(key);
+    this.releaseDue(config);
     await this.deliver(key, structural, board);
   }
 
@@ -783,8 +786,13 @@ export class ProjectManagerSignals {
    * and base (`release_due`), not opened again within a day of a closed one; a todo whose base moved (the release
    * was published) or whose work is gone closes. The devops is never started for it.
    */
-  private releaseDue(projectKey: string): void {
+  private releaseDue(config: ProjectConfig): void {
     const { ctx, inbox } = this.deps;
+    const projectKey = config.project.key;
+    if (hostOutsideOwners(config, this.deps.hostOwnerEmail())) {
+      inbox.settleAlert(projectKey, 'release_due', { keep: [] });
+      return;
+    }
     const now = ctx.now().getTime();
     const keep: string[] = [];
     for (const work of this.deps.unreleased(projectKey)) {

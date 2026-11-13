@@ -579,6 +579,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
     const actor = coordinatorSuperActorOf(config(), KEY, 'pm')!;
     return {
       active: true,
+      hostOwner: true,
       context: {
         principal: {
           kind: 'integrator' as const,

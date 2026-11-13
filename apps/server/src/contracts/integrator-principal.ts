@@ -118,6 +118,7 @@ export type { SuperMutationCommand, OwnerReservedEffect } from '@projectman/shar
 
 /** Internal live capability; the authenticated DTO alone never grants authority. */
 export interface IntegratorExecutionScope {
+  readonly hostOwner: boolean;
   readonly context: AuthenticatedIntegratorExecutionContext;
   active: boolean;
   actorFor(config: ProjectConfig | null): Actor;

@@ -17,12 +17,13 @@ export function connectedClaude(holder = 'owner', issuer?: string): ConnectedAct
 export function inIntegratorExecution<T>(
   actor: Actor,
   run: () => T,
-  opts: { holder?: string; accessChecks?: number } = {},
+  opts: { holder?: string; accessChecks?: number; hostOwner?: boolean } = {},
 ): T {
   let checks = 0;
   return runIntegratorExecution(
     {
       active: true,
+      hostOwner: opts.hostOwner ?? true,
       context: {
         principal: {
           kind: 'integrator',

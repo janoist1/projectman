@@ -77,6 +77,8 @@ export function assertIntegratorAccess(
  */
 export function assertReleaseAuthority(config: ProjectConfig, actor: Actor): void {
   const owner = assertIntegratorAccess(config, 'write', actor);
+  if (execution.getStore()?.hostOwner === false)
+    throw forbidden('host_only', 'only the host owner may run a production release step');
   if (!isOwnerReleaseActor(config, actor) || (hasBoundOrigin(actor) && !(owner && delegatesOwnerAuthority())))
     throw forbidden(
       'release_owner_only',

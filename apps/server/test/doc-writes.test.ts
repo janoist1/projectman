@@ -1129,6 +1129,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     const actor = coordinatorSuperActorOf(config, KEY, 'pm')!;
     return {
       active: true,
+      hostOwner: true,
       context: {
         principal: { kind: 'integrator' as const, userId, keyId: KEY.id, prefix: KEY.prefix, mode },
         projectKey: 'AR',

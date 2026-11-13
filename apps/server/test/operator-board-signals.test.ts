@@ -3,7 +3,7 @@ import { RepoConfig } from '@projectman/shared';
 import type { ProjectManagerSignalKind, ProjectConfig, Task } from '@projectman/shared';
 
 import type { MergeRecord } from '../src/db';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
@@ -36,6 +36,13 @@ async function setup(opts: { adjust?: (config: ProjectConfig) => void; appVersio
       if (pm.kind === 'ai') pm.onLeave = false;
       opts.adjust?.(config);
     },
+  });
+  h.repos.users.insert({
+    id: 'usr_host',
+    ...OWNER,
+    passwordHash: null,
+    createdAt: now.toISOString(),
+    language: 'hu',
   });
 }
 
@@ -236,6 +243,28 @@ describe('release_due todo (PM-1333)', () => {
         (item) => (item.payload.systemAlert as { alert?: string } | undefined)?.alert === 'release_due',
       );
   const markers = () => todos().map((item) => (item.payload.systemAlert as { key: string }).key);
+
+  it('does not open a release todo without the host among the project owners, and settles an older one', async () => {
+    await setup({ adjust: withGithub });
+    await mergeCards(h, 'web', [
+      { commit: sha(1), at: hours(100) },
+      { commit: sha(2), at: hours(30) },
+    ]);
+    publishRelease(h, 'web', sha(1), hours(100));
+    await sweep();
+    const previous = todos()[0]!;
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      for (const member of draft.team.members)
+        if (member.kind === 'human' && member.handle === 'owner') member.email = 'friend@example.test';
+      return 'Transfer the project to a further owner';
+    });
+    await sweep();
+    expect(todos()).toEqual([]);
+    expect(todos('cancelled').map((item) => item.id)).toContain(previous.id);
+    later(48 * 60);
+    await sweep();
+    expect(todos()).toEqual([]);
+  });
 
   it('opens one integrator todo once the oldest unreleased merge is a day old, and closes it when the release moves the base', async () => {
     await setup({ adjust: withGithub });

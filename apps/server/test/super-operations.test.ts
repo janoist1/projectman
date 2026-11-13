@@ -95,6 +95,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         return runIntegratorExecution(
           {
             active: true,
+            hostOwner: true,
             context: {
               ...context,
               principal: { ...context.principal, source: 'app' as const, requestOrigin },

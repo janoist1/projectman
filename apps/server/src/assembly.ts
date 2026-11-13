@@ -1447,6 +1447,7 @@ export function createDomain(opts: DomainOptions) {
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
     unreleased: (projectKey) => releasePublications.unreleased(projectKey),
+    hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
   });
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({

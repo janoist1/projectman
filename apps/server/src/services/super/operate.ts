@@ -1,5 +1,5 @@
 import type { Actor, Session, SessionStop, TeamMessage } from '@projectman/shared';
-import { connectedOriginOf, prepareOperatorConfigPatch } from '@projectman/shared';
+import { connectedOriginOf, prepareSuperConfigPatch } from '@projectman/shared';
 import { assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
 import type { SuperCommandExecutor } from './handoffs';
 import { superJobIdentity } from './commands';
@@ -99,7 +99,7 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
       case 'config_patch':
         await deps.projects.patch(
           projectKey,
-          prepareOperatorConfigPatch(job.config, job.configVersion, op.patch),
+          prepareSuperConfigPatch(job.config, job.configVersion, op.patch),
           superJobIdentity(job, deps),
         );
         return;

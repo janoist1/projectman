@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OPERATOR_ANSWER_STALL_GRACE_MS } from '../api/dto';
+import { PROJECT_MANAGER_ANSWER_STALL_GRACE_MS } from '../api/dto';
 import { answerStallEvidence } from './answer-stall';
 import type { AnswerStallInput } from './answer-stall';
 
@@ -16,7 +16,7 @@ function input(over: Partial<AnswerStallInput> = {}): AnswerStallInput {
     waitingInput: false,
     idleSince: 0,
     lastStepAt: null,
-    evidence: [{ id: 'msg_1', at: at(-OPERATOR_ANSWER_STALL_GRACE_MS), carriesAnswer: false }],
+    evidence: [{ id: 'msg_1', at: at(-PROJECT_MANAGER_ANSWER_STALL_GRACE_MS), carriesAnswer: false }],
     ...over,
   };
 }
@@ -27,7 +27,9 @@ describe('answerStallEvidence', () => {
     expect(
       answerStallEvidence(
         input({
-          evidence: [{ id: 'msg_1', at: at(-OPERATOR_ANSWER_STALL_GRACE_MS + 1000), carriesAnswer: false }],
+          evidence: [
+            { id: 'msg_1', at: at(-PROJECT_MANAGER_ANSWER_STALL_GRACE_MS + 1000), carriesAnswer: false },
+          ],
         }),
       ),
     ).toBeNull();
@@ -35,7 +37,9 @@ describe('answerStallEvidence', () => {
 
   it('counts the grace from the idle session’s last state when that is later', () => {
     expect(answerStallEvidence(input({ idleSince: NOW - 1000 }))).toBeNull();
-    expect(answerStallEvidence(input({ idleSince: NOW - OPERATOR_ANSWER_STALL_GRACE_MS }))).not.toBeNull();
+    expect(
+      answerStallEvidence(input({ idleSince: NOW - PROJECT_MANAGER_ANSWER_STALL_GRACE_MS })),
+    ).not.toBeNull();
   });
 
   it('is blocked by a working session, a permission and an open question', () => {
@@ -46,7 +50,7 @@ describe('answerStallEvidence', () => {
   });
 
   it('needs the evidence to be after the last proven step', () => {
-    const evidenceAt = NOW - OPERATOR_ANSWER_STALL_GRACE_MS;
+    const evidenceAt = NOW - PROJECT_MANAGER_ANSWER_STALL_GRACE_MS;
     expect(answerStallEvidence(input({ lastStepAt: evidenceAt }))).toBeNull();
     expect(answerStallEvidence(input({ lastStepAt: evidenceAt + 1 }))).toBeNull();
     expect(answerStallEvidence(input({ lastStepAt: evidenceAt - 1 }))).not.toBeNull();
@@ -61,8 +65,8 @@ describe('answerStallEvidence', () => {
   });
 
   it('on a card with waiting-answer needs an answer, and counts the grace from it', () => {
-    const plain = [{ id: 'msg_1', at: at(-OPERATOR_ANSWER_STALL_GRACE_MS), carriesAnswer: false }];
-    const answer = [{ id: 'msg_2', at: at(-OPERATOR_ANSWER_STALL_GRACE_MS), carriesAnswer: true }];
+    const plain = [{ id: 'msg_1', at: at(-PROJECT_MANAGER_ANSWER_STALL_GRACE_MS), carriesAnswer: false }];
+    const answer = [{ id: 'msg_2', at: at(-PROJECT_MANAGER_ANSWER_STALL_GRACE_MS), carriesAnswer: true }];
     expect(answerStallEvidence(input({ labelled: true, evidence: plain }))).toBeNull();
     expect(answerStallEvidence(input({ labelled: true, evidence: answer }))).toMatchObject({ id: 'msg_2' });
     expect(answerStallEvidence(input({ labelled: true, evidence: answer, working: true }))).toBeNull();

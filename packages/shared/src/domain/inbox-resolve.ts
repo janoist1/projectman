@@ -1,5 +1,5 @@
 import type { ErrorCode } from '../api/error-codes';
-import { operatorKnowledgeApprovalOf } from '../api/dto';
+import { projectManagerKnowledgeApprovalOf } from '../api/dto';
 import type { ResolveInboxRequest } from '../api/dto';
 import { approvalRefusal } from '../config/labels';
 import { memberOf } from '../config/lookup';
@@ -165,7 +165,7 @@ export function inboxResolveRefusal(
         return refused(403, 'owner_approval_required', 'this item requires a person using their own login');
     }
   }
-  if (operatorKnowledgeApprovalOf(item)?.stale && request.optionId !== 'dismiss')
+  if (projectManagerKnowledgeApprovalOf(item)?.stale && request.optionId !== 'dismiss')
     return refused(409, 'operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
   if (!item.options.some((option) => option.id === request.optionId))
     return refused(400, 'unknown_option', `unknown option: ${request.optionId}`);

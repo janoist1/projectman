@@ -12,7 +12,7 @@ import {
   LoopTriageState,
   loopTriageDeadline,
 } from './loop-watch';
-import { operatorSignalStepRefusal } from '../config/operator-watch';
+import { projectManagerSignalStepRefusal } from '../config/operator-watch';
 import type { LoopTalk } from './loop-watch';
 
 describe('loop triage contract (PM-712)', () => {
@@ -79,7 +79,7 @@ describe('loop triage contract (PM-712)', () => {
   it.each(['report', 'unblock', 'drive'] as const)('grants no autonomous start authority at %s', (level) => {
     for (const tool of ['start_task', 'start_member'] as const)
       expect(
-        operatorSignalStepRefusal({
+        projectManagerSignalStepRefusal({
           level,
           kind: 'loop_suspected',
           tool,

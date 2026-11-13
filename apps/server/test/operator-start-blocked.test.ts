@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  OPERATOR_START_FETCH_FAILED_MINUTES,
+  PROJECT_MANAGER_START_FETCH_FAILED_MINUTES,
   questionPayloadOf,
   START_BLOCKED_REASONS,
 } from '@projectman/shared';
@@ -215,7 +215,7 @@ describe('start_blocked signal', () => {
       await sweep();
       const [signal] = signals();
       expect(signal!.deliveredAt).toBeNull();
-      later(OPERATOR_START_FETCH_FAILED_MINUTES - 1);
+      later(PROJECT_MANAGER_START_FETCH_FAILED_MINUTES - 1);
       await sweep();
       expect(signals()[0]!.deliveredAt).toBeNull();
       later(1);
@@ -270,7 +270,7 @@ describe('start_blocked signal', () => {
     it('starts the deployment duty on the waiting card for a failed fetch', async () => {
       const key = await blocked('workspace_fetch_failed', 'unblock');
       await sweep();
-      later(OPERATOR_START_FETCH_FAILED_MINUTES);
+      later(PROJECT_MANAGER_START_FETCH_FAILED_MINUTES);
       await sweep();
       const { step } = noticeOf(signals()[0]!.id);
       expect(step).toMatchObject({ tool: 'start_member', task_key: key, members: expect.any(Array) });
@@ -288,7 +288,7 @@ describe('start_blocked signal', () => {
     it('has no step at the report level', async () => {
       await blocked('workspace_fetch_failed', 'report');
       await sweep();
-      later(OPERATOR_START_FETCH_FAILED_MINUTES);
+      later(PROJECT_MANAGER_START_FETCH_FAILED_MINUTES);
       await sweep();
       expect(noticeOf(signals()[0]!.id).step).toBeNull();
     });

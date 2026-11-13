@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OPERATOR_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
+import { PROJECT_MANAGER_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
 import type { NewSuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -72,7 +72,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(h.repos.tasks.get('AR-1')?.title).toBe('Made by the Operator');
       const audit = h.repos.superAudit.ofRequest('AR', operation.requestId);
       expect(audit.length).toBeGreaterThan(0);
-      expect(audit.every((entry) => entry.prefix === OPERATOR_APP_CREDENTIAL_PREFIX)).toBe(true);
+      expect(audit.every((entry) => entry.prefix === PROJECT_MANAGER_APP_CREDENTIAL_PREFIX)).toBe(true);
       expect(audit.every((entry) => entry.keyId === ctx.sessionId)).toBe(true);
       expect(h.repos.projectManagerRequests.steps(REQUEST)).toMatchObject([
         { action: 'operation', operationId: operation.id, status: 'done' },
@@ -138,7 +138,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         kind: 'integrator',
         userId,
         keyId: ctx.sessionId,
-        prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+        prefix: PROJECT_MANAGER_APP_CREDENTIAL_PREFIX,
         mode: 'super',
         source: 'app',
       };
@@ -165,7 +165,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
           kind: 'integrator',
           userId,
           keyId: session.id,
-          prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+          prefix: PROJECT_MANAGER_APP_CREDENTIAL_PREFIX,
           mode: 'super',
           source: 'app',
           member: 'operator',
@@ -241,7 +241,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         userId,
         keyId: ctx.sessionId,
         member: 'pm',
-        prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+        prefix: PROJECT_MANAGER_APP_CREDENTIAL_PREFIX,
         mode: 'super',
         source: 'app',
       };

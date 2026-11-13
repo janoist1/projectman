@@ -208,7 +208,7 @@ function patchedLabels(
 }
 
 /** Expand against the same configuration version that the normal PATCH will check under its lock. */
-export function prepareOperatorConfigPatch(
+export function prepareSuperConfigPatch(
   config: ProjectConfig,
   baseVersion: string,
   patch: ProjectManagerConfigPatch,

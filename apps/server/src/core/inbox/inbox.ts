@@ -52,9 +52,9 @@ import {
   machineTodoIssuerAllowed,
   machineTodoIssuerOf,
   memberOf,
-  operatorKnowledgeApprovalOf,
+  projectManagerKnowledgeApprovalOf,
   structuralReviewOf,
-  OPERATOR_DISMISS_OPTION,
+  PROJECT_MANAGER_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
   PENDING_INBOX_STATES,
@@ -583,7 +583,7 @@ export class InboxService {
     const updated = this.ctx.repos.inbox.updateProjectManagerItem(
       id,
       payload,
-      [OPERATOR_DISMISS_OPTION],
+      [PROJECT_MANAGER_DISMISS_OPTION],
       isoNow(this.ctx),
     );
     if (updated) this.publish(updated);
@@ -1145,7 +1145,7 @@ export class InboxService {
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
-    if (operatorKnowledgeApprovalOf(item)) {
+    if (projectManagerKnowledgeApprovalOf(item)) {
       const decide = this.deciders.get('operator_knowledge');
       if (!decide) throw forbidden('operator_owner_only', 'Operator knowledge decisions are unavailable');
       await decide(item, by, req.optionId, note);

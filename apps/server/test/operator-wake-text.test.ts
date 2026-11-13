@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { OPERATOR_SIGNAL_STEP_GAP_MINUTES } from '@projectman/shared';
+import { PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES } from '@projectman/shared';
 import type { ObligationKind, ProjectManagerWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
@@ -178,7 +178,7 @@ describe('level drive', () => {
     const { card, signal } = await overdueCard();
     const stepAt = now.toISOString();
     await h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: signal.id });
-    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    later(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES);
     const session = (await operator()).sessionId;
     h.runner.setState(session, 'working');
     h.runner.setState(session, 'idle');

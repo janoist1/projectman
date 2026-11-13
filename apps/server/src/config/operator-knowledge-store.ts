@@ -4,7 +4,7 @@ import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { ZodType } from 'zod';
 import {
-  DEFAULT_OPERATOR_PREFERENCE,
+  DEFAULT_PROJECT_MANAGER_PREFERENCE,
   MemberHandle,
   ProjectManagerKnowledgeDocument,
   ProjectManagerPreferenceDocument,
@@ -136,7 +136,12 @@ export function createProjectManagerKnowledgeStore(opts: { rootDir: string }): P
     return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
   }
   function emptyPreference(): ProjectManagerPreferenceDocument {
-    return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
+    return {
+      schemaVersion: 1,
+      revision: 0,
+      data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE },
+      updatedAt: null,
+    };
   }
   async function cas<T extends { revision: number }>(
     file: string,

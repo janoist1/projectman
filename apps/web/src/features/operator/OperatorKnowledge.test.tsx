@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectManagerKnowledgeApprovalPayload } from '@projectman/shared';
-import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
+import { DEFAULT_PROJECT_MANAGER_PREFERENCE } from '@projectman/shared';
 import { Route, Routes } from 'react-router';
 import { MeContext } from '../../app/contexts';
 import { ProjectLayout } from '../../app/ProjectLayout';
@@ -147,7 +147,7 @@ describe('Operator knowledge view', () => {
     project.backend.operatorPreferences.kata = {
       schemaVersion: 1,
       revision: 1,
-      data: { ...DEFAULT_OPERATOR_PREFERENCE, length: 'detailed' },
+      data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE, length: 'detailed' },
       updatedAt: '2026-10-14T12:00:00.000Z',
     };
     renderView(project, {

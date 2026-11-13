@@ -167,7 +167,7 @@ export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boole
  * same people who see every team message, so the owner and the admin keep sight of what the Operator tells
  * the project's other people.
  */
-export function canSeeOperatorSessions(viewer: Pick<TaskViewer, 'access'>): boolean {
+export function canSeeProjectManagerSessions(viewer: Pick<TaskViewer, 'access'>): boolean {
   return canSeeAllTeamMessages(viewer);
 }
 

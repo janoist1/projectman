@@ -1,5 +1,5 @@
 import type { InboxItem, ResolveInboxRequest } from '@projectman/shared';
-import { operatorKnowledgeApprovalOf } from '@projectman/shared';
+import { projectManagerKnowledgeApprovalOf } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useResolveInbox } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -16,7 +16,7 @@ export function isStaleError(error: unknown): boolean {
 
 /** What the toast says after a knowledge approval was decided; dismissing a stale one says nothing. */
 export function operatorDecisionToast(item: InboxItem, optionId: string): string | null {
-  const knowledge = operatorKnowledgeApprovalOf(item);
+  const knowledge = projectManagerKnowledgeApprovalOf(item);
   if (optionId === 'approve' && knowledge)
     return t(
       knowledge.change.kind === 'agreement_replace'

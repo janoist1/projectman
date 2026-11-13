@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { DEFAULT_OPERATOR_PREFERENCE, ProjectManagerPreferenceDocument, routes } from '@projectman/shared';
+import {
+  DEFAULT_PROJECT_MANAGER_PREFERENCE,
+  ProjectManagerPreferenceDocument,
+  routes,
+} from '@projectman/shared';
 import type { ProjectManagerPreferenceData, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp/tools';
@@ -15,11 +19,11 @@ import type { AppHarness } from './helpers/app-harness';
 import { settle } from './helpers/fakes';
 
 const detailed = {
-  ...DEFAULT_OPERATOR_PREFERENCE,
+  ...DEFAULT_PROJECT_MANAGER_PREFERENCE,
   length: 'detailed' as const,
   technicalLevel: 'technical' as const,
 };
-const plain = { ...DEFAULT_OPERATOR_PREFERENCE, length: 'balanced' as const };
+const plain = { ...DEFAULT_PROJECT_MANAGER_PREFERENCE, length: 'balanced' as const };
 
 function people(config: ProjectConfig) {
   const pm = config.team.members.find((member) => member.handle === 'pm');
@@ -97,13 +101,13 @@ describe('personal Operator preference authorization', () => {
     request(pm, 'owner');
     expect(await h.domain.teamTools.getProjectManagerPreference(pm)).toMatchObject({
       revision: 0,
-      data: DEFAULT_OPERATOR_PREFERENCE,
+      data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
     });
     expect(await set(pm)).toMatchObject({ revision: 1, data: detailed });
     await expect(set(pm, plain, 0)).rejects.toThrow('operator_knowledge_stale');
-    expect(await set(pm, { ...DEFAULT_OPERATOR_PREFERENCE }, 1)).toMatchObject({
+    expect(await set(pm, { ...DEFAULT_PROJECT_MANAGER_PREFERENCE }, 1)).toMatchObject({
       revision: 2,
-      data: DEFAULT_OPERATOR_PREFERENCE,
+      data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
     });
     await expect(
       h.domain.teamTools.operate(pm, { title: 'Change project', operation: { op: 'project_pause' } }),
@@ -318,7 +322,7 @@ describe('personal preference context boundary', () => {
         { type: 'general' },
         { kind, by },
       );
-      expect(result).toEqual(allowed ? DEFAULT_OPERATOR_PREFERENCE : undefined);
+      expect(result).toEqual(allowed ? DEFAULT_PROJECT_MANAGER_PREFERENCE : undefined);
     },
   );
 

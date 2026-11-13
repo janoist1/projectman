@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_SIGNAL_STEP_KINDS,
+  PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS,
+  PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES,
+  PROJECT_MANAGER_SIGNAL_STEP_KINDS,
   OWNER_SILENT_SIGNAL_KINDS,
   isCoordinatorOnlySignal,
-  operatorSignalBudget,
+  projectManagerSignalBudget,
   ownerQuestionSignalRefusal,
   ownerQuestionSignalRefusalMessage,
-  operatorSignalStepRefusal,
+  projectManagerSignalStepRefusal,
 } from './operator-watch';
 import type { ProjectManagerSignalStepTargets } from './operator-watch';
 import { ProjectManagerSignalKind } from '../api/dto';
@@ -42,34 +42,36 @@ describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   });
   it('keeps a review_follow_ups signal for the coordinator: owner-silent, dismissible, no step', () => {
     expect(isCoordinatorOnlySignal('review_follow_ups')).toBe(true);
-    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('review_follow_ups');
+    expect(PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS).toContain('review_follow_ups');
     for (const level of ['report', 'unblock', 'drive'] as const)
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('review_follow_ups');
+      expect(PROJECT_MANAGER_SIGNAL_STEP_KINDS[level]).not.toContain('review_follow_ups');
   });
 });
 
-describe('operatorSignalBudget', () => {
+describe('projectManagerSignalBudget', () => {
   it('gives no step at report, one at unblock and three at drive', () => {
-    expect(operatorSignalBudget('report', [], NOW)).toEqual({ left: 0, nextAt: null });
-    expect(operatorSignalBudget('unblock', [], NOW)).toEqual({ left: 1, nextAt: null });
-    expect(operatorSignalBudget('drive', [], NOW)).toEqual({ left: 3, nextAt: null });
+    expect(projectManagerSignalBudget('report', [], NOW)).toEqual({ left: 0, nextAt: null });
+    expect(projectManagerSignalBudget('unblock', [], NOW)).toEqual({ left: 1, nextAt: null });
+    expect(projectManagerSignalBudget('drive', [], NOW)).toEqual({ left: 3, nextAt: null });
   });
 
   it('counts the steps taken and waits the gap from the latest one', () => {
     const last = minutesAgo(10);
-    expect(operatorSignalBudget('drive', [minutesAgo(50), last], NOW)).toEqual({
+    expect(projectManagerSignalBudget('drive', [minutesAgo(50), last], NOW)).toEqual({
       left: 1,
-      nextAt: new Date(Date.parse(last) + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
+      nextAt: new Date(Date.parse(last) + PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
     });
-    expect(operatorSignalBudget('drive', [minutesAgo(OPERATOR_SIGNAL_STEP_GAP_MINUTES)], NOW)).toEqual({
+    expect(
+      projectManagerSignalBudget('drive', [minutesAgo(PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES)], NOW),
+    ).toEqual({
       left: 2,
       nextAt: null,
     });
-    expect(operatorSignalBudget('unblock', [minutesAgo(5)], NOW)).toEqual({ left: 0, nextAt: null });
+    expect(projectManagerSignalBudget('unblock', [minutesAgo(5)], NOW)).toEqual({ left: 0, nextAt: null });
   });
 });
 
-describe('operatorSignalStepRefusal', () => {
+describe('projectManagerSignalStepRefusal', () => {
   const base = {
     level: 'unblock',
     kind: 'obligation_overdue',
@@ -81,16 +83,18 @@ describe('operatorSignalStepRefusal', () => {
   } as const;
   it('accepts cleanup signals but gives the Operator no autonomous step for them', () => {
     expect(ProjectManagerSignalKind.parse('process_cleanup_failed')).toBe('process_cleanup_failed');
-    expect(operatorSignalStepRefusal({ ...base, kind: 'process_cleanup_failed', level: 'drive' })).toEqual({
+    expect(
+      projectManagerSignalStepRefusal({ ...base, kind: 'process_cleanup_failed', level: 'drive' }),
+    ).toEqual({
       code: 'operator_no_request',
       reason: 'kind',
     });
   });
 
   it('lets the step through on the right card at a level that allows the kind', () => {
-    expect(operatorSignalStepRefusal(base)).toBeNull();
+    expect(projectManagerSignalStepRefusal(base)).toBeNull();
     expect(
-      operatorSignalStepRefusal({
+      projectManagerSignalStepRefusal({
         ...base,
         kind: 'merge_blocked',
         tool: 'start_member',
@@ -101,7 +105,7 @@ describe('operatorSignalStepRefusal', () => {
   });
 
   it('refuses everything at report', () => {
-    expect(operatorSignalStepRefusal({ ...base, level: 'report' })).toEqual({
+    expect(projectManagerSignalStepRefusal({ ...base, level: 'report' })).toEqual({
       code: 'operator_no_request',
       reason: 'level',
     });
@@ -110,9 +114,9 @@ describe('operatorSignalStepRefusal', () => {
   it.each(['report', 'unblock', 'drive'] as const)(
     'gives an unreleased signal no step at level %s (PM-1333: the release_due todo carries it)',
     (level) => {
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('unreleased');
+      expect(PROJECT_MANAGER_SIGNAL_STEP_KINDS[level]).not.toContain('unreleased');
       expect(
-        operatorSignalStepRefusal({
+        projectManagerSignalStepRefusal({
           ...base,
           level,
           kind: 'unreleased',
@@ -126,10 +130,10 @@ describe('operatorSignalStepRefusal', () => {
 
   it('binds answer_stalled to start_member at unblock and drive, with no task start', () => {
     for (const level of ['report', 'unblock', 'drive'] as const) {
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level].includes('answer_stalled')).toBe(level !== 'report');
+      expect(PROJECT_MANAGER_SIGNAL_STEP_KINDS[level].includes('answer_stalled')).toBe(level !== 'report');
       for (const tool of ['start_task', 'start_member'] as const) {
         expect(
-          operatorSignalStepRefusal({
+          projectManagerSignalStepRefusal({
             ...base,
             level,
             kind: 'answer_stalled',
@@ -149,23 +153,27 @@ describe('operatorSignalStepRefusal', () => {
   });
 
   it('lets the overdue obligation be dismissed and stepped on', () => {
-    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('obligation_overdue');
+    expect(PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS).toContain('obligation_overdue');
     for (const level of ['unblock', 'drive'] as const)
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).toContain('obligation_overdue');
+      expect(PROJECT_MANAGER_SIGNAL_STEP_KINDS[level]).toContain('obligation_overdue');
   });
 
   it('refuses a tool the signal gives no target for, and a wrong card or member', () => {
     expect(
-      operatorSignalStepRefusal({ ...base, tool: 'start_member', target: { member: 'x', taskKey: null } }),
+      projectManagerSignalStepRefusal({
+        ...base,
+        tool: 'start_member',
+        target: { member: 'x', taskKey: null },
+      }),
     ).toEqual({
       code: 'operator_no_request',
       reason: 'tool',
     });
-    expect(operatorSignalStepRefusal({ ...base, allowed: mergeAllowed })).toEqual({
+    expect(projectManagerSignalStepRefusal({ ...base, allowed: mergeAllowed })).toEqual({
       code: 'operator_no_request',
       reason: 'tool',
     });
-    expect(operatorSignalStepRefusal({ ...base, target: { member: null, taskKey: 'AR-9' } })).toEqual({
+    expect(projectManagerSignalStepRefusal({ ...base, target: { member: null, taskKey: 'AR-9' } })).toEqual({
       code: 'operator_no_request',
       reason: 'target',
     });
@@ -175,28 +183,31 @@ describe('operatorSignalStepRefusal', () => {
       { member: 'claude', taskKey: 'AR-9' },
       { member: 'claude', taskKey: null },
     ])
-      expect(operatorSignalStepRefusal({ ...merge, target })).toEqual({
+      expect(projectManagerSignalStepRefusal({ ...merge, target })).toEqual({
         code: 'operator_no_request',
         reason: 'target',
       });
   });
 
   it('spends the budget: one step at unblock, three at least half an hour apart at drive', () => {
-    expect(operatorSignalStepRefusal({ ...base, stepsAt: [minutesAgo(90)] })).toEqual({
+    expect(projectManagerSignalStepRefusal({ ...base, stepsAt: [minutesAgo(90)] })).toEqual({
       code: 'operator_signal_budget',
       reason: 'used',
       retryAt: null,
     });
     const drive = { ...base, level: 'drive' } as const;
-    expect(operatorSignalStepRefusal({ ...drive, stepsAt: [minutesAgo(31)] })).toBeNull();
+    expect(projectManagerSignalStepRefusal({ ...drive, stepsAt: [minutesAgo(31)] })).toBeNull();
     const recent = minutesAgo(10);
-    expect(operatorSignalStepRefusal({ ...drive, stepsAt: [recent] })).toEqual({
+    expect(projectManagerSignalStepRefusal({ ...drive, stepsAt: [recent] })).toEqual({
       code: 'operator_signal_budget',
       reason: 'too_soon',
-      retryAt: new Date(Date.parse(recent) + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
+      retryAt: new Date(Date.parse(recent) + PROJECT_MANAGER_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
     });
     expect(
-      operatorSignalStepRefusal({ ...drive, stepsAt: [minutesAgo(100), minutesAgo(70), minutesAgo(40)] }),
+      projectManagerSignalStepRefusal({
+        ...drive,
+        stepsAt: [minutesAgo(100), minutesAgo(70), minutesAgo(40)],
+      }),
     ).toEqual({ code: 'operator_signal_budget', reason: 'used', retryAt: null });
   });
 });

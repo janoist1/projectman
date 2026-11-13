@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_OPERATOR_PREFERENCE, MemberContextPreview, routes } from '@projectman/shared';
+import { DEFAULT_PROJECT_MANAGER_PREFERENCE, MemberContextPreview, routes } from '@projectman/shared';
 import type { Merger } from '@projectman/shared';
 import type { ContextPackInput } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
@@ -142,7 +142,7 @@ describe('member context preview', () => {
       await h.domain.projectManagerKnowledge.compareAndSwapPreference('AR', handle, 0, {
         schemaVersion: 1,
         revision: 1,
-        data: { ...DEFAULT_OPERATOR_PREFERENCE, length },
+        data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE, length },
         updatedAt: '2026-10-25T10:00:00.000Z',
       });
     }
@@ -152,7 +152,7 @@ describe('member context preview', () => {
     ] as const) {
       await h.domain.sessions.previewContext('AR', 'pm', { viewer });
       expect(h.contextBuilder.inputs.at(-1)!.projectManagerPreference).toEqual({
-        ...DEFAULT_OPERATOR_PREFERENCE,
+        ...DEFAULT_PROJECT_MANAGER_PREFERENCE,
         length,
       });
     }

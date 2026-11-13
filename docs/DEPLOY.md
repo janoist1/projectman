@@ -298,7 +298,7 @@ issued is taken in person and passes. Without a live authenticated execution the
 
 **When it starts.** The owner asks for a release, or the connected Claude decides to run the chain. A merge that
 waits too long also asks for it: when the oldest merge on a repository's default branch since the previous release is
-at least `OPERATOR_UNRELEASED_HOURS` (24) hours old, the hub's operator sweep opens one `release_due` machine todo
+at least `PROJECT_MANAGER_UNRELEASED_HOURS` (24) hours old, the hub's operator sweep opens one `release_due` machine todo
 for the integrator (PM-1333; payload `alert`, `repo`, `base`, `count`, `oldestAt`; marker `<repo>@<base>`, one open
 todo per repository and base). It does not start the devops and raises no `unreleased` signal. The connected Claude
 takes the todo in person (the system issued it, so its step passes the gate above), runs the chain or says why the

@@ -10,9 +10,9 @@ import {
   isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
   memberOf,
-  operatorSignalStepGapMs,
-  operatorSignalStepRefusal,
-  operatorWatchOf,
+  projectManagerSignalStepGapMs,
+  projectManagerSignalStepRefusal,
+  projectManagerWatchOf,
   TaskKey,
 } from '@projectman/shared';
 import type {
@@ -604,7 +604,7 @@ export class ToolCaller {
     config: ProjectConfig,
     step: SignalStep,
   ): Promise<CallerWithRequest> {
-    const level = operatorWatchOf(config);
+    const level = projectManagerWatchOf(config);
     const refuse: (code: string, text: string) => never = (code, text) => {
       throw new TeamToolError('forbidden', `${code}: ${text}`);
     };
@@ -620,8 +620,8 @@ export class ToolCaller {
     this.assertCoordinationSession(ctx, freshConfig);
     if (signal.deliveredTo !== ctx.member)
       refuse('operator_signal_closed', 'the signal was not delivered to this PM.');
-    const refusal = operatorSignalStepRefusal({
-      level: operatorWatchOf(freshConfig),
+    const refusal = projectManagerSignalStepRefusal({
+      level: projectManagerWatchOf(freshConfig),
       kind: signal.kind,
       tool: step.tool,
       target: { member: step.member, taskKey: step.taskKey },
@@ -642,7 +642,7 @@ export class ToolCaller {
         'operator_signal_budget',
         refusal.reason === 'used'
           ? 'this signal has no step left; tell the owner what you did and what became of it.'
-          : `the last step on this signal was less than ${operatorSignalStepGapMs() / 60_000} minutes ago; retry after ${refusal.retryAt}.`,
+          : `the last step on this signal was less than ${projectManagerSignalStepGapMs() / 60_000} minutes ago; retry after ${refusal.retryAt}.`,
       );
     // The budget counts logged steps, and a step is logged only after it ran: a call that arrives while
     // another step on this signal is running would pass the count too. No await between the count and here.
@@ -677,8 +677,8 @@ export class ToolCaller {
             task.labels.join() !== card.labels.join()))
       )
         refuse('operator_signal_closed', 'the signal or its target changed before execution.');
-      const refusal = operatorSignalStepRefusal({
-        level: operatorWatchOf(config),
+      const refusal = projectManagerSignalStepRefusal({
+        level: projectManagerWatchOf(config),
         kind: current.kind,
         tool: step.tool,
         target: { member: step.member, taskKey: step.taskKey },

@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   connectedActorOf,
-  prepareOperatorConfigPatch,
+  prepareSuperConfigPatch,
   roleBundle,
   routes,
   coordinatorSuperActorOf,
@@ -571,7 +571,7 @@ describe('credential REST and domain access (PM-759)', () => {
         method: 'PATCH',
         url: routes.config('AR'),
         headers,
-        payload: prepareOperatorConfigPatch(before.config, before.version, {
+        payload: prepareSuperConfigPatch(before.config, before.version, {
           operatorWatch: 'drive',
           roleOverrides: { developer },
         }),

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  operatorKnowledgeApprovalOf,
-  operatorKnowledgeContinuationMessageId,
-  operatorKnowledgeContinuationOf,
-  operatorKnowledgeOperationIncluded,
+  projectManagerKnowledgeApprovalOf,
+  projectManagerKnowledgeContinuationMessageId,
+  projectManagerKnowledgeContinuationOf,
+  projectManagerKnowledgeOperationIncluded,
   ProposeProjectManagerKnowledgeRequest,
 } from './dto';
 import type { ProjectManagerKnowledgeApprovalPayload } from './dto';
@@ -47,7 +47,7 @@ const facts = {
   projectKey: 'AR',
   from: 'owner',
   operator: 'operator',
-  messageId: operatorKnowledgeContinuationMessageId(payload.id),
+  messageId: projectManagerKnowledgeContinuationMessageId(payload.id),
   approvedStep: true,
   owner: true,
 };
@@ -71,18 +71,18 @@ describe('shared Operator knowledge proposal contract', () => {
       { change: { kind: 'principle_remove', id: 'olp_one' }, operations: [operation] },
     ])
       expect(ProposeProjectManagerKnowledgeRequest.safeParse({ ...input, ...patch }).success).toBe(false);
-    expect(operatorKnowledgeApprovalOf(item)).toEqual(payload);
+    expect(projectManagerKnowledgeApprovalOf(item)).toEqual(payload);
     expect(
-      operatorKnowledgeApprovalOf({
+      projectManagerKnowledgeApprovalOf({
         ...item,
         payload: { operatorKnowledge: { ...payload, approved: true } },
       }),
     ).toBeNull();
-    expect(operatorKnowledgeApprovalOf({ ...item, kind: 'question' })).toBeNull();
+    expect(projectManagerKnowledgeApprovalOf({ ...item, kind: 'question' })).toBeNull();
   });
 
   it('requires resolved own-login owner approval and the matching recorded step, never a marker alone', () => {
-    expect(operatorKnowledgeContinuationOf(item, facts)).toEqual(payload);
+    expect(projectManagerKnowledgeContinuationOf(item, facts)).toEqual(payload);
     for (const patch of [
       { projectKey: 'OTHER' },
       { from: 'ada' },
@@ -92,7 +92,7 @@ describe('shared Operator knowledge proposal contract', () => {
       { owner: false },
       { via: 'integrator' },
     ])
-      expect(operatorKnowledgeContinuationOf(item, { ...facts, ...patch })).toBeNull();
+      expect(projectManagerKnowledgeContinuationOf(item, { ...facts, ...patch })).toBeNull();
     for (const candidate of [
       { ...item, state: 'open' as const },
       { ...item, resolution: { ...item.resolution!, by: 'ada' } },
@@ -101,17 +101,17 @@ describe('shared Operator knowledge proposal contract', () => {
       { ...item, payload: { operatorKnowledge: { ...payload, applying: null } } },
       { ...item, payload: { operatorKnowledge: { ...payload, operations: [] } } },
     ])
-      expect(operatorKnowledgeContinuationOf(candidate, facts)).toBeNull();
+      expect(projectManagerKnowledgeContinuationOf(candidate, facts)).toBeNull();
     expect(
-      operatorKnowledgeOperationIncluded(payload, {
+      projectManagerKnowledgeOperationIncluded(payload, {
         changes: { model: 'sonnet' },
         handle: 'dev-1',
         op: 'member_update',
       }),
     ).toBe(true);
-    expect(operatorKnowledgeOperationIncluded(payload, { ...operation, handle: 'dev-2' })).toBe(false);
+    expect(projectManagerKnowledgeOperationIncluded(payload, { ...operation, handle: 'dev-2' })).toBe(false);
     expect(
-      operatorKnowledgeOperationIncluded(payload, {
+      projectManagerKnowledgeOperationIncluded(payload, {
         ...operation,
         changes: { model: 'sonnet', outboundNetwork: true },
       }),

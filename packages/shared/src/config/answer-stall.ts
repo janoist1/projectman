@@ -1,4 +1,4 @@
-import { OPERATOR_ANSWER_STALL_GRACE_MS } from '../api/dto';
+import { PROJECT_MANAGER_ANSWER_STALL_GRACE_MS } from '../api/dto';
 
 /** An answer or message delivered to a member about a card (PM-694); never its text. */
 export interface AnswerEvidence {
@@ -34,7 +34,7 @@ export interface AnswerStallInput {
  *   them after their last proven step.
  * - The card carries `waiting-answer` although every question is answered: an answer reached the member
  *   after their last proven step. The label does not delete the evidence.
- * Either holds only once it has stood `OPERATOR_ANSWER_STALL_GRACE_MS`.
+ * Either holds only once it has stood `PROJECT_MANAGER_ANSWER_STALL_GRACE_MS`.
  */
 export function answerStallEvidence(input: AnswerStallInput): AnswerEvidence | null {
   if (input.permissionWaiting || input.openQuestion || input.working) return null;
@@ -50,5 +50,5 @@ export function answerStallEvidence(input: AnswerStallInput): AnswerEvidence | n
   );
   if (!latest) return null;
   const since = input.labelled ? Date.parse(latest.at) : Math.max(Date.parse(latest.at), input.idleSince);
-  return input.now - since >= OPERATOR_ANSWER_STALL_GRACE_MS ? latest : null;
+  return input.now - since >= PROJECT_MANAGER_ANSWER_STALL_GRACE_MS ? latest : null;
 }

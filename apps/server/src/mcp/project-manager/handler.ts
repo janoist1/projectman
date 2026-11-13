@@ -2,7 +2,7 @@ import {
   isProjectManager,
   coordinationMemberOf,
   canonical,
-  operatorCriticalOp,
+  projectManagerCriticalOp,
   ProjectManagerPlan as ProjectManagerPlanSchema,
   machineTodoIssuerAllowed,
   memberOf,
@@ -531,7 +531,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   ) {
     const config = await this.projects.config(ctx.projectKey);
     if (coordinationMemberOf(config)?.handle === ctx.member) {
-      if (operatorCriticalOp(args.operation.op) && !args.plan)
+      if (projectManagerCriticalOp(args.operation.op) && !args.plan)
         throw new TeamToolError('invalid', 'operator_plan_required: critical operations require a plan.');
       if (args.plan) ProjectManagerPlanSchema.parse(args.plan);
       if (!args.title.trim() || args.title.length > 120)

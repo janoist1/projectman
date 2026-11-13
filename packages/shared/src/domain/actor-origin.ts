@@ -20,7 +20,7 @@ export type ActorCredential = z.infer<typeof ActorCredential>;
  * (decision 55, PM-888): its credential id is the project manager session's id, and no stored key stands
  * behind it.
  */
-export const OPERATOR_APP_CREDENTIAL_PREFIX = 'operator-app';
+export const PROJECT_MANAGER_APP_CREDENTIAL_PREFIX = 'operator-app';
 
 /**
  * The connected Claude behind a step (decision 66): the person whose Claude acted (`holder`, a member

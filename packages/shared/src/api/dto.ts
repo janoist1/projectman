@@ -216,14 +216,14 @@ export const ProjectManagerRequestView = z.object({
   steps: z.array(ProjectManagerStep),
 });
 export type ProjectManagerRequestView = z.infer<typeof ProjectManagerRequestView>;
-export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
+export const PROJECT_MANAGER_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
 /** An answer delivered to a member who has not worked since is a stall once it has stood this long (PM-694). */
-export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
+export const PROJECT_MANAGER_ANSWER_STALL_GRACE_MS = 120_000;
 /** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
-export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
-export const OPERATOR_SILENT_WORK_MINUTES = 30;
+export const PROJECT_MANAGER_ANSWER_STALL_WAKE_MS = 60_000;
+export const PROJECT_MANAGER_SILENT_WORK_MINUTES = 30;
 /** A merge on the default branch that stood unreleased this long opens an `unreleased` signal (PM-1201). */
-export const OPERATOR_UNRELEASED_HOURS = 24;
+export const PROJECT_MANAGER_UNRELEASED_HOURS = 24;
 /**
  * The stall kinds `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are gone (PM-1152,
  * PM-1226: the obligation ladder watches those stalls, its project manager rung is `obligation_overdue`);
@@ -267,7 +267,7 @@ export type ReviewFollowUpsFacts = z.infer<typeof ReviewFollowUpsFacts>;
 export const START_BLOCKED_REASONS = ['repo_required', 'workspace_dirty', 'workspace_fetch_failed'] as const;
 export type StartBlockedReason = (typeof START_BLOCKED_REASONS)[number];
 /** A `workspace_fetch_failed` start is only told after the system's own retries left it standing this long (PM-455). */
-export const OPERATOR_START_FETCH_FAILED_MINUTES = 10;
+export const PROJECT_MANAGER_START_FETCH_FAILED_MINUTES = 10;
 /**
  * The facts of a `start_blocked` signal (PM-455): why a card's start stands and who or what holds it. The git
  * error text is left out on purpose (a remote URL may carry credentials); the server log has it.
@@ -873,7 +873,7 @@ export const ProjectManagerKnowledgeApprovalPayload = z.strictObject({
 });
 export type ProjectManagerKnowledgeApprovalPayload = z.infer<typeof ProjectManagerKnowledgeApprovalPayload>;
 
-export function operatorKnowledgeApprovalOf(
+export function projectManagerKnowledgeApprovalOf(
   item: Pick<InboxItem, 'kind' | 'payload'>,
 ): ProjectManagerKnowledgeApprovalPayload | null {
   if (item.kind !== 'approval') return null;
@@ -881,12 +881,12 @@ export function operatorKnowledgeApprovalOf(
   return parsed.success ? parsed.data : null;
 }
 
-export function operatorKnowledgeContinuationMessageId(proposalId: string): string {
+export function projectManagerKnowledgeContinuationMessageId(proposalId: string): string {
   return `msg_${proposalId}`;
 }
 
 /** A marker alone grants nothing. The resolved inbox, human identity and approved step are required. */
-export function operatorKnowledgeContinuationOf(
+export function projectManagerKnowledgeContinuationOf(
   item: InboxItem,
   facts: {
     projectKey: string;
@@ -898,7 +898,7 @@ export function operatorKnowledgeContinuationOf(
     via?: string;
   },
 ): ProjectManagerKnowledgeApprovalPayload | null {
-  const payload = operatorKnowledgeApprovalOf(item);
+  const payload = projectManagerKnowledgeApprovalOf(item);
   const resolution = item.resolution;
   if (
     !payload ||
@@ -914,7 +914,7 @@ export function operatorKnowledgeContinuationOf(
     !facts.approvedStep ||
     item.source !== facts.operator ||
     payload.proposedBy !== facts.operator ||
-    facts.messageId !== operatorKnowledgeContinuationMessageId(payload.id) ||
+    facts.messageId !== projectManagerKnowledgeContinuationMessageId(payload.id) ||
     payload.change.kind !== 'agreement_replace' ||
     !payload.operations.length
   )
@@ -922,7 +922,7 @@ export function operatorKnowledgeContinuationOf(
   return payload;
 }
 
-export function operatorKnowledgeOperationIncluded(
+export function projectManagerKnowledgeOperationIncluded(
   payload: ProjectManagerKnowledgeApprovalPayload,
   operation: unknown,
 ): boolean {
@@ -930,11 +930,15 @@ export function operatorKnowledgeOperationIncluded(
   return parsed.success && payload.operations.some((entry) => canonical(entry) === canonical(parsed.data));
 }
 
-const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
-export function operatorCriticalOp(op: ProjectManagerOperation['op']): boolean {
-  return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
+const PROJECT_MANAGER_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
+export function projectManagerCriticalOp(op: ProjectManagerOperation['op']): boolean {
+  return PROJECT_MANAGER_CRITICAL_OPS.some((critical) => critical === op);
 }
-export const OPERATOR_DISMISS_OPTION: InboxOption = { id: 'dismiss', label: 'dismiss', style: 'secondary' };
+export const PROJECT_MANAGER_DISMISS_OPTION: InboxOption = {
+  id: 'dismiss',
+  label: 'dismiss',
+  style: 'secondary',
+};
 
 export const RetireMemberRequest = z.object({ handoverTo: MemberHandle.optional() });
 export type RetireMemberRequest = z.infer<typeof RetireMemberRequest>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
-import { operatorConfigVerdict } from './operator';
+import { superConfigVerdict } from './operator';
 import {
   isLessonsOnly,
   isRepoFilePath,
@@ -299,7 +299,7 @@ describe('repoDocs patch', () => {
       before,
       PatchConfigRequest.parse({ baseVersion: 'v1', repoDocs: [{ repo: 'web', docs: { roadmap: 'R.md' } }] }),
     );
-    const verdict = operatorConfigVerdict(before, next, { operator: 'operator' });
+    const verdict = superConfigVerdict(before, next, { operator: 'operator' });
     expect(verdict.level).toBe('approval');
     expect(verdict.changes).toEqual([
       expect.objectContaining({

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  OPERATOR_APP_CREDENTIAL_PREFIX,
+  PROJECT_MANAGER_APP_CREDENTIAL_PREFIX,
   appRequestOrigin,
   coordinationMemberOf,
   isLiveSessionState,
@@ -47,7 +47,7 @@ export function appRequestId(operatorRequestId: string, requestKey: string): str
 export function isAppOperation(ctx: DomainContext, operation: SuperOperation): boolean {
   return ctx.repos.superAudit
     .ofRequest(operation.projectKey, operation.requestId)
-    .some((entry) => entry.prefix === OPERATOR_APP_CREDENTIAL_PREFIX);
+    .some((entry) => entry.prefix === PROJECT_MANAGER_APP_CREDENTIAL_PREFIX);
 }
 
 /**
@@ -131,7 +131,7 @@ export function createProjectManagerAppCredentials(deps: {
           kind: 'integrator',
           userId: user.id,
           keyId: sessionId,
-          prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+          prefix: PROJECT_MANAGER_APP_CREDENTIAL_PREFIX,
           mode: 'super',
           source: 'app',
           member: sessionMember,

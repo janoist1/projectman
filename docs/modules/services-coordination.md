@@ -27,7 +27,7 @@ older events and messages name it.
   `involve_member` (PM-1267) needs `team.memberInvolvement` = `people_and_project_manager`.
 - **Prompt.** `projectManagerRule` and `projectManagerDetails` (`apps/server/src/context/system-prompt.ts`): the
   authority limits and the procedure index; the procedures are read on demand from the role guide.
-- **Configuration changes.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
+- **Configuration changes.** `superConfigVerdict(previous, next, { operator, invitationBinding })`
   (`packages/shared/src/config/operator.ts`) compares the end results of a configuration change and returns the rows
   (`ConfigChangeRow`: area, target, field, before, after, level) and the highest `ProjectManagerLevel`: `now`, `never` or
   `approval`. Everything not named is `approval`, so a new configuration field is closed until a rule opens it.
@@ -37,7 +37,7 @@ older events and messages name it.
 - **Targeted configuration edits.** `get_role_configuration` reads one built-in role (the version, the stored override
   or `null`, the effective full bundle) and needs an open owner request. A `config_patch` command can replace only
   named roles (`roleOverrides`; `null` resets one) or label entries (`labels`: `name`, `color`, `meaning` per label id);
-  `prepareOperatorConfigPatch` (shared, `edit.ts`) expands them against the current configuration and version, so the
+  `prepareSuperConfigPatch` (shared, `edit.ts`) expands them against the current configuration and version, so the
   other entries stay unchanged. A race ends in `config_conflict`.
 - **State reports.** The read-only tool `get_project_state { task_key?, message_id? }` is the selected project
   manager's (`mcp/project-manager/tools.ts`), with no owner request. `ProjectState`

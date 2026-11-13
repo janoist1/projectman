@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   routes,
-  canReadOperatorKnowledge,
+  canReadProjectManagerKnowledge,
   OwnerQuestionsQuery,
   SuperAuditQuery,
   SuperOperateRequest,
@@ -65,7 +65,7 @@ export function registerProjectManagerRoutes(app: FastifyInstance, deps: { domai
   );
   app.get<ProjectParams>(routes.projectManagerKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if ((access.via && !request.principal) || !canReadOperatorKnowledge({ access: access.access }))
+    if ((access.via && !request.principal) || !canReadProjectManagerKnowledge({ access: access.access }))
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',

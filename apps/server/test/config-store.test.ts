@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
-import { operatorWatchOf, ProjectConfig, storedTeamDefaults } from '@projectman/shared';
+import { projectManagerWatchOf, ProjectConfig, storedTeamDefaults } from '@projectman/shared';
 import { mergeProjectFiles, parseYamlFile, splitProjectConfig } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
 import { runGit } from '../src/config/git';
@@ -93,7 +93,7 @@ describe('ConfigStore (customization repository)', () => {
       const original = await store.save('AR', config, { author, message: 'Create project' });
       const teamFile = join(store.rootDir, 'projects/AR/team.yaml');
       expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
-      expect(operatorWatchOf((await store.load('AR')).config)).toBe('report');
+      expect(projectManagerWatchOf((await store.load('AR')).config)).toBe('report');
 
       config.team.operatorWatch = level;
       const changed = await store.save('AR', config, { author, message: 'Set watch level' });
@@ -109,7 +109,7 @@ describe('ConfigStore (customization repository)', () => {
       expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
       const reloaded = await store.load('AR');
       expect(reloaded.config.team).not.toHaveProperty('operatorWatch');
-      expect(operatorWatchOf(reloaded.config)).toBe('report');
+      expect(projectManagerWatchOf(reloaded.config)).toBe('report');
     },
   );
 

@@ -9,7 +9,7 @@ import type { ProjectService } from '../core/projects';
 
 import type { FastifyInstance } from 'fastify';
 import {
-  canSeeOperatorSessions,
+  canSeeProjectManagerSessions,
   ClientCommand,
   projectManagerOf,
   routes,
@@ -234,7 +234,7 @@ export function registerWebsocket(
     }
     // The Operator's terminals and the PM's conversations with others are the owner's and the admin's to see
     // (PM-475, PM-1080).
-    if (!canSeeOperatorSessions(access) && domain.sessions.isRestrictedSession(sessionId))
+    if (!canSeeProjectManagerSessions(access) && domain.sessions.isRestrictedSession(sessionId))
       throw forbidden('insufficient_access', 'no access to this terminal');
     // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
     if (options.operatorInput && access.access !== 'owner' && domain.sessions.isRestrictedSession(sessionId))

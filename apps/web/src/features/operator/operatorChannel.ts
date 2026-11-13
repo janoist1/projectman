@@ -3,15 +3,15 @@ import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 
 /** What a message to the project manager waits for, if anything; it names the line under the message. */
-export type OperatorWait = 'quota' | 'paused' | 'queued';
+export type ProjectManagerWait = 'quota' | 'paused' | 'queued';
 
 /** The dot of the header button: green available, accent working, grey waiting. */
-export type OperatorDot = 'available' | 'working' | 'waiting';
+export type ProjectManagerDot = 'available' | 'working' | 'waiting';
 
 const QUOTA_REASONS: readonly string[] = ['plan_usage_paused', 'provider_rate_limited'];
 
 /** Why the conversation cannot run now; null while the project manager is there, on its way or on leave (a message waits for it). */
-export function operatorWaitOf(channel: ProjectManagerChannel | undefined): OperatorWait | null {
+export function operatorWaitOf(channel: ProjectManagerChannel | undefined): ProjectManagerWait | null {
   if (!channel) return null;
   if (channel.state === 'starting') return 'queued';
   if (channel.state !== 'waiting') return null;
@@ -21,7 +21,7 @@ export function operatorWaitOf(channel: ProjectManagerChannel | undefined): Oper
   return 'queued';
 }
 
-export function operatorDotOf(channel: ProjectManagerChannel | undefined): OperatorDot {
+export function operatorDotOf(channel: ProjectManagerChannel | undefined): ProjectManagerDot {
   switch (channel?.state) {
     case 'available':
       return 'available';
@@ -78,12 +78,12 @@ export function operatorStatusWithQueue(channel: ProjectManagerCorner | undefine
  * An idle ("available"), working or away Operator with open items shows no strip: what is open then does not wait for
  * a session start (a message that wakes nobody, an item at another place), so "starting" would stay for good (PM-1269).
  */
-export type OperatorStrip =
+export type ProjectManagerStrip =
   | { kind: 'now'; title: string; more: number }
   | { kind: 'starting' }
   | { kind: 'waiting'; status: string; open: number };
 
-export function operatorStripOf(channel: ProjectManagerCorner | undefined): OperatorStrip | null {
+export function operatorStripOf(channel: ProjectManagerCorner | undefined): ProjectManagerStrip | null {
   const queue = channel?.queue;
   if (!channel || !queue || queue.open <= 0) return null;
   if (queue.current) return { kind: 'now', title: queue.current.title, more: queue.open - 1 };

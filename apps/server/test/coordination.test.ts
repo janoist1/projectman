@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appRequestOrigin, connectedActorOf, OperatorSignal } from '@projectman/shared';
+import { appRequestOrigin, connectedActorOf, ProjectManagerSignal } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
-  OperatorSignalKind,
+  ProjectManagerSignalKind,
   ProjectConfig,
   WorkItemRef,
 } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { CoordinationRequests, ProjectManagerRequests, OperatorSteps } from '../src/services/coordination';
+import {
+  CoordinationRequests,
+  ProjectManagerRequests,
+  ProjectManagerSteps,
+} from '../src/services/coordination';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -437,7 +441,7 @@ describe('persisted coordination signal bindings', () => {
       const { card, signal, pm } = await idleSignal();
       const operator = await internal('operator');
       const oldRound = new ProjectManagerRequests({ ctx: h.domain.ctx }).openRound('AR', operator.sessionId);
-      new OperatorSteps({ ctx: h.domain.ctx }).record({
+      new ProjectManagerSteps({ ctx: h.domain.ctx }).record({
         requestId: oldRound.id,
         action: 'task_start',
         status: 'done',
@@ -532,9 +536,9 @@ describe('persisted coordination signal bindings', () => {
   it('keeps old DTOs readable without inventing a delivery binding', async () => {
     await setup();
     const { signal } = await idleSignal();
-    const { deliveredTo: _binding, ...legacy } = OperatorSignal.parse(signal);
-    expect(OperatorSignal.parse(legacy).deliveredTo ?? null).toBeNull();
-    const kinds: OperatorSignalKind[] = ['outage', 'process_cleanup_failed'];
-    expect(kinds.every((kind) => OperatorSignal.safeParse({ ...legacy, kind }).success)).toBe(true);
+    const { deliveredTo: _binding, ...legacy } = ProjectManagerSignal.parse(signal);
+    expect(ProjectManagerSignal.parse(legacy).deliveredTo ?? null).toBeNull();
+    const kinds: ProjectManagerSignalKind[] = ['outage', 'process_cleanup_failed'];
+    expect(kinds.every((kind) => ProjectManagerSignal.safeParse({ ...legacy, kind }).success)).toBe(true);
   });
 });

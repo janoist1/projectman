@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { OperatorStep, SetSystemFeedbackForwardingRequest, SystemFeedbackPrepared } from '../index';
+import { ProjectManagerStep, SetSystemFeedbackForwardingRequest, SystemFeedbackPrepared } from '../index';
 import {
   SYSTEM_FEEDBACK_PREFILL_URL_MAX,
   SYSTEM_FEEDBACK_REPOSITORY,
@@ -320,9 +320,9 @@ describe('contract', () => {
       signalId: null,
       refusal: null,
     };
-    expect(OperatorStep.safeParse(step).success).toBe(true);
+    expect(ProjectManagerStep.safeParse(step).success).toBe(true);
     expect(
-      OperatorStep.safeParse({
+      ProjectManagerStep.safeParse({
         ...step,
         action: 'system_feedback',
         systemFeedback: { id: 'fb_1', title: 't', occurrence: 2 },

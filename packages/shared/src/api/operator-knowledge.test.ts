@@ -4,9 +4,9 @@ import {
   operatorKnowledgeContinuationMessageId,
   operatorKnowledgeContinuationOf,
   operatorKnowledgeOperationIncluded,
-  ProposeOperatorKnowledgeRequest,
+  ProposeProjectManagerKnowledgeRequest,
 } from './dto';
-import type { OperatorKnowledgeApprovalPayload } from './dto';
+import type { ProjectManagerKnowledgeApprovalPayload } from './dto';
 import type { InboxItem } from '../domain/inbox';
 
 const operation = { op: 'member_update' as const, handle: 'dev-1', changes: { model: 'sonnet' } };
@@ -14,7 +14,7 @@ const change = {
   kind: 'agreement_replace' as const,
   agreement: { summary: 'Agreed', involvement: 'important' as const, extraCritical: [] },
 };
-const payload: OperatorKnowledgeApprovalPayload = {
+const payload: ProjectManagerKnowledgeApprovalPayload = {
   id: 'okp_one',
   requestId: 'opr_one',
   stepId: 'ops_one',
@@ -55,9 +55,10 @@ const facts = {
 describe('shared Operator knowledge proposal contract', () => {
   it('defaults operations, bounds input and refuses extra authority fields', () => {
     const input = { expected_revision: 0, title: 'Agreement', change };
-    expect(ProposeOperatorKnowledgeRequest.parse(input).operations).toEqual([]);
+    expect(ProposeProjectManagerKnowledgeRequest.parse(input).operations).toEqual([]);
     expect(
-      ProposeOperatorKnowledgeRequest.safeParse({ ...input, operations: Array(10).fill(operation) }).success,
+      ProposeProjectManagerKnowledgeRequest.safeParse({ ...input, operations: Array(10).fill(operation) })
+        .success,
     ).toBe(true);
     for (const patch of [
       { expected_revision: -1 },
@@ -69,7 +70,7 @@ describe('shared Operator knowledge proposal contract', () => {
       { handle: 'owner' },
       { change: { kind: 'principle_remove', id: 'olp_one' }, operations: [operation] },
     ])
-      expect(ProposeOperatorKnowledgeRequest.safeParse({ ...input, ...patch }).success).toBe(false);
+      expect(ProposeProjectManagerKnowledgeRequest.safeParse({ ...input, ...patch }).success).toBe(false);
     expect(operatorKnowledgeApprovalOf(item)).toEqual(payload);
     expect(
       operatorKnowledgeApprovalOf({

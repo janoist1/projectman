@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
-  OperatorAgreementData,
-  OperatorKnowledgeChange,
-  OperatorKnowledgeDocument,
-  OperatorPreferenceData,
-  OperatorPreferenceDocument,
-  OperatorPrincipleData,
+  ProjectManagerAgreementData,
+  ProjectManagerKnowledgeChange,
+  ProjectManagerKnowledgeDocument,
+  ProjectManagerPreferenceData,
+  ProjectManagerPreferenceDocument,
+  ProjectManagerPrincipleData,
 } from './operator-knowledge';
 
 it('allows only owners and administrators to read shared knowledge', () => {
@@ -36,15 +36,15 @@ describe('operator knowledge schemas', () => {
       { kind: 'principle_remove', id: 'principle-1' },
     ];
     for (const change of changes) {
-      expect(OperatorKnowledgeChange.safeParse(change).success).toBe(true);
-      expect(OperatorKnowledgeChange.safeParse({ ...change, approvedBy: 'owner' }).success).toBe(false);
+      expect(ProjectManagerKnowledgeChange.safeParse(change).success).toBe(true);
+      expect(ProjectManagerKnowledgeChange.safeParse({ ...change, approvedBy: 'owner' }).success).toBe(false);
     }
     expect(
-      OperatorKnowledgeChange.safeParse({ kind: 'principle_put', principle: { ...principle, id: '' } })
+      ProjectManagerKnowledgeChange.safeParse({ kind: 'principle_put', principle: { ...principle, id: '' } })
         .success,
     ).toBe(false);
     expect(
-      OperatorKnowledgeChange.safeParse({
+      ProjectManagerKnowledgeChange.safeParse({
         kind: 'principle_put',
         principle: { ...principle, permissionMode: 'auto' },
       }).success,
@@ -52,29 +52,29 @@ describe('operator knowledge schemas', () => {
   });
   it('keeps every object strict and excludes executable settings and free-text preferences', () => {
     for (const [schema, data] of [
-      [OperatorAgreementData, agreement],
-      [OperatorPrincipleData, principle],
-      [OperatorPreferenceData, DEFAULT_OPERATOR_PREFERENCE],
-      [OperatorKnowledgeDocument, knowledge],
-      [OperatorPreferenceDocument, preference],
+      [ProjectManagerAgreementData, agreement],
+      [ProjectManagerPrincipleData, principle],
+      [ProjectManagerPreferenceData, DEFAULT_OPERATOR_PREFERENCE],
+      [ProjectManagerKnowledgeDocument, knowledge],
+      [ProjectManagerPreferenceDocument, preference],
     ] as const) {
       expect(schema.safeParse(data).success).toBe(true);
       expect(schema.safeParse({ ...data, cardMover: 'owner' }).success).toBe(false);
     }
     expect(
-      OperatorKnowledgeDocument.safeParse({
+      ProjectManagerKnowledgeDocument.safeParse({
         ...knowledge,
         agreement: { ...knowledge.agreement, operatorWatch: true },
       }).success,
     ).toBe(false);
     expect(
-      OperatorKnowledgeDocument.safeParse({
+      ProjectManagerKnowledgeDocument.safeParse({
         ...knowledge,
         principles: [{ ...principle, ...approval, extra: true }],
       }).success,
     ).toBe(false);
     expect(
-      OperatorPreferenceDocument.safeParse({
+      ProjectManagerPreferenceDocument.safeParse({
         ...preference,
         data: { ...DEFAULT_OPERATOR_PREFERENCE, text: 'Any text' },
       }).success,
@@ -82,7 +82,7 @@ describe('operator knowledge schemas', () => {
   });
   it('enforces agreement string and list limits', () => {
     expect(
-      OperatorAgreementData.safeParse({
+      ProjectManagerAgreementData.safeParse({
         ...agreement,
         summary: 's'.repeat(4000),
         extraCritical: Array(20).fill('s'.repeat(300)),
@@ -96,21 +96,23 @@ describe('operator knowledge schemas', () => {
       { extraCritical: Array(21).fill('step') },
       { involvement: 'automatic' },
     ]) {
-      expect(OperatorAgreementData.safeParse({ ...agreement, ...patch }).success).toBe(false);
+      expect(ProjectManagerAgreementData.safeParse({ ...agreement, ...patch }).success).toBe(false);
     }
     for (const involvement of ['every_step', 'important', 'minimal'])
-      expect(OperatorAgreementData.safeParse({ ...agreement, involvement }).success).toBe(true);
+      expect(ProjectManagerAgreementData.safeParse({ ...agreement, involvement }).success).toBe(true);
   });
   it.each(['id', 'example', 'principle', 'effect'] as const)('enforces %s string limits', (field) => {
     const max = field === 'id' ? 64 : 1000;
-    expect(OperatorPrincipleData.safeParse({ ...principle, [field]: 's'.repeat(max) }).success).toBe(true);
+    expect(ProjectManagerPrincipleData.safeParse({ ...principle, [field]: 's'.repeat(max) }).success).toBe(
+      true,
+    );
     for (const value of ['', 's'.repeat(max + 1)])
-      expect(OperatorPrincipleData.safeParse({ ...principle, [field]: value }).success).toBe(false);
+      expect(ProjectManagerPrincipleData.safeParse({ ...principle, [field]: value }).success).toBe(false);
   });
   it('enforces principle count, unique ids and marker limits', () => {
     const principles = Array.from({ length: 20 }, (_, i) => ({ ...principle, ...approval, id: `id-${i}` }));
     expect(
-      OperatorKnowledgeDocument.safeParse({
+      ProjectManagerKnowledgeDocument.safeParse({
         ...knowledge,
         principles,
         appliedProposalIds: Array.from({ length: 512 }, (_, i) => `${i}`),
@@ -122,16 +124,18 @@ describe('operator knowledge schemas', () => {
       { appliedProposalIds: ['same', 'same'] },
       { appliedProposalIds: Array.from({ length: 513 }, (_, i) => `${i}`) },
     ]) {
-      expect(OperatorKnowledgeDocument.safeParse({ ...knowledge, ...patch }).success).toBe(false);
+      expect(ProjectManagerKnowledgeDocument.safeParse({ ...knowledge, ...patch }).success).toBe(false);
     }
   });
   it('validates versions, revisions, approval identity and timestamps', () => {
     for (const revision of [-1, 0.5, Infinity]) {
-      expect(OperatorKnowledgeDocument.safeParse({ ...knowledge, revision }).success).toBe(false);
-      expect(OperatorPreferenceDocument.safeParse({ ...preference, revision }).success).toBe(false);
+      expect(ProjectManagerKnowledgeDocument.safeParse({ ...knowledge, revision }).success).toBe(false);
+      expect(ProjectManagerPreferenceDocument.safeParse({ ...preference, revision }).success).toBe(false);
     }
-    expect(OperatorKnowledgeDocument.safeParse({ ...knowledge, schemaVersion: 2 }).success).toBe(false);
-    expect(OperatorPreferenceDocument.safeParse({ ...preference, schemaVersion: 2 }).success).toBe(false);
+    expect(ProjectManagerKnowledgeDocument.safeParse({ ...knowledge, schemaVersion: 2 }).success).toBe(false);
+    expect(ProjectManagerPreferenceDocument.safeParse({ ...preference, schemaVersion: 2 }).success).toBe(
+      false,
+    );
     for (const patch of [
       { version: 0 },
       { version: 1.5 },
@@ -139,21 +143,23 @@ describe('operator knowledge schemas', () => {
       { approvedAt: 'yesterday' },
     ])
       expect(
-        OperatorKnowledgeDocument.safeParse({ ...knowledge, agreement: { ...knowledge.agreement, ...patch } })
-          .success,
+        ProjectManagerKnowledgeDocument.safeParse({
+          ...knowledge,
+          agreement: { ...knowledge.agreement, ...patch },
+        }).success,
       ).toBe(false);
     for (const patch of [{ approvedBy: 'OWNER' }, { approvedAt: '2026-99-99T00:00:00Z' }])
       expect(
-        OperatorKnowledgeDocument.safeParse({
+        ProjectManagerKnowledgeDocument.safeParse({
           ...knowledge,
           principles: [{ ...principle, ...approval, ...patch }],
         }).success,
       ).toBe(false);
-    expect(OperatorPreferenceDocument.safeParse({ ...preference, updatedAt: 'yesterday' }).success).toBe(
-      false,
-    );
     expect(
-      OperatorPreferenceDocument.safeParse({ ...preference, updatedAt: approval.approvedAt }).success,
+      ProjectManagerPreferenceDocument.safeParse({ ...preference, updatedAt: 'yesterday' }).success,
+    ).toBe(false);
+    expect(
+      ProjectManagerPreferenceDocument.safeParse({ ...preference, updatedAt: approval.approvedAt }).success,
     ).toBe(true);
   });
   it('accepts only the enumerated preference values', () => {
@@ -167,14 +173,14 @@ describe('operator knowledge schemas', () => {
     for (const [field, values] of Object.entries(choices)) {
       for (const value of values)
         expect(
-          OperatorPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: value }).success,
+          ProjectManagerPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: value }).success,
         ).toBe(true);
       expect(
-        OperatorPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: 'custom' }).success,
+        ProjectManagerPreferenceData.safeParse({ ...DEFAULT_OPERATOR_PREFERENCE, [field]: 'custom' }).success,
       ).toBe(false);
       const incomplete = { ...DEFAULT_OPERATOR_PREFERENCE } as Record<string, unknown>;
       delete incomplete[field];
-      expect(OperatorPreferenceData.safeParse(incomplete).success).toBe(false);
+      expect(ProjectManagerPreferenceData.safeParse(incomplete).success).toBe(false);
     }
   });
 });

@@ -1,6 +1,10 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { OperatorHandoff, SuperOperation, SuperOperationQuestionPayload } from '@projectman/shared';
+import type {
+  ProjectManagerHandoff,
+  SuperOperation,
+  SuperOperationQuestionPayload,
+} from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { api } from '../../api/endpoints';
 import { t } from '../../i18n/t';
@@ -13,51 +17,53 @@ afterEach(() => {
   setFetchImplementation((input, init) => globalThis.fetch(input, init));
 });
 
-it.each<OperatorHandoff['reason']>(['owner_reserved', 'no_typed_operation', 'no_grant', 'processing_failed'])(
-  'shows the handoff action and fixed reason for %s',
-  async (reason) => {
-    const project = mockProject();
-    const entry = plainLanguageQuestion({
-      source: 'system',
-      title: 'Old title',
-      payload: {
-        question: 'Old title',
-        operatorHandoff: {
-          queueItemId: 'queue',
-          reason,
-          action: 'Complete the remaining work',
-          detail: 'Already checked the state',
-          operationId: null,
-        },
+it.each<ProjectManagerHandoff['reason']>([
+  'owner_reserved',
+  'no_typed_operation',
+  'no_grant',
+  'processing_failed',
+])('shows the handoff action and fixed reason for %s', async (reason) => {
+  const project = mockProject();
+  const entry = plainLanguageQuestion({
+    source: 'system',
+    title: 'Old title',
+    payload: {
+      question: 'Old title',
+      operatorHandoff: {
+        queueItemId: 'queue',
+        reason,
+        action: 'Complete the remaining work',
+        detail: 'Already checked the state',
+        operationId: null,
       },
-      options: [
-        { id: 'todo_done', label: 'Done', style: 'primary' },
-        { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
-      ],
-    });
-    const onResolve = vi.fn();
-    project.render(
-      <InboxCard
-        item={entry}
-        members={new Map()}
-        myHandle="owner"
-        onResolve={onResolve}
-        cardHref="/p/AC/tasks/AC-21"
-        detailsHref="/p/AC/tasks/AC-21"
-      />,
-    );
-    expect(screen.getByRole('heading', { name: 'Complete the remaining work' })).toBeTruthy();
-    expect(screen.getByText(t('superMode.name'))).toBeTruthy();
-    expect(screen.getByText(t(`inbox.handedOff.reasons.${reason}`))).toBeTruthy();
-    expect(screen.getByText('Already checked the state').closest('details')?.open).toBe(false);
-    fireEvent.click(screen.getByText(t('inbox.handedOff.detail')));
-    expect(screen.getByText('Already checked the state')).toBeTruthy();
-    if (reason === 'processing_failed')
-      expect(
-        screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/p/AC/tasks/AC-21'),
-      ).toHaveLength(1);
-  },
-);
+    },
+    options: [
+      { id: 'todo_done', label: 'Done', style: 'primary' },
+      { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+    ],
+  });
+  const onResolve = vi.fn();
+  project.render(
+    <InboxCard
+      item={entry}
+      members={new Map()}
+      myHandle="owner"
+      onResolve={onResolve}
+      cardHref="/p/AC/tasks/AC-21"
+      detailsHref="/p/AC/tasks/AC-21"
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'Complete the remaining work' })).toBeTruthy();
+  expect(screen.getByText(t('superMode.name'))).toBeTruthy();
+  expect(screen.getByText(t(`inbox.handedOff.reasons.${reason}`))).toBeTruthy();
+  expect(screen.getByText('Already checked the state').closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText(t('inbox.handedOff.detail')));
+  expect(screen.getByText('Already checked the state')).toBeTruthy();
+  if (reason === 'processing_failed')
+    expect(
+      screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/p/AC/tasks/AC-21'),
+    ).toHaveLength(1);
+});
 
 function commandFixture() {
   const project = mockProject();

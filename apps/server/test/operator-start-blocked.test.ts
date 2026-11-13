@@ -4,7 +4,7 @@ import {
   questionPayloadOf,
   START_BLOCKED_REASONS,
 } from '@projectman/shared';
-import type { OperatorWatch, ProjectConfig, ServerEvent, StartBlockedReason } from '@projectman/shared';
+import type { ProjectManagerWatch, ProjectConfig, ServerEvent, StartBlockedReason } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { conflict } from '../src/kernel';
@@ -59,7 +59,7 @@ async function askAbout(signalId: string): Promise<string> {
  * A development card with an AI assignee whose start waits for `reason`. The two workspace reasons come from the
  * session start, as in production; `repo_required` from a project with two repositories and a card without one.
  */
-async function blocked(reason: StartBlockedReason, level?: OperatorWatch): Promise<string> {
+async function blocked(reason: StartBlockedReason, level?: ProjectManagerWatch): Promise<string> {
   now = new Date('2026-10-28T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,

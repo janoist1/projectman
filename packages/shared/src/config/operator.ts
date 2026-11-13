@@ -31,8 +31,8 @@ export {
  * - `approval`: it prepares the change and the owner approves it first (closed by default);
  * - `never`: it does not make the change; the owner does it in the settings.
  */
-export const OperatorLevel = z.enum(['now', 'approval', 'never']);
-export type OperatorLevel = z.infer<typeof OperatorLevel>;
+export const ProjectManagerLevel = z.enum(['now', 'approval', 'never']);
+export type ProjectManagerLevel = z.infer<typeof ProjectManagerLevel>;
 
 /** The part of the configuration a changed field belongs to. */
 const ConfigChangeArea = z.enum([
@@ -62,16 +62,16 @@ export const ConfigChangeRow = z.object({
   field: z.string(),
   before: z.string().nullable(),
   after: z.string().nullable(),
-  level: OperatorLevel,
+  level: ProjectManagerLevel,
 });
 export type ConfigChangeRow = z.infer<typeof ConfigChangeRow>;
 
-export interface OperatorConfigVerdict {
-  level: OperatorLevel;
+export interface ProjectManagerConfigVerdict {
+  level: ProjectManagerLevel;
   changes: ConfigChangeRow[];
 }
 
-const LEVEL_RANK: Record<OperatorLevel, number> = { now: 0, approval: 1, never: 2 };
+const LEVEL_RANK: Record<ProjectManagerLevel, number> = { now: 0, approval: 1, never: 2 };
 
 /** An AI member's fields the Operator changes without approval, on any member but itself. */
 const NOW_MEMBER_FIELDS: readonly string[] = ['model', 'effort', 'capacity', 'onLeave', 'schedule'];
@@ -100,7 +100,7 @@ export function operatorConfigVerdict(
   previous: ProjectConfig,
   next: ProjectConfig,
   opts: { operator: MemberHandle; invitationBinding?: InvitationBinding },
-): OperatorConfigVerdict {
+): ProjectManagerConfigVerdict {
   const ownRoles = new Set<string>();
   for (const config of [previous, next]) {
     const own = memberOf(config, opts.operator);
@@ -152,9 +152,9 @@ export function operatorConfigVerdict(
 export function operatorAutonomousLevel(
   previous: ProjectConfig,
   next: ProjectConfig,
-  verdict: OperatorConfigVerdict,
+  verdict: ProjectManagerConfigVerdict,
   operator: MemberHandle,
-): OperatorLevel {
+): ProjectManagerLevel {
   if (verdict.level !== 'approval') return verdict.level;
   const ownRoles = new Set<string>();
   for (const config of [previous, next]) {
@@ -170,8 +170,8 @@ export function operatorAutonomousLevel(
   return ownerReservedEffect(previous, { kind: 'config_change', next }) === null ? 'now' : 'approval';
 }
 
-function highestLevel(changes: readonly ConfigChangeRow[]): OperatorLevel {
-  return changes.reduce<OperatorLevel>(
+function highestLevel(changes: readonly ConfigChangeRow[]): ProjectManagerLevel {
+  return changes.reduce<ProjectManagerLevel>(
     (top, row) => (LEVEL_RANK[row.level] > LEVEL_RANK[top] ? row.level : top),
     'now',
   );
@@ -195,7 +195,7 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
 };
 
 /** A row for a rule that names a change the field-by-field comparison did not show; a safety net, not a path. */
-function unnamed(area: ConfigChangeArea, field: string, level: OperatorLevel): ConfigChangeRow {
+function unnamed(area: ConfigChangeArea, field: string, level: ProjectManagerLevel): ConfigChangeRow {
   return { area, target: null, field, before: null, after: null, level };
 }
 
@@ -237,7 +237,7 @@ function fieldRows(
   target: string | null,
   before: Entity | undefined,
   after: Entity | undefined,
-  levelOf: (field: string) => OperatorLevel,
+  levelOf: (field: string) => ProjectManagerLevel,
   skip: readonly string[] = [],
 ): ConfigChangeRow[] {
   const fields = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
@@ -261,7 +261,7 @@ function presenceRow(
   target: string,
   before: string | null,
   after: string | null,
-  level: OperatorLevel,
+  level: ProjectManagerLevel,
   prefix = '',
 ): ConfigChangeRow {
   return { area, target, field: `${prefix}*`, before, after, level };
@@ -279,7 +279,7 @@ function listRows<T extends object>(
   next: readonly T[],
   idOf: (item: T) => string,
   describe: (item: T) => string,
-  levelOf: (item: T, field: string) => OperatorLevel,
+  levelOf: (item: T, field: string) => ProjectManagerLevel,
   opts: { skip?: readonly string[]; fieldPrefix?: string } = {},
 ): ConfigChangeRow[] {
   const prefix = opts.fieldPrefix ?? '';
@@ -367,7 +367,8 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
   const before = new Map(previous.team.members.map((m) => [m.handle, m]));
   const after = new Map(next.team.members.map((m) => [m.handle, m]));
   const describe = (member: MemberConfig) => (member.kind === 'ai' ? member.role : member.access);
-  const presence = (member: MemberConfig): OperatorLevel => (member.kind === 'human' ? 'never' : 'approval');
+  const presence = (member: MemberConfig): ProjectManagerLevel =>
+    member.kind === 'human' ? 'never' : 'approval';
   for (const [handle, member] of before)
     if (!after.has(handle))
       rows.push(presenceRow('member', handle, describe(member), null, presence(member)));
@@ -379,7 +380,7 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
       continue;
     }
     const people = old.kind === 'human' || member.kind === 'human';
-    const levelOfField = (field: string): OperatorLevel =>
+    const levelOfField = (field: string): ProjectManagerLevel =>
       people ? 'never' : handle !== operator && NOW_MEMBER_FIELDS.includes(field) ? 'now' : 'approval';
     rows.push(...fieldRows('member', handle, normalizedMember(old), normalizedMember(member), levelOfField));
   }
@@ -404,7 +405,7 @@ function roleRows(
   next: ProjectConfig,
   ownRoles: ReadonlySet<string>,
 ): ConfigChangeRow[] {
-  const instructionsLevel = (role: string, field: string): OperatorLevel =>
+  const instructionsLevel = (role: string, field: string): ProjectManagerLevel =>
     field === 'instructions' && !ownRoles.has(role) ? 'now' : 'approval';
   const overrides = (config: ProjectConfig) =>
     Object.entries(config.team.roleOverrides ?? {}).map(([id, bundle]) => ({ id, ...bundle }));

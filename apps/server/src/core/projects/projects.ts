@@ -34,7 +34,7 @@ import type {
   PatchConfigRequest,
   ProjectSummary,
   BoundActor,
-  OperatorOperation,
+  ProjectManagerOperation,
   UiLanguage,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
@@ -61,7 +61,7 @@ export interface LoadedProject {
 
 export interface Author {
   operatorStepId?: string;
-  operatorOperation?: OperatorOperation;
+  operatorOperation?: ProjectManagerOperation;
   operatorAgreementVersion?: number;
   operatorApprovalMode?: 'click' | 'waived';
   operator?: string;

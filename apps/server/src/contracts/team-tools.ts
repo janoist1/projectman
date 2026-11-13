@@ -20,7 +20,7 @@ import type {
   MemberHandle,
   MergeCheckRun,
   MergeCheckRunKind,
-  OperatorDiagnostics,
+  ProjectManagerDiagnostics,
   MessageAttachmentRef,
   MessageKind,
   RelationsChange,
@@ -47,14 +47,14 @@ import type {
   WorkItemRef,
   StaleReason,
   TaskStartWaiting,
-  OperatorOperation,
-  OperatorAgreementData,
-  OperatorKnowledgeDocument,
-  OperatorPrincipleData,
-  ProposeOperatorKnowledgeRequest,
-  OperatorPlan,
-  OperatorPreferenceData,
-  OperatorPreferenceDocument,
+  ProjectManagerOperation,
+  ProjectManagerAgreementData,
+  ProjectManagerKnowledgeDocument,
+  ProjectManagerPrincipleData,
+  ProposeProjectManagerKnowledgeRequest,
+  ProjectManagerPlan,
+  ProjectManagerPreferenceData,
+  ProjectManagerPreferenceDocument,
   ConfigChangeRow,
   ProjectDoc,
   NewSuperCommand,
@@ -1086,33 +1086,33 @@ export interface ProjectManagerToolsHandler {
   getOperatorDiagnostics(
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },
-  ): Promise<OperatorDiagnostics>;
+  ): Promise<ProjectManagerDiagnostics>;
   /** get_checklist (PM-977): the Operator and the PM, internal general session, never a guest. */
   getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
   /** update_checklist (PM-977): the Operator only, internal general session; needs no owner request. */
   updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult>;
-  getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
+  getOperatorKnowledge(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,
-    args: ProposeOperatorKnowledgeRequest,
+    args: ProposeProjectManagerKnowledgeRequest,
   ): Promise<{
     status: 'awaiting_approval';
     inbox_item_id: string;
     step_id: string;
     base_revision: number;
   }>;
-  getOperatorPreference(ctx: ToolContext): Promise<OperatorPreferenceDocument>;
+  getOperatorPreference(ctx: ToolContext): Promise<ProjectManagerPreferenceDocument>;
   setOperatorPreference(
     ctx: ToolContext,
-    args: { expectedRevision: number; preference: OperatorPreferenceData },
-  ): Promise<OperatorPreferenceDocument>;
+    args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
+  ): Promise<ProjectManagerPreferenceDocument>;
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
   ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
   operate(
     ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
+    args: { title: string; operation: ProjectManagerOperation; plan?: ProjectManagerPlan },
   ): Promise<{
     status: 'done' | 'awaiting_approval' | 'refused';
     step_id: string;
@@ -1313,7 +1313,7 @@ export interface ExternalToolsHandler {
   getOperatorDiagnostics(
     ctx: ExternalToolContext,
     args: { taskKey: string; limit?: number },
-  ): Promise<OperatorDiagnostics>;
+  ): Promise<ProjectManagerDiagnostics>;
   listAttachments(
     ctx: ExternalToolContext,
     args: { taskKey: string; offset?: number; limit?: number },
@@ -1358,16 +1358,19 @@ export interface ExternalToolsHandler {
     args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
   /** The global Operator's own knowledge (PM-1046): one document for the whole instance, no project. */
-  getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string): Promise<OperatorKnowledgeDocument>;
+  getInstanceKnowledge(
+    principal: IntegratorPrincipal,
+    requestId: string,
+  ): Promise<ProjectManagerKnowledgeDocument>;
   updateInstanceKnowledge(
     principal: IntegratorPrincipal,
     requestId: string,
     args: {
       expectedRevision: number;
-      agreement?: OperatorAgreementData;
-      principles?: (Omit<OperatorPrincipleData, 'id'> & { id?: string })[];
+      agreement?: ProjectManagerAgreementData;
+      principles?: (Omit<ProjectManagerPrincipleData, 'id'> & { id?: string })[];
     },
-  ): Promise<OperatorKnowledgeDocument>;
+  ): Promise<ProjectManagerKnowledgeDocument>;
   /** The requests the pm of another owner's project opened to the instance host (PM-1064); the host's key only. */
   listHostInbox(
     principal: IntegratorPrincipal,

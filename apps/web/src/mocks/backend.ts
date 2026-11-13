@@ -32,8 +32,8 @@ import {
   canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
-  OperatorKnowledgeDocument,
-  OperatorPreferenceDocument,
+  ProjectManagerKnowledgeDocument,
+  ProjectManagerPreferenceDocument,
   operatorKnowledgeApprovalOf,
   maskEmail,
   BindProjectEngineRequest,
@@ -359,8 +359,8 @@ import type {
   GateRequestPayload,
   InboxItem,
   MentionPayload,
-  OperatorRequestView,
-  OperatorSignal,
+  ProjectManagerRequestView,
+  ProjectManagerSignal,
   InvitationView as Invitation,
   LabelChangeReason,
   LabelChangeRefusal,
@@ -686,18 +686,18 @@ export class MockBackend {
   readonly push = new MockPush();
   readonly owners = new MockOwners();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
-  operatorRequests: OperatorRequestView[] = [];
+  operatorRequests: ProjectManagerRequestView[] = [];
   checklist: ProjectChecklist | null = null;
-  operatorKnowledge: OperatorKnowledgeDocument = {
+  operatorKnowledge: ProjectManagerKnowledgeDocument = {
     schemaVersion: 1,
     revision: 0,
     agreement: null,
     principles: [],
     appliedProposalIds: [],
   };
-  operatorPreferences: Record<string, OperatorPreferenceDocument> = {};
+  operatorPreferences: Record<string, ProjectManagerPreferenceDocument> = {};
   /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
-  operatorSignals: OperatorSignal[] = [];
+  operatorSignals: ProjectManagerSignal[] = [];
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
   /** What the queued items wait on (the stored wait details), by item id: the work queue view shows these facts. */

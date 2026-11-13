@@ -10,7 +10,7 @@ import type {
   Task,
   TaskStartWaiting,
   WorkItemRef,
-  OperatorDiagnostics,
+  ProjectManagerDiagnostics,
 } from '@projectman/shared';
 
 /** Runtime owns the mutation and rechecks facts while holding its task lock. */
@@ -32,13 +32,13 @@ export interface LoopTriageActions {
 }
 
 /** Filtered check history and engine-bound machine readings, composed by assembly. */
-export interface OperatorDiagnosticSources {
-  checks(projectKey: string, taskKey: string): OperatorDiagnostics['checks'];
-  machine(session: Session | undefined): Promise<OperatorDiagnostics['machine']>;
+export interface ProjectManagerDiagnosticSources {
+  checks(projectKey: string, taskKey: string): ProjectManagerDiagnostics['checks'];
+  machine(session: Session | undefined): Promise<ProjectManagerDiagnostics['machine']>;
 }
 
 /** The sessions the Operator looks at, stops and wakes (SessionOrchestrator). */
-export interface OperatorSessions {
+export interface ProjectManagerSessions {
   find(sessionId: string): Session | null;
   get(projectKey: string, sessionId: string): Session;
   isRunning(sessionId: string): boolean;
@@ -53,7 +53,7 @@ export interface OperatorSessions {
   ): Promise<SessionDetail>;
 }
 /** Admission (runtime/admission). */
-export interface OperatorAdmission {
+export interface ProjectManagerAdmission {
   memberLoad(config: ProjectConfig, handle: string): number;
   /** The AI owners of the work stage with capacity, not on leave, not on hold and with no start waiting for them. */
   freeDevelopers(config: ProjectConfig, stageId: string): readonly { handle: MemberHandle }[];
@@ -75,18 +75,18 @@ export interface WaitingStarts {
   queueWaits(): readonly { projectKey: string; taskKey: string | null; waiting: TaskStartWaiting }[];
 }
 /** Who pauses or resumes a project through the Operator: a person's approval in the app. */
-export interface OperatorPauseRequester {
+export interface ProjectManagerPauseRequester {
   check?: () => void;
   userId: string | null;
   source: 'app';
 }
 /** Pauses (PauseService in runtime/sessions); the Operator pauses and resumes one project. */
-export interface OperatorPauses {
+export interface ProjectManagerPauses {
   projectView(projectKey: string): ProjectPauseView;
   pause(
     target: { scope: 'project'; projectKey: string },
-    by: OperatorPauseRequester,
+    by: ProjectManagerPauseRequester,
     options?: { reason?: string },
   ): Promise<void>;
-  resume(target: { scope: 'project'; projectKey: string }, by: OperatorPauseRequester): Promise<void>;
+  resume(target: { scope: 'project'; projectKey: string }, by: ProjectManagerPauseRequester): Promise<void>;
 }

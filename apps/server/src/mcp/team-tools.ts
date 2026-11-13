@@ -61,8 +61,8 @@ import type {
   AddRelationRef,
   ComplexityRequest,
   RelationsChange,
-  OperatorPreferenceData,
-  ProposeOperatorKnowledgeRequest,
+  ProjectManagerPreferenceData,
+  ProposeProjectManagerKnowledgeRequest,
   ProjectDoc,
   ScreeningTodo,
 } from '@projectman/shared';
@@ -94,12 +94,12 @@ export class TeamToolsService implements TeamToolsHandler {
   async getOperatorKnowledge(ctx: ToolContext) {
     return this.tools.operator.getOperatorKnowledge(ctx);
   }
-  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
+  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
     return this.tools.operator.proposeOperatorKnowledge(ctx, args);
   }
   async setOperatorPreference(
     ctx: ToolContext,
-    args: { expectedRevision: number; preference: OperatorPreferenceData },
+    args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
   ) {
     return this.tools.operator.setOperatorPreference(ctx, args);
   }

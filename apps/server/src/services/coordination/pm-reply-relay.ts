@@ -1,4 +1,4 @@
-import type { OperatorSessions } from './ports';
+import type { ProjectManagerSessions } from './ports';
 import { isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
@@ -18,7 +18,7 @@ export class PmReplyRelay {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: Pick<OperatorSessions, 'detail'>;
+    sessions: Pick<ProjectManagerSessions, 'detail'>;
     messages: MessageService;
     tasks: Pick<TaskService, 'addNote'>;
     background: BackgroundTasks;

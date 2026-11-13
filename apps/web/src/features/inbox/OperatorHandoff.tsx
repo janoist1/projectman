@@ -1,4 +1,4 @@
-import type { OperatorHandoff as Handoff } from '@projectman/shared';
+import type { ProjectManagerHandoff as Handoff } from '@projectman/shared';
 import { ButtonLink } from '../../components/Button';
 import { Fold } from '../../components/Fold';
 import { Markdown } from '../../components/Markdown';

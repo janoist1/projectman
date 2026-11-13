@@ -44,7 +44,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
-  OperatorKnowledgeStore,
+  ProjectManagerKnowledgeStore,
   MachineProbe,
   MemberWorkspaceManager,
   RunnerModule,
@@ -149,7 +149,7 @@ export interface AppModules {
   githubActions?: GithubActionsClient;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
-  operatorKnowledge?: OperatorKnowledgeStore;
+  operatorKnowledge?: ProjectManagerKnowledgeStore;
   worktrees?: WorktreeManager;
   /** Member workspaces, used when `memberWorkspaces` is on (default: the git-backed manager). */
   memberWorkspaces?: MemberWorkspaceManager;

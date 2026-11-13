@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RepoConfig } from '@projectman/shared';
-import type { OperatorSignalKind, ProjectConfig, Task } from '@projectman/shared';
+import type { ProjectManagerSignalKind, ProjectConfig, Task } from '@projectman/shared';
 
 import type { MergeRecord } from '../src/db';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
@@ -23,7 +23,7 @@ const sweep = async () => {
   await h.domain.operatorSignals.sweep('AR');
   await flush();
 };
-const open = (kind: OperatorSignalKind) =>
+const open = (kind: ProjectManagerSignalKind) =>
   h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 
 async function setup(opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {}) {
@@ -124,7 +124,7 @@ describe('merge_blocked signal', () => {
 
   it('resolves the open row of the retired unreleased kind an older build left, and keeps the closed one', async () => {
     await setup();
-    const row = (id: string, kind: OperatorSignalKind, state: 'pending' | 'open' | 'resolved') => ({
+    const row = (id: string, kind: ProjectManagerSignalKind, state: 'pending' | 'open' | 'resolved') => ({
       id,
       projectKey: 'AR',
       caseKey: `${kind}:AR-1`,

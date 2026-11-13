@@ -8,7 +8,7 @@ import type {
   InboxOption,
   MemberView,
   PlanUsage,
-  OperatorSignal,
+  ProjectManagerSignal,
   ProjectConfig,
   ProjectSummary,
   RoleView,
@@ -156,7 +156,7 @@ export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
 
 /** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
-export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {
+export function operatorSummaryFixture(messageId: string): { body: string; signals: ProjectManagerSignal[] } {
   const base = {
     state: 'open' as const,
     subject: null,

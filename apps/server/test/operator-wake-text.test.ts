@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { OPERATOR_SIGNAL_STEP_GAP_MINUTES } from '@projectman/shared';
-import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
+import type { ObligationKind, ProjectManagerWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -18,7 +18,7 @@ const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
 
-async function setup(level: OperatorWatch | undefined, adjust?: (config: ProjectConfig) => void) {
+async function setup(level: ProjectManagerWatch | undefined, adjust?: (config: ProjectConfig) => void) {
   now = new Date('2026-10-12T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,

@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { canReadOperatorKnowledge } from '@projectman/shared';
-import type { InboxItem, OperatorKnowledgeApprovalPayload, ResolveInboxRequest } from '@projectman/shared';
+import type {
+  InboxItem,
+  ProjectManagerKnowledgeApprovalPayload,
+  ResolveInboxRequest,
+} from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { queryKeys } from '../../api/queryKeys';
 import { useProject } from '../../app/contexts';
@@ -17,7 +21,7 @@ export function OperatorKnowledgeBody({
   payload,
   stale,
 }: {
-  payload: OperatorKnowledgeApprovalPayload;
+  payload: ProjectManagerKnowledgeApprovalPayload;
   stale?: boolean;
 }) {
   const { key, me } = useProject();
@@ -120,7 +124,7 @@ export function OperatorKnowledgeActions({
   onDecide,
 }: {
   item: InboxItem;
-  payload: OperatorKnowledgeApprovalPayload;
+  payload: ProjectManagerKnowledgeApprovalPayload;
   pending: boolean;
   stale: boolean;
   onDecide: (item: InboxItem, body: ResolveInboxRequest) => void;

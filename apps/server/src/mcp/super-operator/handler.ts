@@ -44,7 +44,7 @@ import type {
   IntegratorCredentialAuthority,
   IntegratorPrincipal,
   ListTasksInput,
-  OperatorKnowledgeStore,
+  ProjectManagerKnowledgeStore,
   ProjectDocWrite,
   ReadDocumentArgs,
   ReleaseStatus,
@@ -120,7 +120,7 @@ interface ExternalToolsDeps {
   >;
   history: Pick<HistoryService, 'search' | 'read'>;
   operatorKnowledge: Pick<
-    OperatorKnowledgeStore,
+    ProjectManagerKnowledgeStore,
     'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
   >;
   hostRequests: Pick<HostRequestsService, 'listForHost' | 'answer'>;

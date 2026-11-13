@@ -52,7 +52,7 @@ stay.
 - **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
   `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the project manager's session id, acting as the first owner
   (by handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
-  was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the project
+  was issued there (a `WeakSet`) and `ProjectManagerAppSessions.active` holds: the session is live, it is the project
   manager's own general conversation (no guest) and the facade's `actingRequest` yields a request: an owner message,
   answer or queue request, or a signal round (the session's own round under `outside_owner_only`, PM-1287; under
   `owner_request` only the owner's message or answer). Otherwise `insufficient_access`. The request origin is `owner`
@@ -62,7 +62,7 @@ stay.
 - **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,
   the `inbox_resolved` event calls `SuperHandoffService.resumeApprovedAppOperation`, which re-runs `operate` under an
   approved app principal (no live session needed; the yes, command hash and config version are checked again).
-- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` links the operation.
+- **Step log.** `ProjectManagerAction` has `operation`; `operator_steps.operation_id` links the operation.
 
 ## The external MCP endpoint
 

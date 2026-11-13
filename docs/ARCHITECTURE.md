@@ -1783,7 +1783,7 @@ the current PM's actionable proposal may open a separate `message` request only 
 the accepted signal, deciding owner, presentation author and delivery binding must all match. Saving
 the decision, pending delivery or replay alone opens no request.
 
-Migration 69 adds nullable `operator_signals.delivered_to`; public `OperatorSignal.deliveredTo` is
+Migration 69 adds nullable `operator_signals.delivered_to`; public `ProjectManagerSignal.deliveredTo` is
 optional for older DTOs. Successful delivery records the PM handle and time together. Unpresented
 legacy or changed-recipient signals are delivered again with the same id, case, evidence and budget.
 Leave invalidates their binding. Presented/accepted legacy proposals retain their original decision

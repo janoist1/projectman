@@ -24,7 +24,7 @@ export {
   createOperatorAppOperations,
   createOperatorAppSessions,
 } from './app';
-export type { OperatorAppOperations } from './app';
+export type { ProjectManagerAppOperations } from './app';
 export { createSuperOperations } from './facade';
 export type { SuperOperations } from './facade';
 export { relayOwnerAnswer } from './relay';

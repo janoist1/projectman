@@ -47,7 +47,7 @@ const MAX_SYSTEM_FEEDBACK_OPERATOR_LIST = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A row of the Operator's own list: it never carries what the owner decided or why. */
-interface SystemFeedbackOperatorRow {
+interface SystemFeedbackProjectManagerRow {
   id: string;
   state: SystemFeedbackState;
   title: string;
@@ -123,7 +123,7 @@ export class SystemFeedbackService implements SystemFeedbackRecorder, SystemFeed
   }
 
   /** The project's own items for its Operator, the latest seen first. */
-  listForOperator(projectKey: string): SystemFeedbackOperatorRow[] {
+  listForOperator(projectKey: string): SystemFeedbackProjectManagerRow[] {
     const { systemFeedback } = this.ctx.repos;
     return systemFeedback.list({ projectKey, limit: MAX_SYSTEM_FEEDBACK_OPERATOR_LIST }).map((record) => ({
       id: record.id,

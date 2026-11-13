@@ -251,7 +251,7 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   immediate ones, asks the owner about the restricted ones and refuses the forbidden. `execute_operation` starts one
   command on the shared operation path; `get_operation` reads it and its result until it is final. The rules and the
   fields are in `OPERATIONS_GUIDE`; see `docs/modules/services-coordination.md`.
-- `get_operator_diagnostics { task_key, limit? }` returns the shared `OperatorDiagnostics` projection. Only the
+- `get_operator_diagnostics { task_key, limit? }` returns the shared `ProjectManagerDiagnostics` projection. Only the
   selected project manager's internal general session may read it, without an open request. Each list is limited
   independently to 1–20 entries (default 10), newest first. Session tools and errors come only
   from structured work metadata. Raw messages, transcripts, screens, tool arguments, commands,

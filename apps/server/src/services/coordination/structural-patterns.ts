@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { absorbedSendBacks, countFixRounds, isTheme, PatternFacts, stageOf } from '@projectman/shared';
-import type { OperatorSignalKind, ProjectConfig, Task, TimelineEvent } from '@projectman/shared';
+import type { ProjectManagerSignalKind, ProjectConfig, Task, TimelineEvent } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 
 export const STRUCTURAL_WINDOW_MS = 7 * 24 * 60 * 60_000;
@@ -11,7 +11,7 @@ export const patternSubject = (fingerprint: string) =>
 
 export type StructuralSignalRef = {
   projectKey: string;
-  kind: OperatorSignalKind;
+  kind: ProjectManagerSignalKind;
   taskKey: string | null;
   subject: string | null;
   raisedAt: string;

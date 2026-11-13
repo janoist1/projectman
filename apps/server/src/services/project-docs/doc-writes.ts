@@ -19,7 +19,7 @@ import type {
   ErrorCode,
   ExternalDocWriteState,
   ExternalToolOrigin,
-  OperatorStepStatus,
+  ProjectManagerStepStatus,
   ProjectDoc,
   RepoConfig,
 } from '@projectman/shared';
@@ -734,7 +734,7 @@ export class DocWrites {
               message: 'a file changed since the commit it was read at; read it again',
             }
           : undefined;
-    const status: OperatorStepStatus =
+    const status: ProjectManagerStepStatus =
       ended.state === 'published' ? 'done' : ended.state === 'stale' ? 'stale' : 'refused';
     ctx.unitOfWork(() => {
       this.save(row.id, {

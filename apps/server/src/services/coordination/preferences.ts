@@ -2,11 +2,11 @@ import {
   coordinationMemberOf,
   isProjectManager,
   memberOf,
-  OperatorPreferenceData,
+  ProjectManagerPreferenceData,
   ownerHandles,
 } from '@projectman/shared';
-import type { OperatorPreferenceDocument, SessionStartCause, WorkItemRef } from '@projectman/shared';
-import type { OperatorKnowledgeStore, ToolContext } from '../../contracts';
+import type { ProjectManagerPreferenceDocument, SessionStartCause, WorkItemRef } from '@projectman/shared';
+import type { ProjectManagerKnowledgeStore, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
@@ -19,23 +19,23 @@ export class ProjectManagerPreferences {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
     requests: Pick<ProjectManagerRequests, 'openFor'>;
-    store: OperatorKnowledgeStore;
+    store: ProjectManagerKnowledgeStore;
   };
 
   constructor(deps: ProjectManagerPreferences['deps']) {
     this.deps = deps;
   }
 
-  async get(ctx: ToolContext): Promise<OperatorPreferenceDocument> {
+  async get(ctx: ToolContext): Promise<ProjectManagerPreferenceDocument> {
     return this.deps.store.readPreference(ctx.projectKey, await this.personFor(ctx));
   }
 
   async set(
     ctx: ToolContext,
     expectedRevision: number,
-    preference: OperatorPreferenceData,
-  ): Promise<OperatorPreferenceDocument> {
-    const data = OperatorPreferenceData.parse(preference);
+    preference: ProjectManagerPreferenceData,
+  ): Promise<ProjectManagerPreferenceDocument> {
+    const data = ProjectManagerPreferenceData.parse(preference);
     const handle = await this.personFor(ctx);
     return this.deps.store.compareAndSwapPreference(ctx.projectKey, handle, expectedRevision, {
       schemaVersion: 1,
@@ -46,7 +46,7 @@ export class ProjectManagerPreferences {
   }
 
   /** REST callers already proved their own login and project membership. */
-  async me(projectKey: string, handle: string): Promise<OperatorPreferenceDocument> {
+  async me(projectKey: string, handle: string): Promise<ProjectManagerPreferenceDocument> {
     const config = await this.deps.projects.config(projectKey);
     if (memberOf(config, handle)?.kind !== 'human')
       throw forbidden('operator_owner_only', 'the preference belongs to a current human member');
@@ -69,7 +69,7 @@ export class ProjectManagerPreferences {
     member: string,
     workItem: WorkItemRef,
     cause: SessionStartCause | null,
-  ): Promise<OperatorPreferenceData | undefined> {
+  ): Promise<ProjectManagerPreferenceData | undefined> {
     if (workItem.type !== 'general') return undefined;
     const config = await this.deps.projects.config(projectKey);
     const caller = memberOf(config, member);

@@ -2,9 +2,9 @@ import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 
-export type OperatorUploads = ReturnType<typeof useMessageAttachmentUploads>;
+export type ProjectManagerUploads = ReturnType<typeof useMessageAttachmentUploads>;
 
-const OperatorUploadsContext = createContext<OperatorUploads | null>(null);
+const OperatorUploadsContext = createContext<ProjectManagerUploads | null>(null);
 
 /**
  * The files attached to the message being written in the project manager's panel (PM-1305). They live above the
@@ -22,7 +22,7 @@ export function OperatorUploadsProvider({
   return <OperatorUploadsContext.Provider value={uploads}>{children}</OperatorUploadsContext.Provider>;
 }
 
-export function useOperatorUploads(): OperatorUploads {
+export function useOperatorUploads(): ProjectManagerUploads {
   const value = useContext(OperatorUploadsContext);
   if (!value) throw new Error('useOperatorUploads must be used inside the project layout');
   return value;

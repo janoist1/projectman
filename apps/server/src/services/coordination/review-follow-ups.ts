@@ -1,5 +1,5 @@
 import { isOpenTask } from '@projectman/shared';
-import type { OperatorSignal, ReviewFollowUpsFacts, Task } from '@projectman/shared';
+import type { ProjectManagerSignal, ReviewFollowUpsFacts, Task } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { ProjectManagerSignals } from './signals';
 
@@ -15,7 +15,7 @@ const eventsOf = (ctx: DomainContext, task: Pick<Task, 'projectKey' | 'key'>) =>
  */
 export function reviewFollowUpsFacts(
   ctx: DomainContext,
-  signal: Pick<OperatorSignal, 'taskKey' | 'subject'>,
+  signal: Pick<ProjectManagerSignal, 'taskKey' | 'subject'>,
 ): ReviewFollowUpsFacts | null {
   const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
   if (!task || (task.status !== 'done' && task.status !== 'cancelled')) return null;

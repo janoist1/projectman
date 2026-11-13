@@ -9,7 +9,7 @@ import {
 } from '@projectman/shared';
 import type {
   InboxItem,
-  OperatorStructuralReview,
+  ProjectManagerStructuralReview,
   ProjectConfig,
   StructuralReviewResult,
 } from '@projectman/shared';
@@ -19,11 +19,11 @@ import type { DomainContext } from '../../core/base';
 import type { InboxService, Resolver } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import { conflict, externalToolOrigin, forbidden } from '../../kernel';
-import type { OperatorAdmission } from './ports';
-import type { CoordinationRequests, OperatorSteps } from './requests';
+import type { ProjectManagerAdmission } from './ports';
+import type { CoordinationRequests, ProjectManagerSteps } from './requests';
 import type { ProjectManagerSignals } from './signals';
 
-function structuralReviewText(payload: OperatorStructuralReview): string {
+function structuralReviewText(payload: ProjectManagerStructuralReview): string {
   return (
     `Occasional architecture review requested by the PM. Reason: ${payload.note}\n` +
     `Evidence (data): ${JSON.stringify({ evidence: payload.evidence, milestoneKey: payload.milestoneKey })}\n` +
@@ -34,15 +34,15 @@ function structuralReviewText(payload: OperatorStructuralReview): string {
 /** A standing signal can propose a review; only an owner's request can start one. */
 export class StructuralReviews {
   private readonly running = new Set<string>();
-  private readonly starting = new Map<string, OperatorStructuralReview>();
+  private readonly starting = new Map<string, ProjectManagerStructuralReview>();
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
     signals: ProjectManagerSignals;
     requests: CoordinationRequests;
-    steps: OperatorSteps;
-    admission: Pick<OperatorAdmission, 'memberLoad'>;
+    steps: ProjectManagerSteps;
+    admission: Pick<ProjectManagerAdmission, 'memberLoad'>;
   };
   constructor(deps: StructuralReviews['deps']) {
     this.deps = deps;
@@ -96,7 +96,7 @@ export class StructuralReviews {
         throw conflict('operator_signal_closed', 'the approval belongs to another signal');
       const member = this.select(config);
       if (!member) return { status: 'held', member: null, message_id: null, inbox_item_id: null };
-      const payload: OperatorStructuralReview = {
+      const payload: ProjectManagerStructuralReview = {
         signalId,
         ...facts,
         note: approved?.note ?? note,

@@ -1,7 +1,7 @@
 import {
   LOOP_LET_RUN_OPTION,
   LOOP_STOP_OPTION,
-  OperatorSignal,
+  ProjectManagerSignal,
   coordinationActorRefusal,
   coordinationMemberOf,
   countsForLoop,
@@ -480,7 +480,7 @@ export class LoopWatch {
         ctx.bus.publish({
           type: 'operator_signal',
           projectKey: loop.projectKey,
-          signal: OperatorSignal.parse(resolved),
+          signal: ProjectManagerSignal.parse(resolved),
         });
     }
   }

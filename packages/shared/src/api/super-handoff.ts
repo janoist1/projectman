@@ -11,7 +11,7 @@ import {
   CancelTaskRequest,
   StartTaskRequest,
   ResolveInboxRequest,
-  OperatorOperation,
+  ProjectManagerOperation,
   OrderMergeQueueRequest,
   StartMergeRequest,
   UpdateMemberRequest,
@@ -26,7 +26,7 @@ const SUPER_REASON_MAX = 2000;
 
 /** The closed, versioned set of commands a new operation can carry. */
 export const NewSuperCommand = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('operate'), operation: OperatorOperation }),
+  z.strictObject({ kind: z.literal('operate'), operation: ProjectManagerOperation }),
   z.strictObject({ kind: z.literal('member_update'), handle: MemberHandle, request: UpdateMemberRequest }),
   z.strictObject({ kind: z.literal('invite_create'), request: CreateInviteRequest }),
   z.strictObject({ kind: z.literal('merge'), taskKey: TaskKey, request: StartMergeRequest }),

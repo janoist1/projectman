@@ -19,7 +19,7 @@ import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { isRegeneratedPathPattern } from './regenerated-paths';
-import { OperatorWatch } from './operator-watch';
+import { ProjectManagerWatch } from './operator-watch';
 import { OwnerDecisionTopics } from './owner-topics';
 import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
 
@@ -494,7 +494,7 @@ export const ProjectConfig = z.object({
     feedback: FeedbackConfig.optional(),
   }),
   team: z.object({
-    operatorWatch: OperatorWatch.optional(),
+    operatorWatch: ProjectManagerWatch.optional(),
     cardMover: CardMover.optional(),
     /** Lowest human access that may open a new card (PM-1100); absent: its `TEAM_SETTING_POLICY` default. */
     taskCreateAccess: TaskCreateAccess.optional(),

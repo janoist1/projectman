@@ -1,24 +1,24 @@
-import type { OperatorKnowledgeDocument, OperatorPreferenceDocument } from '@projectman/shared';
+import type { ProjectManagerKnowledgeDocument, ProjectManagerPreferenceDocument } from '@projectman/shared';
 
 /** Private server storage. Authorization and principle id generation belong to the caller. */
-export interface OperatorKnowledgeStore {
-  readKnowledge(projectKey: string): Promise<OperatorKnowledgeDocument>;
+export interface ProjectManagerKnowledgeStore {
+  readKnowledge(projectKey: string): Promise<ProjectManagerKnowledgeDocument>;
   compareAndSwapKnowledge(
     projectKey: string,
     expectedRevision: number,
-    next: OperatorKnowledgeDocument,
-  ): Promise<OperatorKnowledgeDocument>;
+    next: ProjectManagerKnowledgeDocument,
+  ): Promise<ProjectManagerKnowledgeDocument>;
   /** The instance-level knowledge of the global Operator (PM-1046): one document for the whole server. */
-  readInstanceKnowledge(): Promise<OperatorKnowledgeDocument>;
+  readInstanceKnowledge(): Promise<ProjectManagerKnowledgeDocument>;
   compareAndSwapInstanceKnowledge(
     expectedRevision: number,
-    next: OperatorKnowledgeDocument,
-  ): Promise<OperatorKnowledgeDocument>;
-  readPreference(projectKey: string, handle: string): Promise<OperatorPreferenceDocument>;
+    next: ProjectManagerKnowledgeDocument,
+  ): Promise<ProjectManagerKnowledgeDocument>;
+  readPreference(projectKey: string, handle: string): Promise<ProjectManagerPreferenceDocument>;
   compareAndSwapPreference(
     projectKey: string,
     handle: string,
     expectedRevision: number,
-    next: OperatorPreferenceDocument,
-  ): Promise<OperatorPreferenceDocument>;
+    next: ProjectManagerPreferenceDocument,
+  ): Promise<ProjectManagerPreferenceDocument>;
 }

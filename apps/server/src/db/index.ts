@@ -67,7 +67,7 @@ export type {
 import { createCounterRepository, createProjectRepository } from './projects';
 import { createOperatorRequestRepository } from './operator-requests';
 import { createOperatorSignalRepository } from './operator-signals';
-export type { OperatorSignalRecord } from './operator-signals';
+export type { ProjectManagerSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectChangeEventRepository } from './project-change-events';
 import { createReleasePublicationRepository } from './release-publications';
@@ -111,7 +111,7 @@ export type { MessageTurn, MessageTurnEnd } from './message-turns';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
-export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
+export type { ProjectManagerRequestRecord, ProjectManagerStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, TeamPauseRecord } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskFixLimitRecord } from './fix-limits';

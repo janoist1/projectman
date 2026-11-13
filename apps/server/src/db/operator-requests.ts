@@ -1,13 +1,13 @@
 import type {
   ConfigChangeRow,
-  OperatorAction,
-  OperatorStepStatus,
-  OperatorOperation,
+  ProjectManagerAction,
+  ProjectManagerStepStatus,
+  ProjectManagerOperation,
 } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
-export interface OperatorRequestRecord {
+export interface ProjectManagerRequestRecord {
   id: string;
   projectKey: string;
   sessionId: string;
@@ -22,14 +22,14 @@ export interface OperatorRequestRecord {
   closedAt: string | null;
 }
 
-export interface OperatorStepRecord {
+export interface ProjectManagerStepRecord {
   agreementVersion?: number | null;
   approvalMode?: 'click' | 'waived' | null;
   id: string;
   requestId: string;
   at: string;
-  action: OperatorAction;
-  status: OperatorStepStatus;
+  action: ProjectManagerAction;
+  status: ProjectManagerStepStatus;
   taskKey: string | null;
   member: string | null;
   changes: ConfigChangeRow[];
@@ -44,7 +44,7 @@ export interface OperatorStepRecord {
   refusal: { code: string; message: string } | null;
 }
 
-interface StepRow extends Omit<OperatorStepRecord, 'changes' | 'refusal' | 'systemFeedback'> {
+interface StepRow extends Omit<ProjectManagerStepRecord, 'changes' | 'refusal' | 'systemFeedback'> {
   changes: string;
   refusal: string | null;
   systemFeedback: string | null;
@@ -58,11 +58,11 @@ const stepColumns = `id, request_id AS requestId, at, action, status, task_key A
   agreement_version AS agreementVersion, approval_mode AS approvalMode, operation_id AS operationId,
   system_feedback AS systemFeedback`;
 
-interface OperatorExecutionIntent {
+interface ProjectManagerExecutionIntent {
   id: string;
   projectKey: string;
   requestId: string;
-  operation: OperatorOperation;
+  operation: ProjectManagerOperation;
   changes: ConfigChangeRow[];
   agreementVersion: number | null;
   approvalMode: 'click' | 'waived';
@@ -76,7 +76,7 @@ const intentColumns = `id, project_key AS projectKey, request_id AS requestId, o
   agreement_version AS agreementVersion, approval_mode AS approvalMode, status, created_at AS createdAt,
   updated_at AS updatedAt, config_version AS configVersion, refusal`;
 
-const toStep = (row: StepRow): OperatorStepRecord => ({
+const toStep = (row: StepRow): ProjectManagerStepRecord => ({
   ...row,
   changes: parseJson<ConfigChangeRow[]>(row.changes, []),
   refusal: row.refusal ? parseJson(row.refusal, null) : null,
@@ -111,7 +111,7 @@ export function createOperatorRequestRepository(db: Db) {
     ),
   };
   return {
-    prepareExecution(intent: OperatorExecutionIntent): void {
+    prepareExecution(intent: ProjectManagerExecutionIntent): void {
       db.prepare(
         `INSERT INTO operator_execution_intents
         (id, project_key, request_id, operation, changes, agreement_version, approval_mode, status,
@@ -128,12 +128,12 @@ export function createOperatorRequestRepository(db: Db) {
         'UPDATE operator_steps SET agreement_version = ?, approval_mode = ?, changes = ? WHERE id = ?',
       ).run(intent.agreementVersion, intent.approvalMode, toJson(intent.changes), intent.id);
     },
-    executions(projectKey: string): OperatorExecutionIntent[] {
+    executions(projectKey: string): ProjectManagerExecutionIntent[] {
       return (
         db
           .prepare(`SELECT ${intentColumns} FROM operator_execution_intents WHERE project_key = ?`)
           .all(projectKey) as Array<
-          Omit<OperatorExecutionIntent, 'operation' | 'changes' | 'refusal'> & {
+          Omit<ProjectManagerExecutionIntent, 'operation' | 'changes' | 'refusal'> & {
             operation: string;
             changes: string;
             refusal: string | null;
@@ -141,7 +141,7 @@ export function createOperatorRequestRepository(db: Db) {
         >
       ).map((row) => ({
         ...row,
-        operation: JSON.parse(row.operation) as OperatorOperation,
+        operation: JSON.parse(row.operation) as ProjectManagerOperation,
         changes: parseJson<ConfigChangeRow[]>(row.changes, []),
         refusal: row.refusal ? parseJson(row.refusal, null) : null,
       }));
@@ -151,7 +151,7 @@ export function createOperatorRequestRepository(db: Db) {
       status: 'committed' | 'failed',
       at: string,
       version: string | null,
-      refusal: OperatorExecutionIntent['refusal'] = null,
+      refusal: ProjectManagerExecutionIntent['refusal'] = null,
     ): boolean {
       const result = db
         .prepare(
@@ -167,27 +167,29 @@ export function createOperatorRequestRepository(db: Db) {
       return true;
     },
     insert(
-      request: Omit<OperatorRequestRecord, 'closedAt' | 'queueItemId'> & { queueItemId?: string | null },
+      request: Omit<ProjectManagerRequestRecord, 'closedAt' | 'queueItemId'> & {
+        queueItemId?: string | null;
+      },
     ): void {
       statements.insertRequest.run({ ...request, queueItemId: request.queueItemId ?? null });
     },
-    get(id: string): OperatorRequestRecord | null {
-      return (statements.get.get(id) as OperatorRequestRecord | undefined) ?? null;
+    get(id: string): ProjectManagerRequestRecord | null {
+      return (statements.get.get(id) as ProjectManagerRequestRecord | undefined) ?? null;
     },
     /** The session's requests that are not closed, the newest first. */
-    openOfSession(sessionId: string): OperatorRequestRecord[] {
-      return statements.openOfSession.all(sessionId) as OperatorRequestRecord[];
+    openOfSession(sessionId: string): ProjectManagerRequestRecord[] {
+      return statements.openOfSession.all(sessionId) as ProjectManagerRequestRecord[];
     },
-    openOfProject(projectKey: string): OperatorRequestRecord[] {
-      return statements.openOfProject.all(projectKey) as OperatorRequestRecord[];
+    openOfProject(projectKey: string): ProjectManagerRequestRecord[] {
+      return statements.openOfProject.all(projectKey) as ProjectManagerRequestRecord[];
     },
     /** Closes the request unless it is closed already; true when this call closed it. */
     close(id: string, at: string): boolean {
       return statements.close.run(at, id).changes > 0;
     },
     /** The latest `limit` requests of the project, the newest last. */
-    latest(projectKey: string, limit: number): OperatorRequestRecord[] {
-      return statements.latest.all(projectKey, limit) as OperatorRequestRecord[];
+    latest(projectKey: string, limit: number): ProjectManagerRequestRecord[] {
+      return statements.latest.all(projectKey, limit) as ProjectManagerRequestRecord[];
     },
     /** The latest `limit` requests of the project that these members made, the newest last (PM-475). */
     latestFrom(
@@ -195,7 +197,7 @@ export function createOperatorRequestRepository(db: Db) {
       handles: string[],
       limit: number,
       recipient?: string,
-    ): OperatorRequestRecord[] {
+    ): ProjectManagerRequestRecord[] {
       if (handles.length === 0) return [];
       return db
         .prepare(
@@ -209,9 +211,9 @@ export function createOperatorRequestRepository(db: Db) {
           ...handles,
           ...(recipient === undefined ? [] : [recipient]),
           limit,
-        ) as OperatorRequestRecord[];
+        ) as ProjectManagerRequestRecord[];
     },
-    insertStep(step: OperatorStepRecord): void {
+    insertStep(step: ProjectManagerStepRecord): void {
       statements.insertStep.run({
         ...step,
         agreementVersion: step.agreementVersion ?? null,
@@ -222,11 +224,11 @@ export function createOperatorRequestRepository(db: Db) {
         refusal: step.refusal ? toJson(step.refusal) : null,
       });
     },
-    steps(requestId: string): OperatorStepRecord[] {
+    steps(requestId: string): ProjectManagerStepRecord[] {
       return (statements.stepsOf.all(requestId) as StepRow[]).map(toStep);
     },
     /** The steps the Operator took on a signal, the oldest first. */
-    stepsOfSignal(signalId: string): OperatorStepRecord[] {
+    stepsOfSignal(signalId: string): ProjectManagerStepRecord[] {
       return (statements.stepsOfSignal.all(signalId) as StepRow[]).map(toStep);
     },
     /** Atomically consumes an approval; a claimed step is never replayed after a crash. */
@@ -242,7 +244,7 @@ export function createOperatorRequestRepository(db: Db) {
     /** Sets a step's status; `refusal` (when given) says why a step ended without doing its work. */
     updateStep(
       id: string,
-      status: OperatorStepStatus,
+      status: ProjectManagerStepStatus,
       configVersion: string | null = null,
       refusal?: { code: string; message: string },
     ): void {

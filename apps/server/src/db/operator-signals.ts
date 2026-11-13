@@ -1,7 +1,7 @@
-import type { OperatorSignal, OperatorSignalKind } from '@projectman/shared';
+import type { ProjectManagerSignal, ProjectManagerSignalKind } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface OperatorSignalRecord extends OperatorSignal {
+export interface ProjectManagerSignalRecord extends ProjectManagerSignal {
   deliveredTo: string | null;
   projectKey: string;
   decisionNote: string | null;
@@ -14,8 +14,8 @@ const columns = `id, project_key AS projectKey, case_key AS caseKey, kind, state
   task_key AS taskKey, subject, inbox_item_id AS inboxItemId, message_id AS messageId,
   raised_at AS raisedAt, decided_by AS decidedBy, decided_at AS decidedAt, resolved_at AS resolvedAt,
   delivered_at AS deliveredAt, delivered_to AS deliveredTo, follow_up_at AS followUpAt, decision_note AS decisionNote`;
-type Row = Omit<OperatorSignalRecord, 'actionable'> & { actionable: number };
-const record = (row: Row): OperatorSignalRecord => ({ ...row, actionable: !!row.actionable });
+type Row = Omit<ProjectManagerSignalRecord, 'actionable'> & { actionable: number };
+const record = (row: Row): ProjectManagerSignalRecord => ({ ...row, actionable: !!row.actionable });
 
 export function createOperatorSignalRepository(db: Db) {
   const list = db.prepare(
@@ -30,19 +30,19 @@ export function createOperatorSignalRepository(db: Db) {
   const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
     WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
-    armedAt(projectKey: string, kind: OperatorSignalKind): string | null {
+    armedAt(projectKey: string, kind: ProjectManagerSignalKind): string | null {
       const row = db
         .prepare('SELECT armed_at FROM operator_signal_arms WHERE project_key = ? AND kind = ?')
         .get(projectKey, kind) as { armed_at: string } | undefined;
       return row?.armed_at ?? null;
     },
-    arm(projectKey: string, kind: OperatorSignalKind, at: string): string {
+    arm(projectKey: string, kind: ProjectManagerSignalKind, at: string): string {
       db.prepare(
         'INSERT OR IGNORE INTO operator_signal_arms (project_key, kind, armed_at) VALUES (?, ?, ?)',
       ).run(projectKey, kind, at);
       return this.armedAt(projectKey, kind)!;
     },
-    latestDismissed(projectKey: string, kind: OperatorSignalKind): OperatorSignalRecord | null {
+    latestDismissed(projectKey: string, kind: ProjectManagerSignalKind): ProjectManagerSignalRecord | null {
       const row = db
         .prepare(
           `SELECT ${columns} FROM operator_signals
@@ -52,12 +52,12 @@ export function createOperatorSignalRepository(db: Db) {
         .get(projectKey, kind) as Row | undefined;
       return row ? record(row) : null;
     },
-    openByCase(projectKey: string, caseKey: string): OperatorSignalRecord | null {
+    openByCase(projectKey: string, caseKey: string): ProjectManagerSignalRecord | null {
       const row = openByCase.get(projectKey, caseKey) as Row | undefined;
       return row ? record(row) : null;
     },
     /** The newest signal of the case, open or not. */
-    latestOfCase(projectKey: string, caseKey: string): OperatorSignalRecord | null {
+    latestOfCase(projectKey: string, caseKey: string): ProjectManagerSignalRecord | null {
       const row = db
         .prepare(
           `SELECT ${columns} FROM operator_signals WHERE project_key = ? AND case_key = ? ORDER BY rowid DESC LIMIT 1`,
@@ -65,19 +65,23 @@ export function createOperatorSignalRepository(db: Db) {
         .get(projectKey, caseKey) as Row | undefined;
       return row ? record(row) : null;
     },
-    get(id: string): OperatorSignalRecord | null {
+    get(id: string): ProjectManagerSignalRecord | null {
       const row = db.prepare(`SELECT ${columns} FROM operator_signals WHERE id = ?`).get(id) as
         Row | undefined;
       return row ? record(row) : null;
     },
-    list(projectKey: string): OperatorSignalRecord[] {
+    list(projectKey: string): ProjectManagerSignalRecord[] {
       return (list.all(projectKey) as Row[]).map(record);
     },
-    listOpen(projectKey: string): OperatorSignalRecord[] {
+    listOpen(projectKey: string): ProjectManagerSignalRecord[] {
       return (listOpen.all(projectKey) as Row[]).map(record);
     },
     /** The signals of one kind raised for one card, open or not, oldest first. */
-    listOfTask(projectKey: string, taskKey: string, kind: OperatorSignalKind): OperatorSignalRecord[] {
+    listOfTask(
+      projectKey: string,
+      taskKey: string,
+      kind: ProjectManagerSignalKind,
+    ): ProjectManagerSignalRecord[] {
       return (
         db
           .prepare(
@@ -88,13 +92,13 @@ export function createOperatorSignalRepository(db: Db) {
       ).map(record);
     },
     /** The signals raised at or after `since` (ISO time), oldest first. */
-    listSince(projectKey: string, since: string): OperatorSignalRecord[] {
+    listSince(projectKey: string, since: string): ProjectManagerSignalRecord[] {
       return (listSince.all(projectKey, since) as Row[]).map(record);
     },
     /** The latest delivery among the signals of these kinds (`except`: of all other kinds); null: none was delivered. */
     lastDeliveredAt(
       projectKey: string,
-      kinds: readonly OperatorSignalKind[],
+      kinds: readonly ProjectManagerSignalKind[],
       scope: 'only' | 'except',
     ): string | null {
       const marks = kinds.map(() => '?').join(', ');
@@ -107,7 +111,7 @@ export function createOperatorSignalRepository(db: Db) {
       return row.at;
     },
     /** Whether a signal of these kinds was delivered after `since`. */
-    deliveredAfter(projectKey: string, kinds: readonly OperatorSignalKind[], since: string): boolean {
+    deliveredAfter(projectKey: string, kinds: readonly ProjectManagerSignalKind[], since: string): boolean {
       const marks = kinds.map(() => '?').join(', ');
       return !!db
         .prepare(
@@ -116,7 +120,7 @@ export function createOperatorSignalRepository(db: Db) {
         )
         .get(projectKey, ...kinds, since);
     },
-    insert(signal: OperatorSignalRecord): void {
+    insert(signal: ProjectManagerSignalRecord): void {
       db.prepare(
         `INSERT INTO operator_signals (id, project_key, case_key, kind, state, actionable,
         task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
@@ -124,7 +128,7 @@ export function createOperatorSignalRepository(db: Db) {
         @inboxItemId, @messageId, @raisedAt, @decidedBy, @decidedAt, @resolvedAt, @deliveredAt, @followUpAt, @decisionNote, @deliveredTo)`,
       ).run({ ...signal, deliveredTo: signal.deliveredTo ?? null, actionable: Number(signal.actionable) });
     },
-    save(signal: OperatorSignalRecord): void {
+    save(signal: ProjectManagerSignalRecord): void {
       db.prepare(
         `UPDATE operator_signals SET state = @state, actionable = @actionable,
         message_id = @messageId, decided_by = @decidedBy, decided_at = @decidedAt, decision_note = @decisionNote,

@@ -3,7 +3,7 @@ import {
   coordinationMemberOf,
   canonical,
   operatorCriticalOp,
-  OperatorPlan as OperatorPlanSchema,
+  ProjectManagerPlan as ProjectManagerPlanSchema,
   machineTodoIssuerAllowed,
   memberOf,
   roleBundle,
@@ -13,12 +13,12 @@ import {
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
-  OperatorOperation,
+  ProjectManagerOperation,
   BuiltInRoleId,
   RoleConfigurationRead,
-  ProposeOperatorKnowledgeRequest,
-  OperatorPlan,
-  OperatorPreferenceData,
+  ProposeProjectManagerKnowledgeRequest,
+  ProjectManagerPlan,
+  ProjectManagerPreferenceData,
   ProjectConfig,
   ScreeningOutcome,
   ScreeningTodo,
@@ -54,17 +54,17 @@ import type {
 } from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
-import type { OperatorAppOperations, SuperOperations } from '../../services/super-operator';
+import type { ProjectManagerAppOperations, SuperOperations } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the super-operation tools stand on (PM-888). */
 interface SuperPath {
-  operations: OperatorAppOperations;
+  operations: ProjectManagerAppOperations;
   direct: Pick<SuperOperations, 'operation'>;
 }
 
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
-type OperatorToolsChecklist = Pick<
+type ProjectManagerToolsChecklist = Pick<
   ChecklistService,
   'get' | 'init' | 'add' | 'edit' | 'setCondition' | 'setStateByOperator' | 'applyTemplate' | 'templateBases'
 >;
@@ -88,7 +88,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
   private readonly superPath: () => SuperPath;
-  private readonly checklist: OperatorToolsChecklist;
+  private readonly checklist: ProjectManagerToolsChecklist;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -108,7 +108,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     operatorKnowledge: ProjectManagerKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
-    checklist: OperatorToolsChecklist;
+    checklist: ProjectManagerToolsChecklist;
     /** The shared super-operation path; read at the call, because it is composed after the tools. */
     superPath: () => SuperPath;
   }) {
@@ -260,7 +260,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     });
   }
 
-  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
+  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (!isProjectManager(member))
@@ -283,7 +283,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
 
   async setOperatorPreference(
     ctx: ToolContext,
-    args: { expectedRevision: number; preference: OperatorPreferenceData },
+    args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
   ) {
     return this.preferenceCall(ctx, 'set_operator_preference', () =>
       this.operatorPreferences.set(ctx, args.expectedRevision, args.preference),
@@ -520,13 +520,13 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
 
   async operate(
     ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
+    args: { title: string; operation: ProjectManagerOperation; plan?: ProjectManagerPlan },
   ) {
     const config = await this.projects.config(ctx.projectKey);
     if (coordinationMemberOf(config)?.handle === ctx.member) {
       if (operatorCriticalOp(args.operation.op) && !args.plan)
         throw new TeamToolError('invalid', 'operator_plan_required: critical operations require a plan.');
-      if (args.plan) OperatorPlanSchema.parse(args.plan);
+      if (args.plan) ProjectManagerPlanSchema.parse(args.plan);
       if (!args.title.trim() || args.title.length > 120)
         throw new TeamToolError('invalid', 'invalid_request: title must have 1 to 120 characters.');
       const caller = await this.appCaller(ctx, 'operate');

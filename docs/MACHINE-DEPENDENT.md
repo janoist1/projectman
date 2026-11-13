@@ -370,7 +370,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   needs a new generation (see "Project change journal", `docs/AWS.md`, `docs/HYBRID.md`).
 
 - **Project and instance knowledge (PM-687, PM-1043, PM-1046)** —
-  `config/operator-knowledge-store.ts` implements `OperatorKnowledgeStore`, wired through
+  `config/operator-knowledge-store.ts` implements `ProjectManagerKnowledgeStore`, wired through
   `app.ts` and `assembly.ts`; `services/coordination/{knowledge,preferences}.ts` controls
   project access and approval; `services/super-operator/instance-knowledge.ts` handles
   instance writes. The hub stores approved agreements, up to 20 learned principles and

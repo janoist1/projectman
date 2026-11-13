@@ -8,7 +8,7 @@ import {
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   WAITING_ANSWER_LABEL,
 } from '@projectman/shared';
-import type { OperatorSignalKind, OperatorWatch, Task } from '@projectman/shared';
+import type { ProjectManagerSignalKind, ProjectManagerWatch, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import {
   createDomainHarness,
@@ -40,11 +40,11 @@ const sweep = async () => {
   await h.domain.operatorSignals.sweep('AR');
   await flush();
 };
-const open = (kind: OperatorSignalKind = 'answer_stalled') =>
+const open = (kind: ProjectManagerSignalKind = 'answer_stalled') =>
   h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 const GRACE = OPERATOR_ANSWER_STALL_GRACE_MS / 1000;
 
-async function setup(level: OperatorWatch = 'drive') {
+async function setup(level: ProjectManagerWatch = 'drive') {
   now = new Date('2026-10-14T10:00:00Z');
   messageCount = 0;
   h = await createDomainHarness({
@@ -404,7 +404,7 @@ describe('detection', () => {
 });
 
 describe('the Operator’s steps', () => {
-  async function stalled(level: OperatorWatch = 'drive') {
+  async function stalled(level: ProjectManagerWatch = 'drive') {
     await setup(level);
     const card = await develop();
     const id = message(card);

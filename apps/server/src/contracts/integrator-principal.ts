@@ -23,7 +23,7 @@ export interface IntegratorPrincipal {
   /**
    * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app Operator `app`, whose
    * `keyId` is its session's id. An `app` principal is made only by the server's own issuer and is valid only
-   * while `OperatorAppSessions.active` says so; no stored key stands behind it.
+   * while `ProjectManagerAppSessions.active` says so; no stored key stands behind it.
    */
   readonly source?: 'key' | 'app';
   /** Server-issued session member; present only for app principals (PM-1041). */
@@ -41,7 +41,7 @@ export interface IntegratorPrincipal {
  * (PM-888): the session runs, it is the project's Operator in its own general conversation, and an owner
  * request is open.
  */
-export interface OperatorAppSessions {
+export interface ProjectManagerAppSessions {
   active(principal: IntegratorPrincipal): boolean;
 }
 

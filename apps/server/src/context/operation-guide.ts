@@ -1,4 +1,4 @@
-import { OperatorOperation, NewSuperCommand } from '@projectman/shared';
+import { ProjectManagerOperation, NewSuperCommand } from '@projectman/shared';
 import { z } from 'zod';
 
 /** Noise the model does not need: the dialect URL and the "no other keys" flag of every object. */
@@ -41,7 +41,7 @@ export function operationsGuide(): string {
     '# Operations guide',
     'The tool inputs name only the kind (`operation.op`, `command.kind`); the server validates the rest against the schemas below (JSON Schema of the input) and refuses with the path of the faulty field.',
     OPERATION_RULES,
-    render('operate: operation', 'op', OperatorOperation.options),
+    render('operate: operation', 'op', ProjectManagerOperation.options),
     render('execute_operation: command', 'kind', NewSuperCommand.options),
   ].join('\n\n');
 }

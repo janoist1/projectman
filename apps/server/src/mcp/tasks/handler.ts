@@ -8,7 +8,7 @@ import {
   withoutCommentHistory,
 } from '@projectman/shared';
 import type {
-  OperatorAction,
+  ProjectManagerAction,
   ProjectConfig,
   Task,
   TaskKind,
@@ -184,7 +184,7 @@ export class TaskTools implements TaskToolsHandler {
       const who = await this.calls.callerWithRequest(ctx, 'update_task');
       const { config } = who;
       // One call is one step of the Operator's request: the biggest change in it names the step.
-      const action: OperatorAction = args.stageId
+      const action: ProjectManagerAction = args.stageId
         ? 'task_move'
         : (args.addLabels?.length ?? 0) + (args.removeLabels?.length ?? 0) > 0
           ? 'task_labels'

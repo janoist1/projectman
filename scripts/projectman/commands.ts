@@ -9,7 +9,7 @@ import {
   MemberHandle,
   MemberQueueView,
   MemberQueueQuery,
-  OperatorConfigPatch,
+  ProjectManagerConfigPatch,
   HireMemberRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
@@ -331,7 +331,7 @@ export const COMMANDS: CommandSpec[] = [
     write: true,
     async run(ctx) {
       const parts = ctx.positionals[0]!.split('.');
-      const roots = Object.keys(OperatorConfigPatch.shape);
+      const roots = Object.keys(ProjectManagerConfigPatch.shape);
       if (
         !roots.includes(parts[0]!) ||
         parts.some((part) => !part || ['__proto__', 'prototype', 'constructor'].includes(part))
@@ -339,7 +339,7 @@ export const COMMANDS: CommandSpec[] = [
         throw new UsageError(`patchable roots: ${roots.join(', ')}`);
       let patch: unknown = jsonOf(ctx.positionals[1]!, 'VALUE');
       for (const part of parts.reverse()) patch = { [part]: patch };
-      const parsed = OperatorConfigPatch.safeParse(patch);
+      const parsed = ProjectManagerConfigPatch.safeParse(patch);
       if (!parsed.success)
         throw new UsageError(`invalid configuration patch; patchable roots: ${roots.join(', ')}`);
       return operate(ctx, projectOf(ctx), {

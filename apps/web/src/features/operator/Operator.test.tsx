@@ -3,9 +3,9 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   ConfigChangeRow,
-  OperatorRequestView,
-  OperatorSignal,
-  OperatorStep,
+  ProjectManagerRequestView,
+  ProjectManagerSignal,
+  ProjectManagerStep,
   UiPlace,
 } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
@@ -77,7 +77,9 @@ const operatorName = (project: Project) => project.backend.findMember('pm')!.dis
 const posted = (project: Project, suffix: string) =>
   project.requests.filter((r) => r.method === 'POST' && r.path.endsWith(suffix));
 
-function step(partial: Partial<OperatorStep> & Pick<OperatorStep, 'id' | 'action' | 'status'>): OperatorStep {
+function step(
+  partial: Partial<ProjectManagerStep> & Pick<ProjectManagerStep, 'id' | 'action' | 'status'>,
+): ProjectManagerStep {
   return {
     requestId: 'req_1',
     at: '2026-10-10T09:00:00.000Z',
@@ -93,14 +95,16 @@ function step(partial: Partial<OperatorStep> & Pick<OperatorStep, 'id' | 'action
 }
 
 function request(
-  steps: OperatorStep[],
+  steps: ProjectManagerStep[],
   messageId: string | null,
   quote = 'Állítsd át a szövegírót',
-): OperatorRequestView {
+): ProjectManagerRequestView {
   return { id: 'req_1', messageId, quote, openedAt: '2026-10-10T09:00:00.000Z', closedAt: null, steps };
 }
 
-function signal(partial: Partial<OperatorSignal> & Pick<OperatorSignal, 'id' | 'kind'>): OperatorSignal {
+function signal(
+  partial: Partial<ProjectManagerSignal> & Pick<ProjectManagerSignal, 'id' | 'kind'>,
+): ProjectManagerSignal {
   return {
     state: 'open',
     actionable: true,

@@ -26,7 +26,7 @@ import { OperatorThread } from './OperatorThread';
 import { OperatorChecklist } from './OperatorChecklist';
 import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import { OperatorQueueStrip } from './OperatorQueueStrip';
-import type { FailedOperatorMessage } from './OperatorThread';
+import type { FailedProjectManagerMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { OperatorWeeklyView } from './OperatorWeeklyView';
 import { operatorStatusText } from './operatorChannel';
@@ -126,11 +126,11 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
   }, [operatorPrefill]);
 
-  const [failed, setFailed] = useState<FailedOperatorMessage | null>(null);
+  const [failed, setFailed] = useState<FailedProjectManagerMessage | null>(null);
   const post = (
     text: string,
     taskKey: string | null,
-    attachments: NonNullable<FailedOperatorMessage['attachments']> = [],
+    attachments: NonNullable<FailedProjectManagerMessage['attachments']> = [],
     sentFrom: UiLocation = location,
     // A new message gets a new id; sending a failed one again keeps its id, so the server keeps one message.
     clientRequestId: string = crypto.randomUUID(),

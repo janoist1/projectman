@@ -110,8 +110,8 @@ const OPERATOR_HANDOFF_REASONS = [
   'no_grant',
   'processing_failed',
 ] as const;
-export const OperatorHandoffReason = z.enum(OPERATOR_HANDOFF_REASONS);
-export type OperatorHandoffReason = z.infer<typeof OperatorHandoffReason>;
+export const ProjectManagerHandoffReason = z.enum(OPERATOR_HANDOFF_REASONS);
+export type ProjectManagerHandoffReason = z.infer<typeof ProjectManagerHandoffReason>;
 
 const MemberQueueWait = z.object({ code: z.string().max(64), at: z.string() });
 type MemberQueueWait = z.infer<typeof MemberQueueWait>;
@@ -139,21 +139,21 @@ export const MEMBER_QUEUE_MAX_ATTEMPTS = 3;
 export const MEMBER_QUEUE_STUCK_MS = 45 * 60_000;
 
 /** How an item ended: what the member did with it. */
-export const OperatorQueueOutcome = z.object({
+export const ProjectManagerQueueOutcome = z.object({
   summary: z.string().max(2000),
   operationIds: z.array(z.string().max(100)).max(20),
   /** True when any of its operations ran on the supervisor (an administration command): the UI's "(super)" mark. */
   machine: z.boolean(),
   handoff: z
     .object({
-      reason: OperatorHandoffReason,
+      reason: ProjectManagerHandoffReason,
       inboxItemId: z.string(),
       /** Missing on old rows: the owner. */
       to: z.enum(['owner', 'super']).optional(),
     })
     .nullable(),
 });
-export type OperatorQueueOutcome = z.infer<typeof OperatorQueueOutcome>;
+export type ProjectManagerQueueOutcome = z.infer<typeof ProjectManagerQueueOutcome>;
 
 export const MemberQueueItem = z.object({
   id: z.string(),
@@ -180,7 +180,7 @@ export const MemberQueueItem = z.object({
   sessionId: z.string().nullable(),
   /** Why the item has not been started, while it waits. */
   wait: MemberQueueWait.nullable(),
-  outcome: OperatorQueueOutcome.nullable(),
+  outcome: ProjectManagerQueueOutcome.nullable(),
 });
 export type MemberQueueItem = z.infer<typeof MemberQueueItem>;
 

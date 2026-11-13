@@ -6,11 +6,11 @@ import type { ZodType } from 'zod';
 import {
   DEFAULT_OPERATOR_PREFERENCE,
   MemberHandle,
-  OperatorKnowledgeDocument,
-  OperatorPreferenceDocument,
+  ProjectManagerKnowledgeDocument,
+  ProjectManagerPreferenceDocument,
   ProjectConfig,
 } from '@projectman/shared';
-import type { OperatorKnowledgeStore } from '../contracts';
+import type { ProjectManagerKnowledgeStore } from '../contracts';
 import { DomainError, KeyedMutex } from '../kernel';
 
 // Store instances in the same server process share target-file locks.
@@ -25,7 +25,7 @@ const limit = () =>
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 /** The server owns the private root. Callers supply keys, never paths or access decisions. */
-export function createOperatorKnowledgeStore(opts: { rootDir: string }): OperatorKnowledgeStore {
+export function createOperatorKnowledgeStore(opts: { rootDir: string }): ProjectManagerKnowledgeStore {
   const root = resolve(opts.rootDir);
   function target(projectKey: string, handle?: string): string {
     if (!projectKeySchema.safeParse(projectKey).success) throw invalid();
@@ -132,10 +132,10 @@ export function createOperatorKnowledgeStore(opts: { rootDir: string }): Operato
       });
     }
   }
-  function emptyKnowledge(): OperatorKnowledgeDocument {
+  function emptyKnowledge(): ProjectManagerKnowledgeDocument {
     return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
   }
-  function emptyPreference(): OperatorPreferenceDocument {
+  function emptyPreference(): ProjectManagerPreferenceDocument {
     return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
   }
   async function cas<T extends { revision: number }>(
@@ -163,26 +163,33 @@ export function createOperatorKnowledgeStore(opts: { rootDir: string }): Operato
       return parsed.data;
     });
   }
-  function checkedKnowledgeCas(file: string, revision: number, next: OperatorKnowledgeDocument) {
+  function checkedKnowledgeCas(file: string, revision: number, next: ProjectManagerKnowledgeDocument) {
     if (Array.isArray(next?.appliedProposalIds) && next.appliedProposalIds.length > 512) throw limit();
-    return cas(file, revision, next, OperatorKnowledgeDocument, emptyKnowledge, (previous, proposed) => {
-      if (previous.appliedProposalIds.some((id) => !proposed.appliedProposalIds.includes(id)))
-        throw invalid();
-    });
+    return cas(
+      file,
+      revision,
+      next,
+      ProjectManagerKnowledgeDocument,
+      emptyKnowledge,
+      (previous, proposed) => {
+        if (previous.appliedProposalIds.some((id) => !proposed.appliedProposalIds.includes(id)))
+          throw invalid();
+      },
+    );
   }
   return {
-    readKnowledge: (key) => guarded(() => read(target(key), OperatorKnowledgeDocument, emptyKnowledge)),
+    readKnowledge: (key) => guarded(() => read(target(key), ProjectManagerKnowledgeDocument, emptyKnowledge)),
     readInstanceKnowledge: () =>
-      guarded(() => read(instanceTarget(), OperatorKnowledgeDocument, emptyKnowledge)),
+      guarded(() => read(instanceTarget(), ProjectManagerKnowledgeDocument, emptyKnowledge)),
     compareAndSwapInstanceKnowledge: (revision, next) =>
       guarded(async () => checkedKnowledgeCas(instanceTarget(), revision, next)),
     readPreference: (key, handle) =>
-      guarded(() => read(preferenceTarget(key, handle), OperatorPreferenceDocument, emptyPreference)),
+      guarded(() => read(preferenceTarget(key, handle), ProjectManagerPreferenceDocument, emptyPreference)),
     compareAndSwapKnowledge: (key, revision, next) =>
       guarded(async () => checkedKnowledgeCas(target(key), revision, next)),
     compareAndSwapPreference: (key, handle, revision, next) =>
       guarded(() =>
-        cas(preferenceTarget(key, handle), revision, next, OperatorPreferenceDocument, emptyPreference),
+        cas(preferenceTarget(key, handle), revision, next, ProjectManagerPreferenceDocument, emptyPreference),
       ),
   };
 }

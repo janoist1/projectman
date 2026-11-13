@@ -1,4 +1,4 @@
-import type { OperatorPauses, WaitingStarts, OperatorDiagnosticSources } from './ports';
+import type { ProjectManagerPauses, WaitingStarts, ProjectManagerDiagnosticSources } from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -17,7 +17,7 @@ import {
   LOCAL_ENGINE_ID,
   TaskStartWaiting,
 } from '@projectman/shared';
-import type { Session, OperatorDiagnostics } from '@projectman/shared';
+import type { Session, ProjectManagerDiagnostics } from '@projectman/shared';
 import { z } from 'zod';
 import type { ToolContext } from '../../contracts';
 import type { ProjectManagerRequests } from './requests';
@@ -37,13 +37,13 @@ export class ProjectState {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    pauses: Pick<OperatorPauses, 'projectView'>;
+    pauses: Pick<ProjectManagerPauses, 'projectView'>;
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<ProjectManagerSignals, 'active'>;
     requests: Pick<ProjectManagerRequests, 'openFor'>;
     workQueues: Pick<WorkQueues, 'overview'>;
-    diagnostics: OperatorDiagnosticSources;
+    diagnostics: ProjectManagerDiagnosticSources;
   };
 
   constructor(deps: ProjectState['deps']) {
@@ -51,7 +51,7 @@ export class ProjectState {
   }
 
   /** Read current records only; no transcript, log parsing, SQL or shell access. */
-  async diagnostics(ctx: ToolContext, taskKey: string, limit = 10): Promise<OperatorDiagnostics> {
+  async diagnostics(ctx: ToolContext, taskKey: string, limit = 10): Promise<ProjectManagerDiagnostics> {
     return this.readDiagnostics(ctx.projectKey, taskKey, limit, () => this.diagnosticCaller(ctx));
   }
 
@@ -65,7 +65,7 @@ export class ProjectState {
     taskKey: string,
     limit: number | undefined,
     recheck: () => Promise<void>,
-  ): Promise<OperatorDiagnostics> {
+  ): Promise<ProjectManagerDiagnostics> {
     return this.readDiagnostics(projectKey, taskKey, limit ?? 10, recheck);
   }
 
@@ -74,7 +74,7 @@ export class ProjectState {
     taskKey: string,
     limit: number,
     caller: () => Promise<void>,
-  ): Promise<OperatorDiagnostics> {
+  ): Promise<ProjectManagerDiagnostics> {
     if (!z.number().int().min(1).max(20).safeParse(limit).success)
       throw invalid('invalid_request', 'limit must be an integer from 1 to 20');
     await caller();

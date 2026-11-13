@@ -30,7 +30,7 @@ import type { WorkQueueFilter } from './workQueueFilters';
 import styles from './WorkQueuesView.module.css';
 
 /** What the Operator panel hands to the view when it sends the viewer here (`location.state`). */
-interface FromOperatorState {
+interface FromProjectManagerState {
   fromOperator?: { path: string };
 }
 
@@ -63,7 +63,7 @@ export function WorkQueuesView() {
   const query = useWorkQueues(key, scope !== null);
   const heading = useRef<HTMLHeadingElement>(null);
   const filter = parseWorkQueueFilter(params);
-  const fromOperator = (location.state as FromOperatorState | null)?.fromOperator;
+  const fromOperator = (location.state as FromProjectManagerState | null)?.fromOperator;
   const [text, setText] = useState(filter.q);
 
   // The filters go into the URL with `replace`; the state of the page (the way back to the panel) stays.

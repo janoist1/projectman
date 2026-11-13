@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOperatorKnowledgeStore } from './operator-knowledge-store';
-import type { OperatorKnowledgeDocument } from '@projectman/shared';
+import type { ProjectManagerKnowledgeDocument } from '@projectman/shared';
 
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof fs>();
@@ -14,7 +14,7 @@ let directory: string;
 let rootDir: string;
 let store: ReturnType<typeof createOperatorKnowledgeStore>;
 const approvedAt = '2026-10-14T12:00:00.000Z';
-const nextKnowledge = (): OperatorKnowledgeDocument => ({
+const nextKnowledge = (): ProjectManagerKnowledgeDocument => ({
   schemaVersion: 1,
   revision: 1,
   agreement: {

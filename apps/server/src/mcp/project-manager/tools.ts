@@ -5,10 +5,10 @@ import {
   ChecklistCondition,
   coordinatorOnlySignalKindsText,
   CombineQuestionsRequest,
-  OperatorOperation,
-  OperatorPreferenceData,
-  ProposeOperatorKnowledgeRequest,
-  OperatorPlan,
+  ProjectManagerOperation,
+  ProjectManagerPreferenceData,
+  ProposeProjectManagerKnowledgeRequest,
+  ProjectManagerPlan,
   GetSuperOperationArgs,
   NewSuperCommand,
   TaskKey,
@@ -300,9 +300,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         'removal with the current expected_revision. Writes nothing until an owner approves in the inbox. ' +
         'What a setting can express (gate, label, permission, priority, limit) goes to operate instead.',
       input: {
-        expected_revision: ProposeOperatorKnowledgeRequest.shape.expected_revision,
-        title: ProposeOperatorKnowledgeRequest.shape.title,
-        change: ProposeOperatorKnowledgeRequest.shape.change.describe(
+        expected_revision: ProposeProjectManagerKnowledgeRequest.shape.expected_revision,
+        title: ProposeProjectManagerKnowledgeRequest.shape.title,
+        change: ProposeProjectManagerKnowledgeRequest.shape.change.describe(
           'A null principle id gets a server id. Propose a rule only after a repeated failure and name the ' +
             'cards in its reason; refer to a duty or role, not a member name. Never import principles ' +
             'automatically from memory or documents.',
@@ -343,7 +343,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'The revision get_operator_preference returned; on operator_knowledge_stale read it again.',
           ),
-        preference: OperatorPreferenceData,
+        preference: ProjectManagerPreferenceData,
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
@@ -396,11 +396,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         `ones are refused. Rules and fields: ${OPERATIONS_GUIDE}.`,
       input: {
         title: z.string().trim().min(1).max(120).describe('The result, in the project language.'),
-        operation: kindInput('op', OperatorOperation.options, 'The operation'),
-        plan: OperatorPlan.optional().describe('Required for session_stop and message_send.'),
+        operation: kindInput('op', ProjectManagerOperation.options, 'The operation'),
+        plan: ProjectManagerPlan.optional().describe('Required for session_stop and message_send.'),
       },
       async run({ ctx, args, handler }) {
-        const operation = parseFull(OperatorOperation, args.operation, 'operation');
+        const operation = parseFull(ProjectManagerOperation, args.operation, 'operation');
         return JSON.stringify(await handler.operate(ctx, { ...args, operation }));
       },
     }),

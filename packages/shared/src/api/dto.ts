@@ -9,7 +9,7 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { ConfigDiffItem } from '../config/diff';
-import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
+import { ProjectManagerKnowledgeChange } from '../domain/operator-knowledge';
 import {
   RedactionCounts,
   SYSTEM_FEEDBACK_BODY_MAX,
@@ -18,7 +18,7 @@ import {
   SystemFeedbackForwardingMode,
   SystemFeedbackState,
 } from '../domain/system-feedback';
-import { OperatorConfigPatch } from '../config/edit';
+import { ProjectManagerConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
 import { CardStep } from '../domain/card-step';
@@ -146,7 +146,7 @@ export type ProjectManagerChannel = z.infer<typeof ProjectManagerChannel>;
 /* ---------- the Operator (PM-447, PM-463) ---------- */
 
 /** What the Operator did on an owner's request; one step per tool call. */
-export const OperatorAction = z.enum([
+export const ProjectManagerAction = z.enum([
   'task_create',
   'task_update',
   'task_move',
@@ -171,8 +171,8 @@ export const OperatorAction = z.enum([
   'operation',
   'system_feedback',
 ]);
-export type OperatorAction = z.infer<typeof OperatorAction>;
-export const OperatorStepStatus = z.enum([
+export type ProjectManagerAction = z.infer<typeof ProjectManagerAction>;
+export const ProjectManagerStepStatus = z.enum([
   'done',
   'queued',
   'awaiting_approval',
@@ -181,15 +181,15 @@ export const OperatorStepStatus = z.enum([
   'stale',
   'refused',
 ]);
-export type OperatorStepStatus = z.infer<typeof OperatorStepStatus>;
-export const OperatorStep = z.object({
+export type ProjectManagerStepStatus = z.infer<typeof ProjectManagerStepStatus>;
+export const ProjectManagerStep = z.object({
   agreementVersion: z.number().int().positive().nullable().optional(),
   approvalMode: z.enum(['click', 'waived']).nullable().optional(),
   id: z.string(),
   requestId: z.string(),
   at: z.string(),
-  action: OperatorAction,
-  status: OperatorStepStatus,
+  action: ProjectManagerAction,
+  status: ProjectManagerStepStatus,
   taskKey: TaskKey.nullable(),
   member: MemberHandle.nullable(),
   changes: z.array(ConfigChangeRow),
@@ -206,16 +206,16 @@ export const OperatorStep = z.object({
     .optional(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
-export type OperatorStep = z.infer<typeof OperatorStep>;
-export const OperatorRequestView = z.object({
+export type ProjectManagerStep = z.infer<typeof ProjectManagerStep>;
+export const ProjectManagerRequestView = z.object({
   id: z.string(),
   messageId: z.string().nullable(),
   quote: z.string(),
   openedAt: z.string(),
   closedAt: z.string().nullable(),
-  steps: z.array(OperatorStep),
+  steps: z.array(ProjectManagerStep),
 });
-export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
+export type ProjectManagerRequestView = z.infer<typeof ProjectManagerRequestView>;
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
 /** An answer delivered to a member who has not worked since is a stall once it has stood this long (PM-694). */
 export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
@@ -229,7 +229,7 @@ export const OPERATOR_UNRELEASED_HOURS = 24;
  * PM-1226: the obligation ladder watches those stalls, its project manager rung is `obligation_overdue`);
  * migration 157 deleted their rows.
  */
-export const OperatorSignalKind = z.enum([
+export const ProjectManagerSignalKind = z.enum([
   'loop_suspected',
   'process_cleanup_failed',
   'outage',
@@ -246,7 +246,7 @@ export const OperatorSignalKind = z.enum([
   'relation_check',
   'review_follow_ups',
 ]);
-export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+export type ProjectManagerSignalKind = z.infer<typeof ProjectManagerSignalKind>;
 /** The facts of a `review_follow_ups` signal (PM-1351): the remarks reviewers left for a later card on a card that closed. */
 export const ReviewFollowUpsFacts = z.object({
   taskKey: TaskKey,
@@ -311,13 +311,13 @@ export const AnswerStalledFacts = z.object({
   lastActionAt: z.string().datetime().nullable(),
 });
 export type AnswerStalledFacts = z.infer<typeof AnswerStalledFacts>;
-const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
-type OperatorSignalState = z.infer<typeof OperatorSignalState>;
-export const OperatorSignal = z.object({
+const ProjectManagerSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
+type ProjectManagerSignalState = z.infer<typeof ProjectManagerSignalState>;
+export const ProjectManagerSignal = z.object({
   id: z.string(),
   deliveredTo: MemberHandle.nullable().optional(),
-  kind: OperatorSignalKind,
-  state: OperatorSignalState,
+  kind: ProjectManagerSignalKind,
+  state: ProjectManagerSignalState,
   actionable: z.boolean(),
   taskKey: TaskKey.nullable(),
   subject: z.string().nullable(),
@@ -328,16 +328,16 @@ export const OperatorSignal = z.object({
   decidedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
 });
-export type OperatorSignal = z.infer<typeof OperatorSignal>;
+export type ProjectManagerSignal = z.infer<typeof ProjectManagerSignal>;
 /**
  * The viewer's conversation with the project manager in the top right corner (PM-1042), plus the last 50
  * requests (the newest last). `readOnly` (PM-475, decision 59): the conversation is with a person who is not an
  * owner, so the project manager only reads and answers (and the owners' system signals stay out of it).
  */
 export const ProjectManagerCorner = ProjectManagerChannel.extend({
-  requests: z.array(OperatorRequestView),
+  requests: z.array(ProjectManagerRequestView),
   readOnly: z.boolean(),
-  signals: z.array(OperatorSignal),
+  signals: z.array(ProjectManagerSignal),
   openSignals: z.number().int(),
   /** The project manager's member queue (PM-894): the open items and the one being processed. */
   queue: z.object({
@@ -792,7 +792,7 @@ export const UpdateMemberRequest = z.object({
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 
-export const OperatorMemberChanges = UpdateMemberRequest.omit({
+export const ProjectManagerMemberChanges = UpdateMemberRequest.omit({
   access: true,
   roles: true,
   displayName: true,
@@ -801,13 +801,13 @@ export const OperatorMemberChanges = UpdateMemberRequest.omit({
   permissionMode: PermissionMode.optional(),
   role: RoleId.optional(),
 });
-export type OperatorMemberChanges = z.infer<typeof OperatorMemberChanges>;
-export const OperatorPlan = z.strictObject({
+export type ProjectManagerMemberChanges = z.infer<typeof ProjectManagerMemberChanges>;
+export const ProjectManagerPlan = z.strictObject({
   why: z.string().trim().min(1).max(500),
   impact: z.string().trim().min(1).max(500),
   reversible: z.boolean(),
 });
-export type OperatorPlan = z.infer<typeof OperatorPlan>;
+export type ProjectManagerPlan = z.infer<typeof ProjectManagerPlan>;
 export const RoleConfigurationRead = z.strictObject({
   version: z.string(),
   role: BuiltInRoleId,
@@ -816,12 +816,16 @@ export const RoleConfigurationRead = z.strictObject({
 });
 export type RoleConfigurationRead = z.infer<typeof RoleConfigurationRead>;
 
-export const OperatorOperation = z.discriminatedUnion('op', [
+export const ProjectManagerOperation = z.discriminatedUnion('op', [
   z.strictObject({
     op: z.literal('config_patch'),
-    patch: OperatorConfigPatch,
+    patch: ProjectManagerConfigPatch,
   }),
-  z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
+  z.strictObject({
+    op: z.literal('member_update'),
+    handle: MemberHandle,
+    changes: ProjectManagerMemberChanges,
+  }),
   z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),
   z.strictObject({ op: z.literal('member_retire'), handle: MemberHandle }),
   /** Renames an AI member's handle (PM-1025); `to` is the new handle. */
@@ -837,28 +841,28 @@ export const OperatorOperation = z.discriminatedUnion('op', [
     taskKey: TaskKey.optional(),
   }),
 ]);
-export type OperatorOperation = z.infer<typeof OperatorOperation>;
+export type ProjectManagerOperation = z.infer<typeof ProjectManagerOperation>;
 
-export const ProposeOperatorKnowledgeRequest = z
+export const ProposeProjectManagerKnowledgeRequest = z
   .strictObject({
     expected_revision: z.number().int().nonnegative(),
     title: z.string().trim().min(1).max(120),
-    change: OperatorKnowledgeChange,
-    operations: z.array(OperatorOperation).max(10).default([]),
+    change: ProjectManagerKnowledgeChange,
+    operations: z.array(ProjectManagerOperation).max(10).default([]),
   })
   .refine((value) => value.change.kind === 'agreement_replace' || value.operations.length === 0, {
     message: 'Only agreement proposals accept operations',
     path: ['operations'],
   });
-export type ProposeOperatorKnowledgeRequest = z.infer<typeof ProposeOperatorKnowledgeRequest>;
+export type ProposeProjectManagerKnowledgeRequest = z.infer<typeof ProposeProjectManagerKnowledgeRequest>;
 
-export const OperatorKnowledgeApprovalPayload = z.strictObject({
+export const ProjectManagerKnowledgeApprovalPayload = z.strictObject({
   id: z.string(),
   requestId: z.string(),
   stepId: z.string(),
   baseRevision: z.number().int().nonnegative(),
-  change: OperatorKnowledgeChange,
-  operations: z.array(OperatorOperation).max(10),
+  change: ProjectManagerKnowledgeChange,
+  operations: z.array(ProjectManagerOperation).max(10),
   changes: z.array(ConfigChangeRow),
   baseConfigVersion: z.string().nullable(),
   proposedBy: MemberHandle,
@@ -867,13 +871,13 @@ export const OperatorKnowledgeApprovalPayload = z.strictObject({
     .nullable(),
   applying: z.strictObject({ by: MemberHandle, at: z.iso.datetime() }).nullable(),
 });
-export type OperatorKnowledgeApprovalPayload = z.infer<typeof OperatorKnowledgeApprovalPayload>;
+export type ProjectManagerKnowledgeApprovalPayload = z.infer<typeof ProjectManagerKnowledgeApprovalPayload>;
 
 export function operatorKnowledgeApprovalOf(
   item: Pick<InboxItem, 'kind' | 'payload'>,
-): OperatorKnowledgeApprovalPayload | null {
+): ProjectManagerKnowledgeApprovalPayload | null {
   if (item.kind !== 'approval') return null;
-  const parsed = OperatorKnowledgeApprovalPayload.safeParse(item.payload.operatorKnowledge);
+  const parsed = ProjectManagerKnowledgeApprovalPayload.safeParse(item.payload.operatorKnowledge);
   return parsed.success ? parsed.data : null;
 }
 
@@ -893,7 +897,7 @@ export function operatorKnowledgeContinuationOf(
     owner: boolean;
     via?: string;
   },
-): OperatorKnowledgeApprovalPayload | null {
+): ProjectManagerKnowledgeApprovalPayload | null {
   const payload = operatorKnowledgeApprovalOf(item);
   const resolution = item.resolution;
   if (
@@ -919,15 +923,15 @@ export function operatorKnowledgeContinuationOf(
 }
 
 export function operatorKnowledgeOperationIncluded(
-  payload: OperatorKnowledgeApprovalPayload,
+  payload: ProjectManagerKnowledgeApprovalPayload,
   operation: unknown,
 ): boolean {
-  const parsed = OperatorOperation.safeParse(operation);
+  const parsed = ProjectManagerOperation.safeParse(operation);
   return parsed.success && payload.operations.some((entry) => canonical(entry) === canonical(parsed.data));
 }
 
 const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
-export function operatorCriticalOp(op: OperatorOperation['op']): boolean {
+export function operatorCriticalOp(op: ProjectManagerOperation['op']): boolean {
   return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
 }
 export const OPERATOR_DISMISS_OPTION: InboxOption = { id: 'dismiss', label: 'dismiss', style: 'secondary' };

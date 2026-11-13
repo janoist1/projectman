@@ -10,7 +10,7 @@ import {
   MemberQueueItemKind,
   MemberQueueSource,
   MemberQueueState,
-  OperatorQueueOutcome,
+  ProjectManagerQueueOutcome,
 } from './member-queue';
 import type { MemberQueueHoldCode } from './member-queue';
 import { canSeeAllTeamMessages, canSeeOperatorSessions, canSeeTeamMessage } from './message';
@@ -89,7 +89,7 @@ export const WorkQueueItem = z.object({
   closedAt: z.string().nullable(),
   closeReason: MemberQueueCloseReason.nullable(),
   /** An integrator item has none. */
-  outcome: OperatorQueueOutcome.nullable(),
+  outcome: ProjectManagerQueueOutcome.nullable(),
 });
 export type WorkQueueItem = z.infer<typeof WorkQueueItem>;
 

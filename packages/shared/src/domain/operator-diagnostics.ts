@@ -3,7 +3,7 @@ import type { StageKind } from './pipeline';
 import type { TaskStartWaiting } from './task';
 import type { StartBlock } from '../config/start-block';
 import type { TaskWait } from '../config/task-wait';
-import type { OperatorSignal } from '../api/dto';
+import type { ProjectManagerSignal } from '../api/dto';
 import type { WakeBlock } from './message-wake';
 import type { StaleReason } from './message';
 import type { WorkItemRef } from './session';
@@ -24,7 +24,7 @@ export interface TaskStateReport {
   session: { id: string; member: string; state: SessionState; since: string } | null;
   holds: Array<'fix_limit' | 'senior_wait' | 'loop' | 'paused'>;
   wait: TaskWait | null;
-  signals: OperatorSignal[];
+  signals: ProjectManagerSignal[];
 }
 
 /** Delivery facts, without message text or attachments. */
@@ -53,7 +53,7 @@ export interface MessageStateReport {
 }
 
 /** A bounded, read-only diagnostic projection. Never includes raw runner or check output. */
-export interface OperatorDiagnostics {
+export interface ProjectManagerDiagnostics {
   task: TaskStateReport;
   asOf: string;
   sessions: Array<{

@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import type { OperatorSignal, TeamMessage } from '@projectman/shared';
+import type { ProjectManagerSignal, TeamMessage } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { useDismissOperatorSignal, useSendTeamMessage } from '../../api/queries';
@@ -22,7 +22,7 @@ export function OperatorSignalList({
   readOnly,
   unreadMark,
 }: {
-  signals: OperatorSignal[];
+  signals: ProjectManagerSignal[];
   message: TeamMessage;
   operatorHandle: string;
   readOnly: boolean;
@@ -93,7 +93,7 @@ export function SignalRow({
   time,
   disabled = false,
 }: {
-  signal: OperatorSignal;
+  signal: ProjectManagerSignal;
   operatorHandle: string;
   readOnly: boolean;
   onDecide: () => void;

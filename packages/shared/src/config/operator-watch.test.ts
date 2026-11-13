@@ -10,14 +10,18 @@ import {
   ownerQuestionSignalRefusalMessage,
   operatorSignalStepRefusal,
 } from './operator-watch';
-import type { OperatorSignalStepTargets } from './operator-watch';
-import { OperatorSignalKind } from '../api/dto';
+import type { ProjectManagerSignalStepTargets } from './operator-watch';
+import { ProjectManagerSignalKind } from '../api/dto';
 
 const NOW = '2026-10-12T10:00:00.000Z';
 const minutesAgo = (minutes: number) => new Date(Date.parse(NOW) - minutes * 60_000).toISOString();
 
-const idleAllowed: OperatorSignalStepTargets = { startTask: 'AR-1', members: [], taskKey: null };
-const mergeAllowed: OperatorSignalStepTargets = { startTask: null, members: ['claude'], taskKey: 'AR-2' };
+const idleAllowed: ProjectManagerSignalStepTargets = { startTask: 'AR-1', members: [], taskKey: null };
+const mergeAllowed: ProjectManagerSignalStepTargets = {
+  startTask: null,
+  members: ['claude'],
+  taskKey: 'AR-2',
+};
 
 describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   it('lists the kinds the owners get no question about', () => {
@@ -28,7 +32,7 @@ describe('ownerQuestionSignalRefusal (PM-1243)', () => {
       'review_follow_ups',
     ]);
   });
-  it.each(OperatorSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
+  it.each(ProjectManagerSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
     const silent = (OWNER_SILENT_SIGNAL_KINDS as readonly string[]).includes(kind);
     expect(ownerQuestionSignalRefusal(kind)).toBe(silent ? 'signal_not_for_owner' : null);
   });
@@ -76,7 +80,7 @@ describe('operatorSignalStepRefusal', () => {
     now: NOW,
   } as const;
   it('accepts cleanup signals but gives the Operator no autonomous step for them', () => {
-    expect(OperatorSignalKind.parse('process_cleanup_failed')).toBe('process_cleanup_failed');
+    expect(ProjectManagerSignalKind.parse('process_cleanup_failed')).toBe('process_cleanup_failed');
     expect(operatorSignalStepRefusal({ ...base, kind: 'process_cleanup_failed', level: 'drive' })).toEqual({
       code: 'operator_no_request',
       reason: 'kind',

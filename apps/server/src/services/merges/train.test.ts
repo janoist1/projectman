@@ -925,14 +925,20 @@ describe('merge train execution', () => {
 
     it('blocks the train and blames nobody when the default branch fails the same files alone', async () => {
       await setup(3, true, filesCommand);
-      script(groupFailed(['a.test.ts']), (card) => (card === 3 ? passed : groupFailed(['a.test.ts'])));
+      // The group fails two files, but only one of them fails alone (and on the default branch).
+      script(groupFailed(['a.test.ts', 'b.test.ts']), (card) =>
+        card === 3 ? passed : groupFailed(['a.test.ts']),
+      );
       pump();
       await vi.waitFor(() => expect(row('AR-1')?.state).toBe('blocked'));
       await settled();
       expect(loneCalls()).toHaveLength(4);
       for (const key of ['AR-1', 'AR-2', 'AR-3']) {
         expect(row(key)).toMatchObject({ state: 'blocked', block: { reason: 'check_error' } });
-        expect(row(key)?.block?.message).toContain('default branch');
+        const message = row(key)?.block?.message;
+        expect(message).toContain(row(key)!.base);
+        expect(message).toContain('a.test.ts');
+        expect(message).not.toContain('b.test.ts');
         expect(row(key)?.failure).toBeUndefined();
         expect(
           h.domain.timeline.list('AR', { taskKey: key }).filter((e) => e.type === 'task_merge_failed'),

@@ -617,10 +617,11 @@ export class MergeTrains {
             { trainId: train.id, runId: base.runId, files: [...baseFailed] },
             'merge train diagnose: the default branch fails the files alone',
           );
+          const baseFailedGroupFiles = group.failedFiles.filter((file) => baseFailed.has(file));
           await this.terminal(
             run,
             'check_error',
-            `The group check failed on ${group.failedFiles.join(', ')}, and the default branch ${train.base} (${train.onto}) fails them alone too; the cause is not in the cards of this train.`,
+            `The group check failed on ${baseFailedGroupFiles.join(', ')}, and the default branch ${train.base} (${train.onto}) fails them alone too; the cause is not in the cards of this train.`,
             base.result.outputTail.slice(-8000),
           );
           return true;

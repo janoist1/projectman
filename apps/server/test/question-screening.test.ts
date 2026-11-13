@@ -12,8 +12,8 @@ import type { AiMemberConfig, ProjectConfig, ScreenedQuestionsResponse, Session 
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { conflict, DomainError } from '../src/kernel';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
-import type { DomainHarness } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, snapshotDomainHarness } from './helpers/domain-harness';
+import type { DomainHarness, HarnessSnapshot } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { rejection } from './helpers/errors';
@@ -50,9 +50,15 @@ describe('the project manager screens AI members’ questions', () => {
   let now: Date;
   let dev: ToolContext;
   let devSession: string;
+  // Creating and adjusting the project commits to the customization repository with real git: done
+  // once for the file, not before each test, which under load took most of the file's time (PM-1438).
+  let configured: Promise<HarnessSnapshot> | undefined;
   beforeEach(async () => {
     now = new Date(START);
-    h = await createDomainHarness({ screenQuestions: true, now: () => now, adjust: withPeople });
+    configured ??= createDomainHarness({ screenQuestions: true, now: () => START, adjust: withPeople }).then(
+      snapshotDomainHarness,
+    );
+    h = await createDomainHarness({ screenQuestions: true, now: () => now, snapshot: await configured });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     devSession = started.session!.id;

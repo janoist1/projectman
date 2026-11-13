@@ -13,8 +13,13 @@ import { createCloudRemote } from '../../engine-link/remote';
 import type { CloudRemote } from '../../engine-link/remote';
 import { createFakeCloud } from '../../engine-link/remote/test-support';
 import { aiActor } from '../../kernel';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from '../../../test/helpers/domain-harness';
-import type { DomainHarness } from '../../../test/helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER,
+  OWNER_ACTOR,
+  snapshotDomainHarness,
+} from '../../../test/helpers/domain-harness';
+import type { DomainHarness, HarnessSnapshot } from '../../../test/helpers/domain-harness';
 import { pullRequest } from '../../../test/helpers/fakes';
 
 const sha = (n: number) => n.toString(16).padStart(40, '0');
@@ -88,6 +93,40 @@ describe('merge train execution', () => {
   let remoteCheck: CloudRemote | undefined;
   const row = (key: string) => h.repos.taskMerges.open('AR', key);
   const settled = () => vi.waitFor(() => expect(h.domain.merges.busy('AR', 'web')).toBe(false));
+  // Creating and adjusting the project commits to the customization repository with real git, most
+  // of a test's setup and far more under load (PM-1438): each configuration is set up once per file.
+  const snapshots = new Map<string, Promise<HarnessSnapshot>>();
+  function configured(filesCommand?: string, github?: string): Promise<HarnessSnapshot> {
+    const key = JSON.stringify([filesCommand ?? null, github ?? null]);
+    let snapshot = snapshots.get(key);
+    if (!snapshot) {
+      snapshot = createDomainHarness({
+        merger: fakeMerger(),
+        fullTestExecutor: executor,
+        adjust(config) {
+          for (const member of config.team.members)
+            if (member.kind === 'ai' && member.handle.startsWith('dev-')) member.capacity = 5;
+          config.team.limits.maxConcurrentAi = 20;
+          config.team.merger = { kind: 'developer' };
+          config.project.repos[0]!.requireMerge = true;
+          config.project.repos[0]!.reviewTest = filesCommand ? { ...reviewTest, filesCommand } : reviewTest;
+          if (github) {
+            const repo = config.project.repos[0]!;
+            repo.reviewTest = { ...repo.reviewTest!, runner: 'github_actions' };
+            repo.github = github;
+          }
+          config.pipeline.stages = config.pipeline.stages.filter(
+            (s) => s.id !== 'merge' && s.id !== 'release',
+          );
+          config.pipeline.stages.find((s) => s.id === 'done')!.gate = {
+            conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+          };
+        },
+      }).then(snapshotDomainHarness);
+      snapshots.set(key, snapshot);
+    }
+    return snapshot;
+  }
   async function setup(count = 2, remote = true, filesCommand?: string, github?: string) {
     merger = fakeMerger(remote);
     executor = {
@@ -97,30 +136,9 @@ describe('merge train execution', () => {
         return passed;
       }),
     };
+    const snapshot = await configured(filesCommand, github);
     const getEngine = vi.spyOn(LocalEngineDirectory.prototype, 'get');
-    h = await createDomainHarness({
-      merger,
-      fullTestExecutor: executor,
-      adjust(config) {
-        for (const member of config.team.members)
-          if (member.kind === 'ai' && member.handle.startsWith('dev-')) member.capacity = 5;
-        config.team.limits.maxConcurrentAi = 20;
-        config.team.merger = { kind: 'developer' };
-        config.project.repos[0]!.requireMerge = true;
-        config.project.repos[0]!.reviewTest = filesCommand ? { ...reviewTest, filesCommand } : reviewTest;
-        if (github) {
-          const repo = config.project.repos[0]!;
-          repo.reviewTest = { ...repo.reviewTest!, runner: 'github_actions' };
-          repo.github = github;
-        }
-        config.pipeline.stages = config.pipeline.stages.filter((s) => s.id !== 'merge' && s.id !== 'release');
-        config.pipeline.stages.find((s) => s.id === 'done')!.gate = {
-          conditions: [{ type: 'has_label', label: 'code-review-ok' }],
-        };
-      },
-    });
-    engines = getEngine.mock.contexts[0] as EngineDirectory;
-    getEngine.mockRestore();
+    h = await createDomainHarness({ merger, fullTestExecutor: executor, snapshot });
     vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     peerBusy = true;
     h.domain.merges.registerSlotPeer({ busy: () => peerBusy, pump: () => {} });
@@ -144,6 +162,8 @@ describe('merge train execution', () => {
       });
       await h.domain.merges.start('AR', key, aiActor(assignee));
     }
+    engines = getEngine.mock.contexts[0] as EngineDirectory;
+    getEngine.mockRestore();
   }
   const pump = () => {
     peerBusy = false;

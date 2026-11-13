@@ -251,7 +251,7 @@ describe('combined owner questions', () => {
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
   });
 
-  it('refuses a developer, the Operator and a guest PM conversation', async () => {
+  it('refuses a developer, the retired Operator member and a guest PM conversation', async () => {
     const first = await ask('AR-1', 'First?');
     const second = await ask('AR-2', 'Second?');
     const manager = await pm();

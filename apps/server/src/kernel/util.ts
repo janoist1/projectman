@@ -29,7 +29,7 @@ export function aiActor(handle: string): Actor {
 }
 
 /**
- * The actor a human member's step is recorded as (PM-757): the Operator's super actor when the step was made
+ * The actor a human member's step is recorded as (PM-757): the connected Claude's super actor when the step was made
  * in the super mode, otherwise the human with `via` when the owner's integrator key made it. `superActor`
  * is set only by `bindSuperPrincipal` from an authenticated principal; an `Actor` JSON never reaches here.
  */

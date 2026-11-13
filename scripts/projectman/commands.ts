@@ -247,7 +247,7 @@ export const COMMANDS: CommandSpec[] = [
     name: 'tasks update',
     usage:
       'tasks update TASK [--title TEXT] [--description-file FILE] [--priority urgent|high|normal|low|none] [--stage ID] [--assignee HANDLE|none] [--theme KEY|none] [--parent KEY|none] [--add-relation KIND:KEY]… [--remove-relation KIND:KEY]…',
-    summary: 'Updates card fields and relations as the Operator',
+    summary: 'Updates card fields and relations as the connected Claude',
     options: {
       ...WRITE,
       project: { type: 'string' },
@@ -309,7 +309,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'inbox decide',
     usage: 'inbox decide ITEM --option ID [--note TEXT] --project KEY',
-    summary: 'Resolves an inbox item as the Operator; owner decisions wait for approval',
+    summary: 'Resolves an inbox item as the connected Claude; owner decisions wait for approval',
     options: { ...WRITE, project: { type: 'string' }, option: { type: 'string' }, note: { type: 'string' } },
     positionals: 1,
     write: true,
@@ -490,7 +490,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'messages send',
     usage: 'messages send --project KEY --to HANDLE [--to HANDLE…] [--task TASK] --file FILE',
-    summary: 'Sends the text of FILE (- for standard input) to team members as the Operator',
+    summary: 'Sends the text of FILE (- for standard input) to team members as the connected Claude',
     options: {
       ...WRITE,
       project: { type: 'string' },

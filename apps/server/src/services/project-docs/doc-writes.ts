@@ -62,7 +62,7 @@ interface ExternalDocWriteRequest {
 
 interface DocWriteRequest {
   projectKey: string;
-  /** The Operator's handle: the write runs on its engine. */
+  /** The project manager's handle: the write runs on its engine. */
   author: string;
   /** The owner whose request it runs under. */
   requestedBy: string;
@@ -101,7 +101,7 @@ type Deps = {
   externalWaitMs?: number;
 };
 
-/** A write lost its key, owner, Operator or autonomous lessons configuration before publication. */
+/** A write lost its key, owner, project manager or autonomous lessons configuration before publication. */
 class AuthorizationEnded extends Error {
   constructor(cause: unknown) {
     super('the credential of the write is no longer valid', { cause });
@@ -116,7 +116,7 @@ function readable(err: unknown): unknown {
 const pending = () =>
   conflict('docs_write_pending', 'a write of the project documents is already queued or running');
 
-/** The commit trailers of a write made through the bearer MCP: the Operator, the key (id and prefix) and the call. */
+/** The commit trailers of a write made through the bearer MCP: the connected Claude, the key (id and prefix) and the call. */
 function externalTrailers(origin: ExternalToolOrigin): string {
   const actor = externalOriginActor(origin);
   const credential = connectedOriginOf(actor)?.credential;
@@ -139,7 +139,7 @@ function failureOf(code: string | undefined): DocWriteFailure {
 }
 
 /**
- * The Operator's writes of project documents to the default branch (PM-495, PM-1004). A write is a row
+ * The project manager's writes of project documents to the default branch (PM-495, PM-1004). A write is a row
  * in `doc_writes`, one open per project; it runs in the repository's merge slot, so it never overlaps a
  * member-initiated merge (`Merges` skips a repository while a write runs here, and runs the write first when the
  * slot frees). All git work is the engine's (`BranchMerger.readFile`, `commitFiles`, `push`, `advance`).
@@ -162,7 +162,7 @@ export class DocWrites {
     return this.queue.slot(projectKey, repo) !== undefined;
   }
 
-  /** The text of the project document on the default branch's head, on the Operator's engine. */
+  /** The text of the project document on the default branch's head, on the project manager's engine. */
   async read(
     projectKey: string,
     member: string,
@@ -552,7 +552,7 @@ export class DocWrites {
 
   private mergerOf(engineId: string): BranchMerger {
     const merger = this.deps.engines.get(engineId)?.merger;
-    if (!merger) throw conflict('engine_offline', 'the engine of the Operator is not connected');
+    if (!merger) throw conflict('engine_offline', 'the engine of the project manager is not connected');
     return merger;
   }
 
@@ -592,7 +592,7 @@ export class DocWrites {
       return this.end(row, {
         state: 'failed',
         failure: 'engine_offline',
-        message: 'the engine of the Operator is not connected',
+        message: 'the engine of the project manager is not connected',
       });
     const ref = { projectKey: row.projectKey, repo: row.repo };
     const paths = [...new Set(row.edits.map((edit) => edit.path))];
@@ -605,7 +605,7 @@ export class DocWrites {
           message: 'the local default branch is ahead of or diverged from its upstream',
         });
       const onto = base.remote?.commit ?? base.local;
-      // A file that moved since the commit the Operator read is not edited blind.
+      // A file that moved since the commit the project manager read is not edited blind.
       const files: { path: string; text: string }[] = [];
       for (const path of paths) {
         const read = await merger.readFile(ref, { at: { commit: row.baseCommit }, path });
@@ -713,7 +713,7 @@ export class DocWrites {
     this.save(row.id, { state: 'queued', commitSha: null });
   }
 
-  /** Records how the write ended: its row and step, then a message to the Operator unless a tool call still waits. */
+  /** Records how the write ended: its row and step, then a message to the project manager unless a tool call still waits. */
   private end(row: DocWriteRecord, ended: Ended): void {
     const { ctx } = this.deps;
     const error =
@@ -742,7 +742,7 @@ export class DocWrites {
         ...(ended.state === 'published' ? { commitSha: ended.commit } : {}),
         error,
       });
-      // Bearer MCP and autonomous lessons writes have no Operator step.
+      // Bearer MCP and autonomous lessons writes have no project manager step.
       if (row.stepId) ctx.repos.projectManagerRequests.updateStep(row.stepId, status, null, refusal);
     });
     if (ended.state === 'published') {
@@ -762,7 +762,7 @@ export class DocWrites {
     void this.tell(row, ended);
   }
 
-  /** The Operator learns how a write that was not answered in the call ended; it is read with the owner's next message. */
+  /** The project manager learns how a write that was not answered in the call ended; it is read with the owner's next message. */
   private async tell(row: DocWriteRecord, ended: Ended): Promise<void> {
     const paths = [...new Set(row.edits.map((edit) => edit.path))].join(', ');
     const subject = `Your write_project_docs ${row.id} (${row.message.split('\n')[0]})`;
@@ -782,7 +782,7 @@ export class DocWrites {
     } catch (err) {
       this.deps.ctx.logger.warn(
         { err, writeId: row.id },
-        'could not tell the Operator how a document write ended',
+        'could not tell the project manager how a document write ended',
       );
     }
   }

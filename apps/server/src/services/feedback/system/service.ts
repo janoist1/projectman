@@ -42,11 +42,11 @@ import { DomainError, KeyedMutex, SYSTEM_ACTOR, conflict, invalid, newId, notFou
 const MAX_SYSTEM_FEEDBACK_LIST = 200;
 /** How many changes of the forwarding setting the view lists. */
 const FORWARDING_HISTORY = 20;
-/** The most items the Operator's own list returns. */
+/** The most items the project manager's own list returns. */
 const MAX_SYSTEM_FEEDBACK_PROJECT_MANAGER_LIST = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** A row of the Operator's own list: it never carries what the owner decided or why. */
+/** A row of the project manager's own list: it never carries what the owner decided or why. */
 interface SystemFeedbackProjectManagerRow {
   id: string;
   state: SystemFeedbackState;
@@ -59,7 +59,7 @@ const wrongState = (state: SystemFeedbackState) =>
   conflict('system_feedback_wrong_state', `the feedback is ${state}`, { state });
 
 /**
- * The Operator's findings about projectman itself (PM-472, PM-479). Everything stored or sent on passes the
+ * The project manager's findings about projectman itself (PM-472, PM-479). Everything stored or sent on passes the
  * installation's filter, which is built fresh for every use; a fault in the filter's inputs stops the write,
  * it never lets text through. The owner decides where an item goes: a card of this installation (`card`),
  * a prefilled issue they send themselves (`manual`), or nowhere (`off`). Nothing here talks to GitHub.
@@ -122,7 +122,7 @@ export class SystemFeedbackService implements SystemFeedbackRecorder, SystemFeed
     return this.view(record);
   }
 
-  /** The project's own items for its Operator, the latest seen first. */
+  /** The project's own items for its project manager, the latest seen first. */
   listForProjectManager(projectKey: string): SystemFeedbackProjectManagerRow[] {
     const { systemFeedback } = this.ctx.repos;
     return systemFeedback

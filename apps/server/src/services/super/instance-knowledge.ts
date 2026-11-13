@@ -4,10 +4,10 @@ import { z } from 'zod';
 import type { ProjectManagerKnowledgeStore } from '../../contracts';
 import { invalid, newId } from '../../kernel';
 
-/** Who approved the instance knowledge: the connected owner, through the Operator's super key. */
+/** Who approved the instance knowledge: the connected owner, through the connected Claude's super key. */
 const APPROVED_BY = 'owner';
 
-/** A principle the Operator writes; the server gives a new one its id and keeps the id of an existing one. */
+/** A principle the connected Claude writes; the server gives a new one its id and keeps the id of an existing one. */
 const PrincipleInput = ProjectManagerPrincipleData.extend({
   id: ProjectManagerPrincipleData.shape.id.optional(),
 });
@@ -22,7 +22,7 @@ export type UpdateInstanceKnowledgeInput = z.infer<typeof UpdateInstanceKnowledg
 type Store = Pick<ProjectManagerKnowledgeStore, 'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'>;
 
 /**
- * The instance-level knowledge of the global Operator (PM-1046): the same document as a project's, but one for
+ * The instance-level knowledge of the connected Claude (PM-1046): the same document as a project's, but one for
  * the whole server and written directly, because the owner is the one connected. A stale revision is refused
  * with `operator_knowledge_stale`; `principles` replaces the whole list, `agreement` the whole agreement.
  */

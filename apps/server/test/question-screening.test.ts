@@ -42,7 +42,7 @@ function withPeople(config: ProjectConfig): void {
 }
 
 /**
- * The Operator screens the questions of AI members before a person sees them (PM-558, PM-556): the five
+ * The project manager screens the questions of AI members before a person sees them (PM-558, PM-556): the five
  * outcomes, the fallback to the people, the re-ask and the endpoint.
  */
 describe('the project manager screens AI members’ questions', () => {
@@ -77,7 +77,7 @@ describe('the project manager screens AI members’ questions', () => {
     ...h.runner.started.filter((s) => s.sessionId === sessionId).map((s) => s.initialMessage ?? ''),
     ...h.runner.messages.filter((m) => m.sessionId === sessionId).map((m) => m.text),
   ];
-  /** The owner has a request open with the Operator, as every write of the Operator needs (PM-463). */
+  /** The owner has a request open with the project manager, as every write of the project manager needs (PM-463). */
   async function ownerAsksProjectManager(): Promise<ToolContext> {
     // A screening round in progress takes the message only when its turn ends.
     for (const running of sessionsOf('pm')) h.runner.setState(running.id, 'idle');
@@ -95,7 +95,7 @@ describe('the project manager screens AI members’ questions', () => {
   const refusal = async (promise: Promise<unknown>) => await rejection(promise, TeamToolError);
   const humanQueue = () => h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
 
-  /** `dev-1` asks; the call returns at once, the Operator is woken behind it. */
+  /** `dev-1` asks; the call returns at once, the project manager is woken behind it. */
   async function ask(question = 'Which font?', as: ToolContext = dev) {
     const result = await h.domain.teamTools.askHuman(as, { question, options: ['Yes', 'No'] });
     await settle();
@@ -269,7 +269,7 @@ describe('the project manager screens AI members’ questions', () => {
   });
 
   describe('who is screened', () => {
-    it('puts a question of an AI member into screening, hidden from the people, and wakes the Operator', async () => {
+    it('puts a question of an AI member into screening, hidden from the people, and wakes the project manager', async () => {
       const { inboxItemId, screening } = await ask();
 
       expect(screening).toBe(true);
@@ -300,7 +300,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(item(inboxItemId).state).toBe('open');
     });
 
-    it('does not screen the Operator’s own question or a human’s', async () => {
+    it('does not screen the project manager’s own question or a human’s', async () => {
       const asking = await ownerAsksProjectManager();
       const own = await h.domain.teamTools.askHuman(asking, {
         question: 'May I hire a reviewer?',
@@ -457,7 +457,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(timelineOf('question_screened')[0]?.data).toMatchObject({ outcome: 'moot' });
     });
 
-    it('decision: the question opens for the people as it was asked, with the Operator’s note', async () => {
+    it('decision: the question opens for the people as it was asked, with the project manager’s note', async () => {
       const { inboxItemId } = await ask();
       const original = item(inboxItemId).options;
 
@@ -517,7 +517,7 @@ describe('the project manager screens AI members’ questions', () => {
   });
 
   describe('what the project manager may not do', () => {
-    it('refuses a member who is not the Operator', async () => {
+    it('refuses a member who is not the project manager', async () => {
       const { inboxItemId } = await ask();
       const err = await refusal(
         h.domain.teamTools.screenQuestion(dev, { itemId: inboxItemId, outcome: 'moot', note: 'Mine.' }),
@@ -527,7 +527,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(item(inboxItemId).state).toBe('screening');
     });
 
-    it('refuses the Operator from a conversation with a guest', async () => {
+    it('refuses the project manager from a conversation with a guest', async () => {
       const { inboxItemId } = await ask();
       await h.domain.messaging.sendReporting('AR', 'dana', { to: ['pm'], text: 'Hello' });
       await settle();
@@ -683,7 +683,7 @@ describe('the project manager screens AI members’ questions', () => {
   });
 
   describe('when the project manager does not settle it', () => {
-    it('gives an approval to the people when the ten minutes pass, and the Operator can still call it moot', async () => {
+    it('gives an approval to the people when the ten minutes pass, and the project manager can still call it moot', async () => {
       const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
         question: 'May we set merge-ok?',
         taskKey: 'AR-1',
@@ -812,7 +812,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(humanQueue()).toEqual([]);
     });
 
-    it('is refused when the Operator did not settle the earlier question without a person', async () => {
+    it('is refused when the project manager did not settle the earlier question without a person', async () => {
       const decision = await ask('Brand?');
       await screen({
         itemId: decision.inboxItemId,
@@ -968,7 +968,7 @@ describe('the project manager screens AI members’ questions', () => {
     it.each([
       ['defers', conflict('ai_limit_reached', 'limit'), 'start_deferred'],
       ['refuses', new Error('spawn failed'), 'start_refused'],
-    ])('keeps it waiting when the admission %s the Operator’s start', async (_how, error, reason) => {
+    ])('keeps it waiting when the admission %s the project manager’s start', async (_how, error, reason) => {
       // Whatever holds the start back (capacity, plan usage, a full disk, a crash): the question waits.
       vi.spyOn(h.domain.admission, 'start').mockRejectedValue(error);
 
@@ -1012,14 +1012,14 @@ describe('the project manager screens AI members’ questions', () => {
   });
 });
 
-describe('a team without an Operator', () => {
+describe('a team without a project manager', () => {
   let h: DomainHarness;
   let dev: ToolContext;
   beforeEach(async () => {
     h = await createDomainHarness({ screenQuestions: true });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
-    // The configuration refuses to lose its Operator, so the loaded one is edited.
+    // The configuration refuses to lose its project manager, so the loaded one is edited.
     const config = h.domain.projects.cachedConfig('AR')!;
     config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
     dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
@@ -1107,7 +1107,7 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
     }
   });
 
-  it('lists the questions in screening and those the Operator settled, newest first, and counts today’s', async () => {
+  it('lists the questions in screening and those the project manager settled, newest first, and counts today’s', async () => {
     const cookie = await setup();
     const { domain } = app.app.projectman;
     const ctx = { projectKey: 'AR', member: 'dev-1', sessionId: 'ses_none', taskKey: null };
@@ -1116,7 +1116,7 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
     const answered = await ask('Answered?');
     const moot = await ask('Moot?');
     const decision = await ask('Decision?');
-    // The Operator's settled questions come in with the screening record the domain wrote.
+    // The project manager's settled questions come in with the screening record the domain wrote.
     await domain.inbox.settleScreened(answered, {
       outcome: 'answered',
       by: 'pm',

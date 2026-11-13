@@ -183,7 +183,7 @@ export class TaskTools implements TaskToolsHandler {
     return this.calls.guard(async () => {
       const who = await this.calls.callerWithRequest(ctx, 'update_task');
       const { config } = who;
-      // One call is one step of the Operator's request: the biggest change in it names the step.
+      // One call is one step of the project manager's request: the biggest change in it names the step.
       const action: ProjectManagerAction = args.stageId
         ? 'task_move'
         : (args.addLabels?.length ?? 0) + (args.removeLabels?.length ?? 0) > 0
@@ -249,8 +249,8 @@ export class TaskTools implements TaskToolsHandler {
   }
 
   /**
-   * The task detail as the guest of the Operator sees it (PM-475): the whole card (PM-79), but the quote of
-   * a team message the guest is not a party to is cut (PM-78), and the Operator's own undelivered and
+   * The task detail as the guest of the project manager sees it (PM-475): the whole card (PM-79), but the quote of
+   * a team message the guest is not a party to is cut (PM-78), and the project manager's own undelivered and
    * pending messages are not the guest's.
    */
   private taskDetailForGuest(whole: TaskToolDetail, viewer: Viewer): TaskToolDetail {

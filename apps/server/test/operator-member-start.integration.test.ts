@@ -102,7 +102,7 @@ it(
       },
       { timeout: 15_000 },
     );
-    // Replies may open newer Operator requests; this start belongs to the request captured at the call.
+    // Replies may open newer project manager requests; this start belongs to the request captured at the call.
     expect(domain.messages.get(result.messageId)?.operatorRequest).toBe(requestId);
     expect(domain.ctx.repos.projectManagerRequests.steps(requestId)).toMatchObject([
       { action: 'task_start', taskKey: null, member: 'devops', status: 'done' },

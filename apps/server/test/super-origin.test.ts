@@ -23,7 +23,7 @@ const MARKER = 'FREE-FORM-MARKER-7431';
 
 // The connected Claude of the owner holding the key (decision 66): the holder in person, with the key behind.
 const SUPER: ConnectedActor = connectedActorOf('owner', CREDENTIAL);
-// The step the old model recorded under the Operator, still readable.
+// The step the old model recorded under the retired Operator, still readable.
 const LEGACY_SUPER: SuperActor = {
   kind: 'ai',
   handle: 'operator',
@@ -735,7 +735,7 @@ describe('super-mode origin and audit (PM-757)', () => {
       );
     });
 
-    it('binds in a project without an Operator', async () => {
+    it('binds in a project without the retired Operator member', async () => {
       h = await createDomainHarness();
       const loaded = await config();
       const noProjectManager = {
@@ -910,7 +910,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     it.each([
       { question: 'Which fictional option?' },
       { question: 'Which fictional option?', responsePurpose: 'owner_decision' as const },
-    ])('records an Operator decision for question purpose $responsePurpose', async (payload) => {
+    ])('records a connected Claude decision for question purpose $responsePurpose', async (payload) => {
       h = await createDomainHarness();
       const question = h.domain.inbox.create({
         projectKey: 'AR',
@@ -988,7 +988,7 @@ describe('super-mode audit route (PM-757)', () => {
     const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
     expect((await inject(app.app, 'GET', url, admin)).statusCode).toBe(403);
 
-    // The super key acts as the Operator: it does not read the audit.
+    // The super key acts as the connected Claude: it does not read the audit.
     const key = await inject(app.app, 'POST', routes.integratorKeys(), cookie, { mode: 'super' });
     const via = await app.app.inject({
       method: 'GET',

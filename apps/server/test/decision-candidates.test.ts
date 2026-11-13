@@ -168,7 +168,7 @@ describe('the decision candidates (PM-496)', () => {
     expect((await candidates()).candidates[0]!.question).toHaveLength(2000);
   });
 
-  it('leaves out other people’s answers, rule-closed questions, the Operator’s own and open ones', async () => {
+  it('leaves out other people’s answers, rule-closed questions, the project manager’s own and open ones', async () => {
     await setup();
     answered('inb_owner', '2026-10-11T09:00:00.000Z');
     answered('inb_dana', '2026-10-11T09:01:00.000Z', { by: 'dana' });

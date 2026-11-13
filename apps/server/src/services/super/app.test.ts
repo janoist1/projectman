@@ -3,7 +3,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import type { IntegratorCredentialAuthority } from '../../contracts';
 import { createProjectManagerAppCredentials } from './app';
 
-describe('the credential authority of the in-app Operator', () => {
+describe('the credential authority of the in-app project manager', () => {
   const credentialsOver = (
     base: IntegratorCredentialAuthority | undefined,
     actingRequest: (

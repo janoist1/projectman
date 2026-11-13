@@ -64,7 +64,7 @@ export function decisionLane(deps: DecisionLaneDeps): MemberQueueLane {
     kinds: ['permission', 'fix_limit'],
     completion: 'source',
     oneAtATime: false,
-    // The Operator's fix limit items (an inbox source) are not the lead's decision.
+    // The project manager's fix limit items (an inbox source) are not the lead's decision.
     owns: (item) => item.kind !== 'fix_limit' || item.source.type === 'fix_limit',
     cause: (item): SessionStartCause => ({
       kind: 'member_queue',

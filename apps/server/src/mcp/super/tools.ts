@@ -49,7 +49,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'super_operate',
     title: 'Start a super command',
     description:
-      'Starts one command directly: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the Operator’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
+      'Starts one command directly: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the project manager’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
     access: 'write',
     modes: ['super'],
     input: withoutProject(SuperOperateArgs),
@@ -181,9 +181,9 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
   }),
   defineProjectlessTool({
     name: 'get_operator_instance_knowledge',
-    title: 'Read the Operator’s own knowledge',
+    title: 'Read the connected Claude’s own knowledge',
     description:
-      'The global Operator’s own knowledge, one for the whole instance and the same for every project: {revision, agreement, principles}. Read it when you connect. It is not a project’s knowledge: that belongs to the project’s pm.',
+      'The connected Claude’s own knowledge, one for the whole instance and the same for every project: {revision, agreement, principles}. Read it when you connect. It is not a project’s knowledge: that belongs to the project’s pm.',
     access: 'read',
     modes: ['super'],
     hostOnly: true,
@@ -195,9 +195,9 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
   }),
   defineProjectlessTool({
     name: 'update_operator_instance_knowledge',
-    title: 'Write the Operator’s own knowledge',
+    title: 'Write the connected Claude’s own knowledge',
     description:
-      'Replaces the agreement and/or the whole list of principles of the global Operator’s own knowledge: {revision, agreement, principles}. expected_revision is the revision you read; a changed one is refused (operator_knowledge_stale), so read again. It writes directly, with no approval in the app, and the super audit records it. A principle without an id gets one; keep the id of one you keep.',
+      'Replaces the agreement and/or the whole list of principles of the connected Claude’s own knowledge: {revision, agreement, principles}. expected_revision is the revision you read; a changed one is refused (operator_knowledge_stale), so read again. It writes directly, with no approval in the app, and the super audit records it. A principle without an id gets one; keep the id of one you keep.',
     access: 'write',
     modes: ['super'],
     hostOnly: true,

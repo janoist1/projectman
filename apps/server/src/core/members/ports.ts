@@ -22,7 +22,7 @@ export interface InvitationAccounts {
 
 export interface MemberProfileSessions {
   list(projectKey: string, filter?: { member?: string; taskKey?: string }): Session[];
-  /** Whether only the owner and the admin see the session: the Operator's and the PM's guest conversations. */
+  /** Whether only the owner and the admin see the session: the project manager's and the PM's guest conversations. */
   isRestrictedSession(sessionId: string): boolean;
 }
 

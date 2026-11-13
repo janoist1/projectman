@@ -136,7 +136,7 @@ describe('history search and read visibility', () => {
     // A developer sees what is not private: every card, note and question, and their own messages.
     ['dev', ['tagm3', 'tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2']],
     ['reader', ['tagm4', 'tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2']],
-    // An AI member: the messages it sent or got; the Operator knowledge approval and its copy stay private.
+    // An AI member: the messages it sent or got; the project manager knowledge approval and its copy stay private.
     [
       'dev-1',
       [
@@ -176,7 +176,7 @@ describe('history search and read visibility', () => {
     },
   );
 
-  it('hides the Operator knowledge approval and its copy from the integrator, even for the owner', async () => {
+  it('hides the project manager knowledge approval and its copy from the integrator, even for the owner', async () => {
     const via: HistoryViewer = { ...OWNER, via: 'integrator' };
     const hidden = ['tagq4', 'tagq4-answer', 'tagm9'];
     expect(await tagsOf(via)).toEqual(everything.filter((tag) => !hidden.includes(tag)).sort());
@@ -230,7 +230,7 @@ describe('history search and read visibility', () => {
   });
 
   it('keeps a private hit out of a viewer who is not allowed to read it', async () => {
-    // The Operator knowledge approval is private: a search for it gets nothing, not an empty marker.
+    // The project manager knowledge approval is private: a search for it gets nothing, not an empty marker.
     const result = await h.domain.history.search('AR', as('acme'), { query: 'tagq4' });
     expect(result.matches).toEqual([]);
     expect(result.hasMore).toBe(false);

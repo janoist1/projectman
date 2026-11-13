@@ -12,7 +12,7 @@ export interface DocWriteEdit {
   new_text: string;
 }
 
-/** A write of the Operator's documents to the default branch (PM-495): queued, run in the merge slot, then ended. */
+/** A write of the project manager's documents to the default branch (PM-495): queued, run in the merge slot, then ended. */
 export interface DocWriteRecord {
   id: string;
   projectKey: string;
@@ -24,13 +24,13 @@ export interface DocWriteRecord {
   edits: DocWriteEdit[];
   /** The full commit message, trailers included. */
   message: string;
-  /** The Operator's handle. */
+  /** The project manager's handle. */
   author: string;
   /** The owner whose request it ran under; null for bearer MCP or autonomous lessons writes. */
   requestedBy: string | null;
-  /** The Operator request it ran under; null for bearer MCP or autonomous lessons writes. */
+  /** The project manager request it ran under; null for bearer MCP or autonomous lessons writes. */
   requestId: string | null;
-  /** The Operator step that tracks it; null for bearer MCP or autonomous lessons writes. */
+  /** The project manager step that tracks it; null for bearer MCP or autonomous lessons writes. */
   stepId: string | null;
   engineId: string;
   state: DocWriteState;
@@ -41,7 +41,7 @@ export interface DocWriteRecord {
   createdAt: string;
   updatedAt: string;
   /**
-   * Where a write made through the bearer MCP came from (PM-784); null for the Operator's own and for rows
+   * Where a write made through the bearer MCP came from (PM-784); null for the project manager's own and for rows
    * from before. Provenance only: the key and the owner's membership are checked again whenever it is used.
    */
   externalOrigin: ExternalToolOrigin | null;
@@ -100,7 +100,7 @@ export type DocWritePatch = Partial<Pick<DocWriteRecord, 'state' | 'commitSha' |
   updatedAt: string;
 };
 
-/** The writes of the Operator's documents. Open means queued or running: one per project at a time. */
+/** The writes of the project manager's documents. Open means queued or running: one per project at a time. */
 export function createDocWriteRepository(db: Db) {
   const statements = {
     insert: db.prepare(`INSERT INTO doc_writes

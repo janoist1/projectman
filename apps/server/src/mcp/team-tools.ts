@@ -460,7 +460,7 @@ export class TeamToolsService implements TeamToolsHandler {
       recommendationReason?: string;
       details?: string;
       attachmentIds?: string[];
-      /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
+      /** The question asked again after the project manager screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
       signalId?: string;

@@ -38,7 +38,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   await instance.say('AC', sessionId, 'CALLS please');
   await instance.waitIdle('AC', sessionId);
 
-  // The Operator's screening has handled the questions by now; show the real items as open ones.
+  // The project manager's screening has handled the questions by now; show the real items as open ones.
   const asked = (await instance.api('/api/projects/AC/inbox?state=all')).items.filter(
     (item) => item.kind === 'question' && [YES_NO, RECOMMENDED, INFORMATION].includes(item.title),
   );

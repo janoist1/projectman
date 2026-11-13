@@ -5,7 +5,7 @@ import type { SuperCommandExecutor } from './handoffs';
 import { superJobIdentity } from './commands';
 import type { SuperCommandDeps } from './commands';
 
-/** Who pauses or resumes: the live principal's request, recorded as the bound Operator. */
+/** Who pauses or resumes: the live principal's request, recorded as the bound connected Claude. */
 interface OperatePauseRequester {
   userId: string;
   source: 'app';
@@ -14,7 +14,7 @@ interface OperatePauseRequester {
 }
 
 /**
- * The domain services the super-mode `operate` command runs on: the ones the Operator's own operations use
+ * The domain services the super-mode `operate` command runs on: the ones the connected Claude's own operations use
  * (Messaging in core/messages, PauseService in runtime/sessions, the session orchestrator), seen through the
  * calls this executor makes; the composition supplies them.
  */
@@ -42,7 +42,7 @@ interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'membe
 }
 
 /**
- * The executor of the `operate` command kind in super mode (PM-831). It runs the Operator's operations as the
+ * The executor of the `operate` command kind in super mode (PM-831). It runs the connected Claude's operations as the
  * key's super actor, on the authority of the key (its owner is checked again at the domain entry), without the
  * one-click approval of the base Operator: the owner-reserved effects were already classified before the
  * executor runs. Configuration and member writes use the same author provenance as REST.
@@ -76,7 +76,7 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
         return;
       case 'project_pause':
       case 'project_resume': {
-        // The same requester as the pause route in super mode: the entry is the Operator's, with the key's data.
+        // The same requester as the pause route in super mode: the entry is the connected Claude's, with the key's data.
         const requester = {
           userId: scope.principal.userId,
           source: 'app' as const,

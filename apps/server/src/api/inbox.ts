@@ -99,7 +99,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     return { item: visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)) };
   });
 
-  /** The questions the Operator screened (PM-558): a look for the owners and admins, who can see all of them. */
+  /** The questions the project manager screened (PM-558): a look for the owners and admins, who can see all of them. */
   app.get<ProjectParams>(
     routes.screenedQuestions(':key'),
     async (request): Promise<ScreenedQuestionsResponse> => {

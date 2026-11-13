@@ -27,7 +27,7 @@ const step = {
   recipient: 'integrator' as const,
 };
 
-/** The queue rows of slice A (PM-894): they follow the pending message receipts and the Operator's integrator items. */
+/** The queue rows of slice A (PM-894): they follow the pending message receipts and the project manager's integrator items. */
 describe('member queue', () => {
   let h: AppHarness;
   let now: Date;

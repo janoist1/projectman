@@ -1868,7 +1868,7 @@ describe('system prompt', () => {
     });
   });
 
-  describe('the Operator rule (PM-447)', () => {
+  describe('the project manager rule (PM-447)', () => {
     const roleOf = (prompt: string) => section(prompt, '# Your role instructions');
 
     it('describes the guest and limits the conversation to visible information and answers', () => {

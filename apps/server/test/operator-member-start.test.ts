@@ -48,7 +48,7 @@ const start = () => h.domain.teamTools.startMember(ctx, { member: 'devops', text
 const steps = () =>
   h.repos.projectManagerRequests.steps(h.repos.projectManagerRequests.latest('AR', 1)[0]!.id);
 
-describe('Operator member starts without a card (PM-546)', () => {
+describe('project manager member starts without a card (PM-546)', () => {
   it('starts a general conversation with the task and logs one unapproved start step', async () => {
     await setup();
     const result = await start();

@@ -15,7 +15,7 @@ export const EXTERNAL_TOOLS: readonly ExternalRegisteredTool[] = [
 
 const SESSION = 'it works through a member session: its folders, working directory, open request or token';
 const PROJECT_MANAGER =
-  'it is a tool of the Operator or of the project manager, bound to the owner request of their own conversation';
+  'it is a tool of the project manager, bound to the owner request of its own conversation';
 const DECISION =
   'it records a decision, approval or question of a member or an owner; the integrator never decides for them';
 const FILES = 'it moves files between a session folder or working directory and the project';

@@ -64,7 +64,7 @@ export interface PauseRequester {
   via?: 'integrator';
   /**
    * The credential of a super-mode request (PM-757), from a bound principal: each project's pause entry is
-   * then recorded as that project's Operator with this credential, not as the owner.
+   * then recorded as the connected Claude with this credential, not as the owner.
    */
   credential?: ActorCredential;
 }

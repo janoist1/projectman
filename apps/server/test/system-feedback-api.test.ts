@@ -6,7 +6,7 @@ import { OWNER } from './helpers/domain-harness';
 
 const INPUT = {
   title: 'A tool refused a plain read',
-  what: 'The Operator could not read a card and got a refusal without a reason.',
+  what: 'The project manager could not read a card and got a refusal without a reason.',
   workaround: 'Asked the owner.',
   fix: 'Say why a read is refused.',
 };

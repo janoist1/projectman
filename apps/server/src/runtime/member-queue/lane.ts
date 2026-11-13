@@ -30,7 +30,7 @@ export interface MemberQueueLane {
   cause(item: StoredMemberQueueItem): SessionStartCause;
   /**
    * Several lanes may serve one kind: the first whose `owns` and `appliesTo` do not say no takes the item.
-   * `appliesTo` also reads the project's configuration (who the Operator is). Absent: no say on that.
+   * `appliesTo` also reads the project's configuration (who the project manager is). Absent: no say on that.
    */
   appliesTo?(item: StoredMemberQueueItem, config: ProjectConfig): boolean;
   /** The text the member is given; null: the lane delivers its items itself (`deliverLive`, `start`). */

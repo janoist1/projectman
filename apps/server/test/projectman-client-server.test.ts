@@ -113,7 +113,7 @@ describe('projectman CLI against the server (PM-765)', () => {
     expect(channelOf()).toBe('cli');
   });
 
-  it('runs the Operator workflow through CLI super operations without an owner cookie', async () => {
+  it('runs the connected Claude workflow through CLI super operations without an owner cookie', async () => {
     const { domain, repos } = h.app.projectman;
     await domain.projects.update(
       'AR',
@@ -129,7 +129,7 @@ describe('projectman CLI against the server (PM-765)', () => {
           name: 'Scope ready',
           setBy: { members: ['owner'], humansOnly: true },
         });
-        return 'Prepare the Operator workflow';
+        return 'Prepare the connected Claude workflow';
       },
     );
     await useKey('super');

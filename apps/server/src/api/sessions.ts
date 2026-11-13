@@ -41,7 +41,7 @@ const MessagesQuery = z.object({
 });
 
 /**
- * The Operator's sessions and the PM's conversations with others are for the owner and the admin only
+ * The project manager's sessions and the PM's conversations with others are for the owner and the admin only
  * (PM-475, PM-1080): to anyone else they do not exist.
  */
 function assertMaySeeSession(domain: ApiDomain, viewer: Viewer, sessionId: string): void {

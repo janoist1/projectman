@@ -38,7 +38,7 @@ export interface AskedHuman {
   inboxItemId: string;
   approvalLabel?: string;
   attachments?: QuestionAttachment[];
-  /** A member's question waits for the Operator's screening before the people see it (PM-558). */
+  /** A member's question waits for the project manager's screening before the people see it (PM-558). */
   screening?: true;
 }
 

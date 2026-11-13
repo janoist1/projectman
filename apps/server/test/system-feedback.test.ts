@@ -15,9 +15,9 @@ import { rejection } from './helpers/errors';
 
 const INPUT = {
   title: 'Cannot read a card from another project',
-  what: 'The Operator needed the text of a card in another project and no tool gave it.',
+  what: 'The project manager needed the text of a card in another project and no tool gave it.',
   workaround: 'Asked the owner to paste the text.',
-  fix: 'Let the Operator read a card of a project it has a grant for.',
+  fix: 'Let the project manager read a card of a project it has a grant for.',
 };
 const OWNER_USER = { id: 'usr_owner' };
 

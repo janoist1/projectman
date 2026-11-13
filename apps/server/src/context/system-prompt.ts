@@ -1383,7 +1383,7 @@ function documentsSection(input: ContextPackInput): string {
 }
 
 function memorySection({ memory, workItem }: ContextPackInput): string {
-  // What the Operator learned from the owner stays out of a conversation with anyone else (PM-475).
+  // What the project manager learned from the owner stays out of a conversation with anyone else (PM-475).
   if (workItem.type === 'general' && workItem.with !== undefined) return '';
   const { text, truncated } = recentMemory(memory);
   if (!text) return ['# Your memory', 'Nothing saved yet; use save_memory for durable learnings.'].join('\n');

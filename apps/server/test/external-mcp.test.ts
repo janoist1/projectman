@@ -264,7 +264,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(member.structuredContent?.errorCode).toBe('integrator_not_allowed');
   });
 
-  it('reads and writes the Operator’s instance knowledge with a super key only, and audits the write', async () => {
+  it('reads and writes the project manager’s instance knowledge with a super key only, and audits the write', async () => {
     const { secret } = key('super');
     const agreement = { summary: 'Ask before risky steps', involvement: 'important', extraCritical: [] };
     const principle = {
@@ -709,7 +709,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     // Nothing of the member's session, decision or file tools is offered to anybody.
     for (const name of ['attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
       for (const tools of [superTools, readTools]) expect(tools, name).not.toContain(name);
-    // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
+    // The tools the connected Claude's super mode got (PM-784): readers also in the read mode, writers super only,
     const superWriters = [
       'write_project_docs',
       'request_structural_review',

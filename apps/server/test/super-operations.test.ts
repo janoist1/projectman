@@ -552,7 +552,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
     });
   });
 
-  describe('Operator decisions and information relays', () => {
+  describe('connected Claude decisions and information relays', () => {
     const ask = (
       payload: Record<string, unknown>,
       options: InboxOption[] = [{ id: 'answer', label: 'answer', style: 'primary' }],
@@ -627,7 +627,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
     ];
 
     it.each(nonRelayQuestions)(
-      'decides a question with $name as the Operator',
+      'decides a question with $name as the connected Claude',
       async ({ payload, options }) => {
         await boot();
         const question = ask(payload, options);
@@ -657,7 +657,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
       expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
     });
 
-    it('closes an owner decision question group with the same Operator decision', async () => {
+    it('closes an owner decision question group with the same connected Claude decision', async () => {
       await boot();
       const decision = ask({ responsePurpose: 'owner_decision' });
       const unmarked = ask({});

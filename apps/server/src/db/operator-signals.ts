@@ -7,7 +7,7 @@ export interface ProjectManagerSignalRecord extends ProjectManagerSignal {
   decisionNote: string | null;
   caseKey: string;
   deliveredAt: string | null;
-  /** When the signal is shown to the Operator again after an own step on it (PM-545); null: not scheduled. */
+  /** When the signal is shown to the project manager again after an own step on it (PM-545); null: not scheduled. */
   followUpAt: string | null;
 }
 const columns = `id, project_key AS projectKey, case_key AS caseKey, kind, state, actionable,
@@ -142,7 +142,7 @@ export function createProjectManagerSignalRepository(db: Db) {
         id,
       );
     },
-    /** Shows signals to the Operator again: back to pending, unpresented, the follow-up used up. */
+    /** Shows signals to the project manager again: back to pending, unpresented, the follow-up used up. */
     redelivered(ids: string[], at: string, deliveredTo: string | null = null): void {
       const statement = db.prepare(
         `UPDATE operator_signals SET state = 'pending', message_id = NULL, actionable = 0, delivered_at = ?, delivered_to = ?,

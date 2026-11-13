@@ -67,7 +67,7 @@ describe('the project manager’s checklist tools', () => {
     expect(await itemOf('custom_1')).toMatchObject({ condition: 'reviewer_member', conditionHolds: true });
     await update({ op: 'set_state', itemId: 'custom_1', state: 'done' });
     expect(await itemOf('custom_1')).toMatchObject({ state: 'done', reopened: null });
-    // Opening a done item is the Operator's own change, not a reopening for the Operator to hear about.
+    // Opening a done item is the project manager's own change, not a reopening for the project manager to hear about.
     const reopened: unknown[] = [];
     h.domain.ctx.events.on('checklist_item_reopened', (event) => {
       reopened.push(event);

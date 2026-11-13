@@ -13,7 +13,7 @@ export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   fromStageId: string;
   state: TaskMergeState['state'] | 'merged' | 'cancelled';
   createdAt: string;
-  /** When the merger or the Operator put the queued merge forward; cleared when the merge starts running. */
+  /** When the merger or the project manager put the queued merge forward; cleared when the merge starts running. */
   prioritizedAt?: string;
   /** Explicit repository queue rank; old rows keep their original FIFO/priority order. */
   queueRank?: number;

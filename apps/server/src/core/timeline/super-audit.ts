@@ -15,7 +15,7 @@ interface SuperAuditOptions {
 type CommittedCheck = (auditId: string, operation?: string) => Promise<boolean>;
 
 /**
- * The audit of the Operator's super mode (PM-757): one entry per step made with a super credential. It
+ * The audit of the connected Claude's super mode (PM-757): one entry per step made with a super credential. It
  * keeps the operation's name, its target and the credential's prefix, and nothing else: no request, no
  * configuration and no raw error. Names, error codes and request ids come from a closed vocabulary and are
  * checked here, so an unchecked value fails the operation instead of reaching the audit.

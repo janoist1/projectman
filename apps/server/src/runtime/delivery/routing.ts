@@ -167,7 +167,7 @@ export class MessageRouter implements MessageRouting {
     ownCard = false,
     from?: string,
   ): MessagePlace {
-    // The Operator has one conversation per person who is not an owner, and one for the others (PM-475).
+    // The project manager has one conversation per person who is not an owner, and one for the others (PM-475).
     workItem = nominalMessagePlace(config, handle, workItem, from);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };

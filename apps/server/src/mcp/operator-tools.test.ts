@@ -8,7 +8,7 @@ import { openOverdueObligation } from '../../test/helpers/overdue-obligation';
 import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
-describe('Operator MCP tools', () => {
+describe('project manager MCP tools', () => {
   it('reads a required built-in role through a strict read-only tool', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'get_role_configuration')!;
     const handler = createFakeTeamToolsHandler();
@@ -479,7 +479,7 @@ describe('dismiss_signal authorization and domain errors', () => {
     await h?.cleanup();
   });
 
-  it('rejects a non-Operator before evaluating the signal', async () => {
+  it('rejects a non-project-manager before evaluating the signal', async () => {
     await expect(
       h.domain.teamTools.dismissSignal(
         { ...operator, member: 'dev-1' },
@@ -491,7 +491,7 @@ describe('dismiss_signal authorization and domain errors', () => {
     });
   });
 
-  it('rejects guest conversations even for the Operator', async () => {
+  it('rejects guest conversations even for the project manager', async () => {
     const session = await waitForSession(h.domain, { member: 'pm' });
     const guest = { ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'guest' } as const };
     h.repos.sessions.insert(guest);

@@ -7,7 +7,7 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
 
-/** PM-550: the wake-up text of the Operator by the project's level, with the step, the budget and the follow-up of each signal. */
+/** PM-550: the wake-up text of the project manager by the project's level, with the step, the budget and the follow-up of each signal. */
 let h: DomainHarness;
 let now: Date;
 afterEach(async () => {
@@ -37,7 +37,7 @@ async function place(patch: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'
   return h.repos.tasks.get(card.key)!;
 }
 
-/** A card whose open step the PM was told about (PM-1152); its signal is delivered to the Operator. */
+/** A card whose open step the PM was told about (PM-1152); its signal is delivered to the project manager. */
 async function overdueCard(
   opts: {
     patch?: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'>>;
@@ -59,7 +59,7 @@ const operator = async (): Promise<ToolContext> => ({
   sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 
-/** The wake-up texts the Operator got, the last one first read. */
+/** The wake-up texts the project manager got, the last one first read. */
 const wakeText = () =>
   [...h.runner.started.map((s) => s.initialMessage ?? ''), ...h.runner.messages.map((m) => m.text)]
     .filter((text) => text.includes('Projectman system signals'))

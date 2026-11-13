@@ -17,7 +17,7 @@ import { waitFor } from '../src/runner/test-helpers';
 
 /*
  * PM-1080: the project manager talks with every person who is not an owner in a conversation of their own,
- * on the team tools alone, as the Operator does (PM-475). The Operator's own rules are in
+ * on the team tools alone (PM-475). The project manager's own rules are in
  * operator-guests.test.ts.
  */
 

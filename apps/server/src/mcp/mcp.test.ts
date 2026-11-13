@@ -425,11 +425,11 @@ describe('team tools', () => {
     }
   });
 
-  it('get_project_state preserves the Operator refusal', async () => {
+  it('get_project_state preserves the project manager refusal', async () => {
     const { client, handler } = await startTools();
     handler.failNext(
       'getProjectState',
-      new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.'),
+      new TeamToolError('forbidden', 'operator_only: only the project manager may read project state.'),
     );
     const refused = await call(client, 'get_project_state', {});
     expect(refused.isError).toBe(true);

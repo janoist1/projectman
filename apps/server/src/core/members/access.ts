@@ -16,7 +16,7 @@ import { assertIntegratorAccess, forbidden, invalid, notFound } from '../../kern
 export interface ProjectAccess {
   via?: 'integrator';
   /**
-   * What a step of this request is recorded as in the Operator's super mode (PM-757): set only by
+   * What a step of this request is recorded as in the connected Claude's super mode (PM-757): set only by
    * `bindSuperPrincipal`, from an authenticated principal. The step's authority is still the owner's access
    * above.
    */
@@ -104,7 +104,7 @@ export function principalActorOf(
  * basis (checked again here, not at the time the key was made), and the actor is the holder in person, or the
  * issuer of the queue item worked on, through the holder's connected Claude. `handle` and `access` stay the
  * holder's, because the authority of a step is the holder's; what a step is recorded as is `superActor`. The
- * project needs no Operator. Refuses a principal that is not in the super mode and a holder who is no longer
+ * project needs no project manager. Refuses a principal that is not in the super mode and a holder who is no longer
  * a member of the project.
  */
 export function bindSuperPrincipal(

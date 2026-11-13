@@ -41,7 +41,7 @@ export interface QuestionGroupRow {
   itemIds: string[];
 }
 
-/** A question the Operator screens or settled without a person, not combined into another (PM-558). */
+/** A question the project manager screens or settled without a person, not combined into another (PM-558). */
 const SCREENED_QUESTION = `project_key = ? AND kind = 'question'
   AND json_type(payload, '$.screening') = 'object'
   AND (state = 'screening' OR json_extract(payload, '$.screening.outcome') IN ('answered','forwarded','moot'))
@@ -218,7 +218,7 @@ export function createInboxRepository(db: Db) {
       return (statements.listOpenAssigned.all(projectKey, handle) as InboxRow[]).map(toItem);
     },
     /**
-     * The project's questions the Operator screens now or settled without a person (answered, forwarded
+     * The project's questions the project manager screens now or settled without a person (answered, forwarded
      * or moot), not counting a question combined into another: newest decision first (else asking time),
      * at most `limit`, and how many of all of them were asked at or after `since`.
      */
@@ -365,7 +365,7 @@ export function createInboxRepository(db: Db) {
       return changes > 0 ? get(id) : null;
     },
     /**
-     * Opens an item the Operator screened for the people (PM-556), with its new payload and options. False
+     * Opens an item the project manager screened for the people (PM-556), with its new payload and options. False
      * when the item is not in screening (it was closed meanwhile).
      */
     release(

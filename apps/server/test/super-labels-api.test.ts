@@ -119,12 +119,12 @@ describe('labels in super mode on the key owner’s authority (PM-831)', () => {
     expect(labelEvents().at(-1)!.actor).toEqual({ kind: 'human', handle: 'owner' } satisfies Actor);
   });
 
-  it('refuses a read key, and the base Operator stays without the owner’s labels', async () => {
+  it('refuses a read key, and the base project manager stays without the owner’s labels', async () => {
     const read = await change({ add: ['owner-tag'] }, bearer(await keySecret('read')));
     expect(read.statusCode).toBe(403);
     expect(labelsOf()).toEqual([]);
 
-    // The base Operator (MCP) has no key owner behind it: the same label stays `not_holder` (AC4).
+    // The base project manager (MCP) has no key owner behind it: the same label stays `not_holder` (AC4).
     await expect(
       app.app.projectman.domain.tasks.changeLabels(
         'AR',

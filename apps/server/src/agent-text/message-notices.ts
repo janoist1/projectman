@@ -48,7 +48,7 @@ export function messageTextWithCommentFrame(
 export const QUESTION_NOTICE_LIMIT = 200;
 export const ANSWER_NOTICE_LIMIT = 500;
 
-/** How the asking member gets its question to a person after all, once the Operator handled it (PM-558). */
+/** How the asking member gets its question to a person after all, once the project manager handled it (PM-558). */
 export function reaskHint(inboxItemId: string): string {
   return (
     `If that does not settle it, ask a person: call ask_human again with reask_of "${inboxItemId}" and ` +
@@ -64,7 +64,7 @@ export const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   assignee_changed: 'the card it was about has a new assignee',
   withdrawn: 'it was withdrawn',
   group_withdrawn: 'every asker withdrew the shared question',
-  operator_moot: 'the Operator found it moot: nothing is left to answer',
+  operator_moot: 'the project manager found it moot: nothing is left to answer',
   obligation_closed: 'the step it handed over was done or dropped meanwhile',
   signal_resolved: 'the signal it was asked about ended by itself: nothing is left to answer',
 };

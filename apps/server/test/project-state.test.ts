@@ -40,7 +40,7 @@ describe('project state from server records', () => {
       );
       const tool = TEAM_TOOLS.find((t) => t.name === 'get_project_state')!;
       expect(await tool.run({ ctx: pm, args: {}, handler: h.domain.teamTools })).toContain(
-        `Operator watch: ${level ?? 'report'}.`,
+        `Project manager watch: ${level ?? 'report'}.`,
       );
     },
   );

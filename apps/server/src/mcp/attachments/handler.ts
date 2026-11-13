@@ -144,7 +144,7 @@ export class AttachmentTools implements AttachmentToolsHandler {
           `Invalid message attachment id "${id}"; they look like "msa_…" (in the Attachments block of a message).`,
         );
       // The file is judged through the eyes of whoever the session talks for: the AI member, or the
-      // guest of an Operator conversation, so a file of a message they cannot see is not found.
+      // guest of a project manager conversation, so a file of a message they cannot see is not found.
       const viewer = guest ? guest.viewer : { access: 'ai' as const, handle: ctx.member };
       // A session with file tools of its own gets what the content cannot show as a file in its
       // session folder (PM-518). A guest conversation reads no file at all: it has no folder.

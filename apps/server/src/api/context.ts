@@ -16,7 +16,7 @@ import type { Author } from '../core/projects';
 
 /**
  * The user of a request. A key of the super or read mode (PM-757) is refused here: a route may only serve it
- * through `requireAccess`, which binds it to a project and its Operator. Every route that has not been
+ * through `requireAccess`, which binds it to a project and its connected Claude. Every route that has not been
  * opened to it that way fails closed instead of acting as the key's owner without the super attribution.
  */
 export function currentUser(request: FastifyRequest): AuthUser {
@@ -51,7 +51,7 @@ export async function requireAccess(
   const principal = request.principal;
   if (!principal) return { ...access, ...(request.via ? { via: request.via } : {}) };
   // A key of the super or read mode (PM-757; the token lifecycle that issues them is PM-758): a read key
-  // never writes, and a super key is bound to the project's Operator or refused.
+  // never writes, and a super key is bound to the project's connected Claude or refused.
   if (principal.mode === 'read') {
     if (request.method !== 'GET' && request.method !== 'HEAD')
       throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
@@ -65,7 +65,7 @@ export async function requireAccess(
 
 /**
  * What only the owner's own login may do (PM-418): refuses a request made with the integrator key,
- * which acts as the Operator rather than a person. The configuration commit has its own check
+ * which acts as the connected Claude rather than a person. The configuration commit has its own check
  * (`superConfigVerdict` through `authorizeSuperMutation`); this one is for the actions outside it.
  */
 export function requireOwnLogin(
@@ -113,7 +113,7 @@ export function actorOf(access: ProjectAccess): Actor {
   return attributedActor(access);
 }
 
-/** The handle a request's message is sent from: the Operator in the super mode (PM-757), so it agrees with the actor. */
+/** The handle a request's message is sent from: the connected Claude in the super mode (PM-757), so it agrees with the actor. */
 export function senderOf(access: ProjectAccess): string {
   return access.superActor?.handle ?? access.handle;
 }

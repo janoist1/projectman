@@ -95,7 +95,7 @@ export async function createDomainHarness(
     handOffRetryMs?: number;
     memberQueueSweepMs?: number;
     retryDebounceMs?: number;
-    /** True: the Operator screens AI members' questions first (PM-558); default false in tests. */
+    /** True: the project manager screens AI members' questions first (PM-558); default false in tests. */
     screenQuestions?: boolean;
     doneTurnLimitMs?: number;
     /** The database lives in a file, so that a restart can open it again. */
@@ -115,7 +115,7 @@ export async function createDomainHarness(
      * (gone by then): use it for tests that do not read the workspace through the configuration.
      */
     snapshot?: HarnessSnapshot;
-    /** Exercise project creation's automatic Operator greeting; other tests start after onboarding. */
+    /** Exercise project creation's automatic project manager greeting; other tests start after onboarding. */
     onboarding?: boolean;
     /** The project manager is on duty from project creation (default: on leave, so it starts no sessions). */
     pmOnDuty?: boolean;
@@ -326,7 +326,7 @@ export async function createDomainHarness(
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
-    // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+    // Questions go to the people at once, unless a test is about the project manager's screening (PM-558).
     screenQuestions: opts.screenQuestions ?? false,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     handOffRetryMs: opts.handOffRetryMs,

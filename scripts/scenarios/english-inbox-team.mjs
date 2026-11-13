@@ -1,5 +1,5 @@
 /**
- * PM-1181: the "For you" list, the Operator, the team, messages and feedback in English.
+ * PM-1181: the "For you" list, the project manager, the team, messages and feedback in English.
  *
  *   npm run shots -- scripts/scenarios/english-inbox-team.mjs --widths 1512,390
  *

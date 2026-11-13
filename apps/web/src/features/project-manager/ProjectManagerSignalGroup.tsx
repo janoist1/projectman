@@ -92,7 +92,7 @@ export function ProjectManagerSignalGroup({
           try {
             let result: ProjectManagerSignal;
             try {
-              result = await api.dismissOperatorSignal(key, signal.id);
+              result = await api.dismissProjectManagerSignal(key, signal.id);
             } catch (error) {
               if (!isApiError(error) || error.code !== 'operator_signal_closed') throw error;
               result = {

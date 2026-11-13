@@ -9,8 +9,8 @@ still say "operator" (`ProjectManagerRequests`, `OPERATOR_READ_TOOLS`, `operator
 `docs/ARCHITECTURE.md`, "Code names"; they name the project manager's coordination, not a member. Decision authority
 is in the Project plan, chapter 4; this file describes only what the code does.
 
-The project manager has no member of its own role to ask: a project has no built-in coordinator member. The shared rules
-that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_HANDLE`). Configurations containing the retired member must be rewritten before upgrading;
+The project manager has no member of its own role to ask: the retired built-in member is gone. The shared rules
+that mention it are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_HANDLE`). Configurations containing the retired built-in member must be rewritten before upgrading;
 runtime configuration converters were removed in PM-1383. The handle `operator` stays taken for good:
 older events and messages name it.
 

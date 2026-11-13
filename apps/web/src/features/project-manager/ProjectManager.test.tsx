@@ -1137,7 +1137,7 @@ describe('the project manager in the history of the settings', () => {
     project.backend.history.unshift({
       version: 'abc1234',
       message: 'Szövegíró: Sonnet',
-      author: 'Legacy coordinator',
+      author: 'Retired built-in member',
       at: '2026-10-10T09:00:00.000Z',
       operator: 'operator',
       request: quote,

@@ -487,7 +487,7 @@ export const api = {
       routes.projectManagerPreferences(key),
     ),
   /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
-  dismissOperatorSignal: (key: string, signalId: string) =>
+  dismissProjectManagerSignal: (key: string, signalId: string) =>
     apiRequest(routes.dismissProjectManagerSignal(key, signalId), {
       method: 'POST',
       schema: ProjectManagerSignal,

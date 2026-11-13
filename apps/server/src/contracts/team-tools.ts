@@ -1083,7 +1083,7 @@ export interface ProjectManagerToolsHandler {
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<import('@projectman/shared').StructuralReviewResult>;
-  getOperatorDiagnostics(
+  getProjectManagerDiagnostics(
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },
   ): Promise<ProjectManagerDiagnostics>;
@@ -1091,8 +1091,8 @@ export interface ProjectManagerToolsHandler {
   getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
   /** update_checklist (PM-977): the Operator only, internal general session; needs no owner request. */
   updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult>;
-  getOperatorKnowledge(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument>;
-  proposeOperatorKnowledge(
+  getProjectManagerKnowledge(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument>;
+  proposeProjectManagerKnowledge(
     ctx: ToolContext,
     args: ProposeProjectManagerKnowledgeRequest,
   ): Promise<{
@@ -1101,8 +1101,8 @@ export interface ProjectManagerToolsHandler {
     step_id: string;
     base_revision: number;
   }>;
-  getOperatorPreference(ctx: ToolContext): Promise<ProjectManagerPreferenceDocument>;
-  setOperatorPreference(
+  getProjectManagerPreference(ctx: ToolContext): Promise<ProjectManagerPreferenceDocument>;
+  setProjectManagerPreference(
     ctx: ToolContext,
     args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
   ): Promise<ProjectManagerPreferenceDocument>;
@@ -1310,7 +1310,7 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { taskKey?: string; messageId?: string },
   ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
-  getOperatorDiagnostics(
+  getProjectManagerDiagnostics(
     ctx: ExternalToolContext,
     args: { taskKey: string; limit?: number },
   ): Promise<ProjectManagerDiagnostics>;

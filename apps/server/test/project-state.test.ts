@@ -3,7 +3,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
-import { seedOperatorSession } from './helpers/operator-session';
+import { seedProjectManagerSession } from './helpers/operator-session';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatProjectState } from '../src/mcp/format';
 
@@ -22,7 +22,7 @@ async function startWithPm(adjust: (config: ProjectConfig) => void = () => {}): 
       adjust(config);
     },
   });
-  const session = seedOperatorSession(h, 'AR', { member: 'pm' });
+  const session = seedProjectManagerSession(h, 'AR', { member: 'pm' });
   pm = { sessionId: session.id, projectKey: 'AR', member: 'pm', taskKey: null };
 }
 const report = (key = 'AR-1') => h.domain.projectState.task('AR', key);
@@ -70,13 +70,13 @@ describe('project state from server records', () => {
       resolved = false,
     ) => {
       now = new Date(now.getTime() + 1000);
-      const signal = h.domain.operatorSignals.raise({
+      const signal = h.domain.projectManagerSignals.raise({
         projectKey: 'AR',
         kind,
         caseKey: `${state}:${kind}:${taskKey}:${delivered}:${resolved}`,
         taskKey,
       });
-      h.repos.operatorSignals.save({
+      h.repos.projectManagerSignals.save({
         ...signal,
         state,
         deliveredAt: delivered ? now.toISOString() : null,
@@ -92,7 +92,7 @@ describe('project state from server records', () => {
     for (const state of ['accepted', 'dismissed', 'resolved'] as const) raise('stalled', first.key, state);
     // Active reports are not limited to the channel's seven-day presentation window.
     now = new Date('2026-10-11T10:00:00.000Z');
-    const before = h.repos.operatorSignals.list('AR');
+    const before = h.repos.projectManagerSignals.list('AR');
     expect((await report(first.key)).signals.map((s) => s.id)).toEqual([pending]);
     expect((await report(second.key)).signals.map((s) => s.id)).toEqual([open]);
     const overview = await h.domain.projectState.overview('AR');
@@ -102,7 +102,7 @@ describe('project state from server records', () => {
       expect(signal).not.toHaveProperty('caseKey');
       expect(signal).not.toHaveProperty('deliveredAt');
     }
-    expect(h.repos.operatorSignals.list('AR')).toEqual(before);
+    expect(h.repos.projectManagerSignals.list('AR')).toEqual(before);
     expect(formatProjectState(overview)).toContain('Signals:\n- signal_silent:');
   });
   it('uses the common coordination guard to refuse internal reports in guest conversations', async () => {
@@ -116,7 +116,7 @@ describe('project state from server records', () => {
       });
     });
     await h.domain.tasks.create('AR', { title: 'Internal checkout' }, OWNER_ACTOR);
-    const session = seedOperatorSession(h, 'AR', { member: 'pm', with: 'guest' });
+    const session = seedProjectManagerSession(h, 'AR', { member: 'pm', with: 'guest' });
     for (const args of [{}, { taskKey: 'AR-1' }]) {
       await expect(
         h.domain.teamTools.getProjectState({ ...pm, sessionId: session.id }, args),

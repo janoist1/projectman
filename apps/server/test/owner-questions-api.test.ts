@@ -45,7 +45,7 @@ it('measures the weeks for the owner own login, a combined question once; never 
     },
   });
 
-  const url = `${routes.operatorOwnerQuestions('AR')}?weeks=2`;
+  const url = `${routes.projectManagerOwnerQuestions('AR')}?weeks=2`;
   const response = await inject(h.app, 'GET', url, cookie);
   expect(response.statusCode, response.body).toBe(200);
   const report = OwnerQuestionsReport.parse(response.json());

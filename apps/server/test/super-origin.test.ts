@@ -738,11 +738,11 @@ describe('super-mode origin and audit (PM-757)', () => {
     it('binds in a project without an Operator', async () => {
       h = await createDomainHarness();
       const loaded = await config();
-      const noOperator = {
+      const noProjectManager = {
         ...loaded,
         team: { ...loaded.team, members: loaded.team.members.filter((m) => m.handle !== 'operator') },
       };
-      expect(bindSuperPrincipal(noOperator, access(), principal('super')).superActor).toEqual(SUPER);
+      expect(bindSuperPrincipal(noProjectManager, access(), principal('super')).superActor).toEqual(SUPER);
     });
   });
 
@@ -960,7 +960,7 @@ describe('super-mode audit route (PM-757)', () => {
       () => 0,
     );
 
-    const url = routes.operatorSuperAudit('AR');
+    const url = routes.superAudit('AR');
     const first = await inject(app.app, 'GET', `${url}?prefix=${CREDENTIAL.prefix}&limit=2`, cookie);
     expect(first.statusCode).toBe(200);
     const page = SuperAuditPage.parse(first.json());

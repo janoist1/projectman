@@ -5,7 +5,10 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { DomainError, humanActor } from '../src/kernel';
 import { ProjectManagerRequests } from '../src/services/coordination';
-import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../src/services/coordination/requests';
+import {
+  PROJECT_MANAGER_GUEST_TOOLS,
+  PROJECT_MANAGER_READ_TOOLS,
+} from '../src/services/coordination/requests';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -370,8 +373,8 @@ describe('the project manager tools (PM-479)', () => {
   it('logs no request step: the gap is the project manager’s own bookkeeping', async () => {
     const ctx = conversation();
     await h.domain.teamTools.recordSystemFeedback(ctx, INPUT);
-    const [open] = h.repos.operatorRequests.openOfSession(ctx.sessionId);
-    expect(h.repos.operatorRequests.steps(open!.id)).toEqual([]);
+    const [open] = h.repos.projectManagerRequests.openOfSession(ctx.sessionId);
+    expect(h.repos.projectManagerRequests.steps(open!.id)).toEqual([]);
   });
 
   it('is for the project manager only and refused in a guest conversation', async () => {
@@ -389,9 +392,9 @@ describe('the project manager tools (PM-479)', () => {
   });
 
   it('is a write outside the read and guest allowances', () => {
-    expect(OPERATOR_READ_TOOLS.has('record_system_feedback')).toBe(false);
-    expect(OPERATOR_READ_TOOLS.has('list_system_feedback')).toBe(true);
-    expect(OPERATOR_GUEST_TOOLS.has('record_system_feedback')).toBe(false);
-    expect(OPERATOR_GUEST_TOOLS.has('list_system_feedback')).toBe(false);
+    expect(PROJECT_MANAGER_READ_TOOLS.has('record_system_feedback')).toBe(false);
+    expect(PROJECT_MANAGER_READ_TOOLS.has('list_system_feedback')).toBe(true);
+    expect(PROJECT_MANAGER_GUEST_TOOLS.has('record_system_feedback')).toBe(false);
+    expect(PROJECT_MANAGER_GUEST_TOOLS.has('list_system_feedback')).toBe(false);
   });
 });

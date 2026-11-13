@@ -91,7 +91,7 @@ export class InboxTools implements InboxToolsHandler {
   }> {
     return this.calls.guard(async () => {
       await this.calls.caller(ctx, 'ask_human');
-      const signal = args.signalId ? this.ctx.repos.operatorSignals.get(args.signalId) : null;
+      const signal = args.signalId ? this.ctx.repos.projectManagerSignals.get(args.signalId) : null;
       // Signals are delivered only to the coordinator, so "delivered to the asker" is the coordinator check.
       if (
         args.signalId &&

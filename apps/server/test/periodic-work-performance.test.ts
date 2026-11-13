@@ -337,7 +337,7 @@ function paths(h: DomainHarness) {
   };
   const sixty = async () => {
     await h.domain.loopWatch.sweep();
-    await h.domain.operatorSignals.sweep();
+    await h.domain.projectManagerSignals.sweep();
   };
   return {
     pending,
@@ -479,7 +479,7 @@ async function structuralFixture(
     const base = currentEvidence().tasks[0]!;
     for (const projectKey of PROJECTS)
       for (const kind of ['structural_pattern', 'milestone_closed'] as const)
-        h.repos.operatorSignals.arm(projectKey, kind, OLD);
+        h.repos.projectManagerSignals.arm(projectKey, kind, OLD);
     h.repos.transaction(() => {
       for (const projectKey of PROJECTS)
         for (let n = 0; n < groups; n++) {
@@ -534,12 +534,12 @@ async function structuralFixture(
     });
     for (const minutes of [30, 15]) {
       clock = new Date(Date.parse(NOW) - minutes * 60_000);
-      await h.domain.operatorSignals.sweep();
+      await h.domain.projectManagerSignals.sweep();
     }
     clock = new Date(NOW);
     attempt.mockRestore();
     const structural = () =>
-      PROJECTS.flatMap((key) => h.repos.operatorSignals.list(key)).filter(
+      PROJECTS.flatMap((key) => h.repos.projectManagerSignals.list(key)).filter(
         (s) => s.kind === 'milestone_closed' || s.kind === 'structural_pattern',
       );
     const signals = structural();
@@ -551,7 +551,7 @@ async function structuralFixture(
             s.taskKey,
             s.subject,
             s.raisedAt,
-            h.domain.operatorSignals.structuralFacts(s),
+            h.domain.projectManagerSignals.structuralFacts(s),
           ]),
         ),
       )
@@ -561,8 +561,8 @@ async function structuralFixture(
       const ids = signals.filter((signal) => signal.projectKey === projectKey).map((signal) => signal.id);
       return {
         // One evaluation for the whole queue, as the lane's `holdAll` asks it once per driver run.
-        stillValid: () => h.domain.operatorSignals.heldBack(projectKey, ids),
-        run: async () => h.domain.operatorSignals.noticeText(projectKey, ids),
+        stillValid: () => h.domain.projectManagerSignals.heldBack(projectKey, ids),
+        run: async () => h.domain.projectManagerSignals.noticeText(projectKey, ids),
       };
     });
     const markerIds: string[] = [];
@@ -570,7 +570,7 @@ async function structuralFixture(
       for (const projectKey of PROJECTS) {
         const marker = signals.find((signal) => signal.projectKey === projectKey)!;
         markerIds.push(marker.id);
-        h.repos.operatorSignals.delivered([marker.id], NOW, 'pm');
+        h.repos.projectManagerSignals.delivered([marker.id], NOW, 'pm');
       }
     // Deliberately refuse at the engine-start boundary, after facts have been constructed, without
     // starting a runner. Actual admission keeps and retries the production deferred-start object.
@@ -617,8 +617,8 @@ async function structuralFixture(
         // The payload path measures a possible delivery, independently of the preceding budget case.
         if (path === 'factsPayload')
           for (const id of markerIds)
-            h.repos.operatorSignals.save({
-              ...h.repos.operatorSignals.get(id)!,
+            h.repos.projectManagerSignals.save({
+              ...h.repos.projectManagerSignals.get(id)!,
               deliveredAt: null,
               deliveredTo: null,
             });
@@ -653,7 +653,7 @@ describe('structural signal performance protocol (PM-783)', () => {
         }
         expect(fixture.h.runner.started).toHaveLength(0);
         expect(
-          PROJECTS.flatMap((key) => fixture.h.repos.operatorSignals.list(key)).filter(
+          PROJECTS.flatMap((key) => fixture.h.repos.projectManagerSignals.list(key)).filter(
             (s) => s.kind === 'structural_pattern' && !s.resolvedAt,
           ),
         ).toHaveLength(8);

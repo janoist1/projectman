@@ -14,7 +14,7 @@ it('carries the operator signals over unchanged and takes the review_follow_ups 
       INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, raised_at, delivered_at, delivered_to, decision_note)
       VALUES ('ops_old', 'AR', 'relation_check', 'relation_check:AR-1:prerequisite:AR-2', 'dismissed', 0, 'AR-1', 'prerequisite:AR-2', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', 'pm', 'Checked.');`);
     expect(migrate(db)).toBe(latestSchemaVersion());
-    const repo = createRepositories(db).operatorSignals;
+    const repo = createRepositories(db).projectManagerSignals;
     expect(repo.get('ops_old')).toMatchObject({
       kind: 'relation_check',
       caseKey: 'relation_check:AR-1:prerequisite:AR-2',

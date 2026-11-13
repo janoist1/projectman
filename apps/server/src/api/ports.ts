@@ -71,9 +71,9 @@ export interface ApiDomain extends AuthDomain {
   readonly messaging: Messaging;
   readonly messageProcessing: MessageProcessingReader;
   readonly sessionMessages: SessionMessages;
-  readonly operatorSignals: ProjectManagerSignals;
-  readonly operatorPreferences: ProjectManagerPreferences;
-  readonly sharedOperatorKnowledge: ProjectManagerKnowledge;
+  readonly projectManagerSignals: ProjectManagerSignals;
+  readonly projectManagerPreferences: ProjectManagerPreferences;
+  readonly sharedProjectManagerKnowledge: ProjectManagerKnowledge;
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;

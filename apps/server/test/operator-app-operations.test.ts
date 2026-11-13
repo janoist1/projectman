@@ -3,7 +3,7 @@ import { OPERATOR_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
 import type { NewSuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { seedOperatorRequest } from './helpers/operator-session';
+import { seedProjectManagerRequest } from './helpers/operator-session';
 import type { IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
 import { TEAM_TOOLS } from '../src/mcp/tools';
@@ -25,7 +25,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
     source: 'message' | 'answer' | 'approval' | 'queue' = 'message',
     fromHandle = 'owner',
   ) =>
-    h.repos.operatorRequests.insert({
+    h.repos.projectManagerRequests.insert({
       id,
       projectKey: 'AR',
       sessionId,
@@ -74,7 +74,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(audit.length).toBeGreaterThan(0);
       expect(audit.every((entry) => entry.prefix === OPERATOR_APP_CREDENTIAL_PREFIX)).toBe(true);
       expect(audit.every((entry) => entry.keyId === ctx.sessionId)).toBe(true);
-      expect(h.repos.operatorRequests.steps(REQUEST)).toMatchObject([
+      expect(h.repos.projectManagerRequests.steps(REQUEST)).toMatchObject([
         { action: 'operation', operationId: operation.id, status: 'done' },
       ]);
     });
@@ -90,7 +90,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
 
     it('is refused with no open owner request, and from an approval request, under owner_request', async () => {
       h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
-      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
       await expect(execute('closed')).rejects.toMatchObject({
         message: expect.stringContaining('operator_no_request'),
       });
@@ -101,12 +101,12 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
 
     it('sets no approval label on a member`s request, and sets it on an owner`s own (PM-1010)', async () => {
       await execute('card');
-      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
       openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
       const label: NewSuperCommand = { kind: 'task_labels', taskKey: 'AR-1', request: { add: ['merge-ok'] } };
       await expect(execute('label', label)).rejects.toMatchObject({ code: 'forbidden' });
       expect(h.repos.tasks.get('AR-1')?.labels).not.toContain('merge-ok');
-      h.repos.operatorRequests.close('opr_app_member', NOW);
+      h.repos.projectManagerRequests.close('opr_app_member', NOW);
       openRequest(ctx.sessionId, 'opr_app_owner');
       expect((await execute('label-owner', label)).operation.state).toBe('succeeded');
       expect(h.repos.tasks.get('AR-1')?.labels).toContain('merge-ok');
@@ -159,7 +159,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         projects: h.domain.projects,
         actingRequest: () => ({ source: 'message', fromHandle: 'owner' }),
       });
-      const { session } = seedOperatorRequest(h, 'AR');
+      const { session } = seedProjectManagerRequest(h, 'AR');
       expect(
         sessions.active({
           kind: 'integrator',
@@ -224,7 +224,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
 
     it('requires an open owner request under owner_request', async () => {
       h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
-      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
       await expect(execute('pm-closed')).rejects.toMatchObject({ code: 'forbidden' });
       openRequest(ctx.sessionId, 'opr_pm_guest', 'message', 'dev-1');
       await expect(execute('pm-guest')).rejects.toMatchObject({ code: 'forbidden' });
@@ -288,10 +288,10 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         operation: { op: 'member_update', handle: 'dev-1', changes: { outboundNetwork: false } },
       });
       expect(result.status).toBe('awaiting_approval');
-      const steps = h.repos.operatorRequests.steps(REQUEST);
+      const steps = h.repos.projectManagerRequests.steps(REQUEST);
       const operationId = steps[0]!.operationId!;
       expect(h.domain.superHandoffs.operation('AR', operationId).state).toBe('waiting_owner');
-      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
       h.repos.sessions.update(ctx.sessionId, { state: 'exited' });
       await h.domain.inbox.resolve(
         'AR',
@@ -334,12 +334,12 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
   describe('the project manager on its own authority (PM-1287)', () => {
     beforeEach(async () => {
       await boot('pm');
-      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
     });
 
     const member = (handle: string) =>
       h.domain.projects.cachedConfig('AR')!.team.members.find((candidate) => candidate.handle === handle)!;
-    const ownRound = () => h.repos.operatorRequests.openOfSession(ctx.sessionId);
+    const ownRound = () => h.repos.projectManagerRequests.openOfSession(ctx.sessionId);
     const update = (handle: string, changes: Record<string, unknown>) =>
       h.domain.teamTools.operate(ctx, {
         title: 'Change a member',
@@ -352,7 +352,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       const rounds = ownRound();
       expect(rounds).toHaveLength(1);
       expect(rounds[0]).toMatchObject({ source: 'signal' });
-      expect(h.repos.operatorRequests.steps(rounds[0]!.id)).toMatchObject([
+      expect(h.repos.projectManagerRequests.steps(rounds[0]!.id)).toMatchObject([
         { action: 'operation', status: 'done', signalId: null },
       ]);
     });

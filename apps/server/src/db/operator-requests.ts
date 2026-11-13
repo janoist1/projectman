@@ -84,7 +84,7 @@ const toStep = (row: StepRow): ProjectManagerStepRecord => ({
 });
 
 /** The owner's requests to the Operator and the steps it took for them (PM-463). */
-export function createOperatorRequestRepository(db: Db) {
+export function createProjectManagerRequestRepository(db: Db) {
   const statements = {
     insertRequest: db.prepare(`INSERT INTO operator_requests
       (id, project_key, session_id, source, message_id, inbox_item_id, queue_item_id, from_handle, quote, opened_at, closed_at)

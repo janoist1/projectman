@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createOperatorKnowledgeStore } from './operator-knowledge-store';
+import { createProjectManagerKnowledgeStore } from './operator-knowledge-store';
 import type { ProjectManagerKnowledgeDocument } from '@projectman/shared';
 
 vi.mock('node:fs/promises', async (original) => {
@@ -12,7 +12,7 @@ vi.mock('node:fs/promises', async (original) => {
 
 let directory: string;
 let rootDir: string;
-let store: ReturnType<typeof createOperatorKnowledgeStore>;
+let store: ReturnType<typeof createProjectManagerKnowledgeStore>;
 const approvedAt = '2026-10-14T12:00:00.000Z';
 const nextKnowledge = (): ProjectManagerKnowledgeDocument => ({
   schemaVersion: 1,
@@ -38,7 +38,7 @@ const nextKnowledge = (): ProjectManagerKnowledgeDocument => ({
 beforeEach(async () => {
   directory = await fs.mkdtemp(join(tmpdir(), 'operator-knowledge-'));
   rootDir = join(directory, 'operator-data');
-  store = createOperatorKnowledgeStore({ rootDir });
+  store = createProjectManagerKnowledgeStore({ rootDir });
 });
 afterEach(async () => {
   vi.clearAllMocks();
@@ -78,7 +78,7 @@ describe('private operator storage', () => {
     const preference = { ...(await store.readPreference('PM', 'owner')), revision: 1, updatedAt: approvedAt };
     preference.data.length = 'detailed';
     await store.compareAndSwapPreference('PM', 'owner', 0, preference);
-    const restarted = createOperatorKnowledgeStore({ rootDir });
+    const restarted = createProjectManagerKnowledgeStore({ rootDir });
     expect(await restarted.readKnowledge('PM')).toEqual(knowledge);
     expect(await restarted.readPreference('PM', 'owner')).toEqual(preference);
     expect((await restarted.readPreference('PM', 'qa')).revision).toBe(0);
@@ -91,7 +91,7 @@ describe('private operator storage', () => {
   });
 
   it('allows exactly one concurrent CAS at the same revision across store instances', async () => {
-    const other = createOperatorKnowledgeStore({ rootDir });
+    const other = createProjectManagerKnowledgeStore({ rootDir });
     const results = await Promise.allSettled([
       store.compareAndSwapKnowledge('PM', 0, nextKnowledge()),
       other.compareAndSwapKnowledge('PM', 0, { ...nextKnowledge(), appliedProposalIds: ['proposal-2'] }),

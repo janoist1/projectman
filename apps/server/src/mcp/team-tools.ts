@@ -81,8 +81,8 @@ export class TeamToolsService implements TeamToolsHandler {
   async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
     return this.tools.operator.requestStructuralReview(ctx, args);
   }
-  async getOperatorPreference(ctx: ToolContext) {
-    return this.tools.operator.getOperatorPreference(ctx);
+  async getProjectManagerPreference(ctx: ToolContext) {
+    return this.tools.operator.getProjectManagerPreference(ctx);
   }
   async getRoleConfiguration(
     ctx: ToolContext,
@@ -91,17 +91,17 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.operator.getRoleConfiguration(ctx, args);
   }
 
-  async getOperatorKnowledge(ctx: ToolContext) {
-    return this.tools.operator.getOperatorKnowledge(ctx);
+  async getProjectManagerKnowledge(ctx: ToolContext) {
+    return this.tools.operator.getProjectManagerKnowledge(ctx);
   }
-  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
-    return this.tools.operator.proposeOperatorKnowledge(ctx, args);
+  async proposeProjectManagerKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
+    return this.tools.operator.proposeProjectManagerKnowledge(ctx, args);
   }
-  async setOperatorPreference(
+  async setProjectManagerPreference(
     ctx: ToolContext,
     args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
   ) {
-    return this.tools.operator.setOperatorPreference(ctx, args);
+    return this.tools.operator.setProjectManagerPreference(ctx, args);
   }
   private readonly tools: {
     members: MemberToolsHandler;
@@ -134,8 +134,8 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.history.readHistorySource(ctx, args);
   }
 
-  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
-    return this.tools.operator.getOperatorDiagnostics(ctx, args);
+  async getProjectManagerDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+    return this.tools.operator.getProjectManagerDiagnostics(ctx, args);
   }
 
   async getChecklist(ctx: ToolContext) {

@@ -163,7 +163,7 @@ export class ChecklistService {
   }
 
   /** The Operator's state change: it may also settle an item as done, and opening is no reopening. */
-  async setStateByOperator(
+  async setStateByProjectManager(
     key: string,
     id: string,
     change: ChecklistStateChange,

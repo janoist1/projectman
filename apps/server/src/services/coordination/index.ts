@@ -10,4 +10,4 @@ export { ReviewFollowUps } from './review-follow-ups';
 export { WorkQueues } from './work-queues';
 export { PmReplyRelay, RELAY_WINDOW_MS } from './pm-reply-relay';
 export type * from './ports';
-export { createAlertPmSignals, wireOperatorSignals } from './signal-events';
+export { createAlertPmSignals, wireProjectManagerSignals } from './signal-events';

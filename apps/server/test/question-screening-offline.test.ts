@@ -359,7 +359,7 @@ describe('question screening while the PM’s machine is offline', () => {
 
   describe('loop triage queue and deadline (PM-712)', () => {
     const loop = () => h.repos.taskLoops.open('AR-1');
-    const signals = () => h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected');
+    const signals = () => h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'loop_suspected');
     const decisions = () => h.domain.inbox.list('AR', { kind: 'decision', taskKey: 'AR-1' });
     async function candidate() {
       for (const from of ['dev-1', 'cr', 'dev-1']) {

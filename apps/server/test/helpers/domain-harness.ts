@@ -9,7 +9,7 @@ import {
   createConfigStore,
   createCustomizationRepo,
   createDocumentStore,
-  createOperatorKnowledgeStore,
+  createProjectManagerKnowledgeStore,
 } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import type {
@@ -307,7 +307,7 @@ export async function createDomainHarness(
     screenshotExecutor: opts.screenshotExecutor,
     contextBuilder,
     memory,
-    operatorKnowledge: createOperatorKnowledgeStore({ rootDir: join(dir, 'operator-data') }),
+    projectManagerKnowledge: createProjectManagerKnowledgeStore({ rootDir: join(dir, 'operator-data') }),
     worktrees,
     attachmentStorage,
     feedbackDir: join(dir, 'feedback'),

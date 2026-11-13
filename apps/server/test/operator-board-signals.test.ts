@@ -20,11 +20,11 @@ const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
 const sweep = async () => {
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
 };
 const open = (kind: ProjectManagerSignalKind) =>
-  h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
+  h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 
 async function setup(opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {}) {
   now = new Date('2026-10-11T10:00:00Z');
@@ -119,7 +119,7 @@ describe('merge_blocked signal', () => {
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     later(24 * 60);
     await sweep();
-    expect(h.repos.operatorSignals.list('AR')).toEqual([]);
+    expect(h.repos.projectManagerSignals.list('AR')).toEqual([]);
   });
 
   it('resolves the open row of the retired unreleased kind an older build left, and keeps the closed one', async () => {
@@ -144,13 +144,13 @@ describe('merge_blocked signal', () => {
       decisionNote: null,
       deliveredTo: null,
     });
-    h.repos.operatorSignals.insert(row('ops_unreleased', 'unreleased', 'open'));
-    h.repos.operatorSignals.insert({
+    h.repos.projectManagerSignals.insert(row('ops_unreleased', 'unreleased', 'open'));
+    h.repos.projectManagerSignals.insert({
       ...row('ops_old', 'unreleased', 'resolved'),
       caseKey: 'unreleased:AR-2',
     });
     await sweep();
-    const byId = (id: string) => h.repos.operatorSignals.get(id)!;
+    const byId = (id: string) => h.repos.projectManagerSignals.get(id)!;
     expect(byId('ops_unreleased').state).toBe('resolved');
     expect(byId('ops_unreleased').resolvedAt).not.toBeNull();
     expect(byId('ops_old')).toMatchObject({ state: 'resolved', resolvedAt: '2026-10-10T11:00:00.000Z' });
@@ -164,19 +164,21 @@ describe('obligation_overdue signal: the dismissal', () => {
     const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     const at = now.toISOString();
     const { id, signalId } = openOverdueObligation(h, card, { at: now });
-    const delivered = h.repos.operatorSignals.get(signalId)!;
+    const delivered = h.repos.projectManagerSignals.get(signalId)!;
     delivered.deliveredAt = at;
     delivered.deliveredTo = 'pm';
-    h.repos.operatorSignals.save(delivered);
+    h.repos.projectManagerSignals.save(delivered);
     return { card, id, signal: delivered };
   }
 
   it('closes a delivered signal of a case that still holds, with the note', async () => {
     const { signal } = await told();
-    expect(h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Parked.')).toMatchObject({
+    expect(
+      h.domain.projectManagerSignals.dismissByProjectManager('AR', signal.id, 'pm', 'Parked.'),
+    ).toMatchObject({
       state: 'dismissed',
     });
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({
       decidedBy: 'pm',
       decisionNote: 'Parked.',
     });
@@ -184,21 +186,25 @@ describe('obligation_overdue signal: the dismissal', () => {
 
   it('refuses unknown and foreign signals before checking their kind', async () => {
     await setup();
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', 'unknown', 'pm', 'Note')).toThrow(
-      'unknown signal',
-    );
-    const other = h.domain.operatorSignals.raise({
+    expect(() =>
+      h.domain.projectManagerSignals.dismissByProjectManager('AR', 'unknown', 'pm', 'Note'),
+    ).toThrow('unknown signal');
+    const other = h.domain.projectManagerSignals.raise({
       projectKey: 'OTHER',
       kind: 'outage',
       caseKey: 'outage:x',
     });
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', other.id, 'pm', 'Note')).toThrow(
-      'unknown signal',
-    );
-    const retired = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'outage', caseKey: 'outage:x' });
-    expect(() => h.domain.operatorSignals.dismissByOperator('AR', retired.id, 'pm', 'Note')).toThrow(
-      'may not dismiss this signal kind',
-    );
+    expect(() =>
+      h.domain.projectManagerSignals.dismissByProjectManager('AR', other.id, 'pm', 'Note'),
+    ).toThrow('unknown signal');
+    const retired = h.domain.projectManagerSignals.raise({
+      projectKey: 'AR',
+      kind: 'outage',
+      caseKey: 'outage:x',
+    });
+    expect(() =>
+      h.domain.projectManagerSignals.dismissByProjectManager('AR', retired.id, 'pm', 'Note'),
+    ).toThrow('may not dismiss this signal kind');
   });
 
   it.each(['undelivered', 'presented', 'resolved', 'dismissed', 'accepted', 'case ended'])(
@@ -210,10 +216,10 @@ describe('obligation_overdue signal: the dismissal', () => {
       if (how === 'resolved') signal.resolvedAt = now.toISOString();
       if (how === 'dismissed' || how === 'accepted') signal.state = how;
       if (how === 'case ended') h.repos.obligations.close(id, 'fulfilled', now.toISOString());
-      h.repos.operatorSignals.save(signal);
-      expect(() => h.domain.operatorSignals.dismissByOperator('AR', signal.id, 'pm', 'Note')).toThrow(
-        'the signal is no longer open',
-      );
+      h.repos.projectManagerSignals.save(signal);
+      expect(() =>
+        h.domain.projectManagerSignals.dismissByProjectManager('AR', signal.id, 'pm', 'Note'),
+      ).toThrow('the signal is no longer open');
     },
   );
 });
@@ -325,7 +331,7 @@ describe('the reads of a sweep (PM-1120)', () => {
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     await sweep();
     // The delivery wakes the coordinator, which reads sessions of its own: not part of the sweep's reads.
-    vi.spyOn(h.domain.operatorSignals, 'deliver').mockResolvedValue();
+    vi.spyOn(h.domain.projectManagerSignals, 'deliver').mockResolvedValue();
     const waits = vi.spyOn(h.domain.taskWaits, 'of');
     const all = vi.spyOn(h.repos.sessions, 'list');
     await sweep();
@@ -338,7 +344,7 @@ describe('the reads of a sweep (PM-1120)', () => {
     await setup();
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     const waits = vi.spyOn(h.domain.taskWaits, 'of');
-    await Promise.all([1, 2, 3].map(() => h.domain.operatorSignals.sweep('AR')));
+    await Promise.all([1, 2, 3].map(() => h.domain.projectManagerSignals.sweep('AR')));
     await flush();
     expect(waits.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(waits.mock.calls.length).toBeLessThanOrEqual(2);

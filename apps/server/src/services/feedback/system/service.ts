@@ -43,7 +43,7 @@ const MAX_SYSTEM_FEEDBACK_LIST = 200;
 /** How many changes of the forwarding setting the view lists. */
 const FORWARDING_HISTORY = 20;
 /** The most items the Operator's own list returns. */
-const MAX_SYSTEM_FEEDBACK_OPERATOR_LIST = 50;
+const MAX_SYSTEM_FEEDBACK_PROJECT_MANAGER_LIST = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A row of the Operator's own list: it never carries what the owner decided or why. */
@@ -123,15 +123,17 @@ export class SystemFeedbackService implements SystemFeedbackRecorder, SystemFeed
   }
 
   /** The project's own items for its Operator, the latest seen first. */
-  listForOperator(projectKey: string): SystemFeedbackProjectManagerRow[] {
+  listForProjectManager(projectKey: string): SystemFeedbackProjectManagerRow[] {
     const { systemFeedback } = this.ctx.repos;
-    return systemFeedback.list({ projectKey, limit: MAX_SYSTEM_FEEDBACK_OPERATOR_LIST }).map((record) => ({
-      id: record.id,
-      state: record.state,
-      title: record.title,
-      occurrences: systemFeedback.occurrenceCount(record.id),
-      lastSeenAt: record.lastSeenAt,
-    }));
+    return systemFeedback
+      .list({ projectKey, limit: MAX_SYSTEM_FEEDBACK_PROJECT_MANAGER_LIST })
+      .map((record) => ({
+        id: record.id,
+        state: record.state,
+        title: record.title,
+        occurrences: systemFeedback.occurrenceCount(record.id),
+        lastSeenAt: record.lastSeenAt,
+      }));
   }
 
   belongsToProject(projectKey: string, id: string): boolean {

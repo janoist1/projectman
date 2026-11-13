@@ -53,7 +53,7 @@ describe('database', () => {
           updatedAt: now,
         });
       const insert = (id: string, projectKey: string, raisedAt: string, resolvedAt: string | null = null) => {
-        repos.operatorSignals.insert({
+        repos.projectManagerSignals.insert({
           id,
           projectKey,
           raisedAt,
@@ -79,8 +79,12 @@ describe('database', () => {
       insert('closed', 'AR', now, now);
       insert('other-project', 'XY', now);
       insert('tie-a', 'AR', now);
-      expect(repos.operatorSignals.listOpen('AR').map((s) => s.id)).toEqual(['tie-z', 'tie-a', 'later']);
-      expect(repos.operatorSignals.list('AR').map((s) => s.id)).toEqual([
+      expect(repos.projectManagerSignals.listOpen('AR').map((s) => s.id)).toEqual([
+        'tie-z',
+        'tie-a',
+        'later',
+      ]);
+      expect(repos.projectManagerSignals.list('AR').map((s) => s.id)).toEqual([
         'tie-z',
         'closed',
         'tie-a',

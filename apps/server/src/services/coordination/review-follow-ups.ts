@@ -56,7 +56,7 @@ export class ReviewFollowUps {
     if (isOpenTask(task)) return;
     const { ctx } = this;
     const covered = new Set(
-      ctx.repos.operatorSignals
+      ctx.repos.projectManagerSignals
         .listOfTask(task.projectKey, task.key, 'review_follow_ups')
         .flatMap((signal) => (signal.subject ?? '').split(',')),
     );

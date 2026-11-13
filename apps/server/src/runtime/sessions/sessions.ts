@@ -173,16 +173,16 @@ export interface SessionOrchestratorDeps {
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
   /** Server-side projection of approved shared data for internal general conversations only. */
-  operatorKnowledge: {
+  projectManagerKnowledge: {
     forConversation(
       projectKey: string,
       member: string,
       workItem: WorkItemRef,
       cause: SessionStartCause | null,
-    ): Promise<ContextPackInput['operatorKnowledge']>;
+    ): Promise<ContextPackInput['projectManagerKnowledge']>;
   };
   /** Server-side selection of the current conversational partner's style only. */
-  operatorPreferences: {
+  projectManagerPreferences: {
     forConversation(
       projectKey: string,
       member: string,

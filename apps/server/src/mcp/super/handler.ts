@@ -119,7 +119,7 @@ interface ExternalToolsDeps {
     'get' | 'list' | 'integratorQueue' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
   >;
   history: Pick<HistoryService, 'search' | 'read'>;
-  operatorKnowledge: Pick<
+  projectManagerKnowledge: Pick<
     ProjectManagerKnowledgeStore,
     'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
   >;
@@ -459,7 +459,7 @@ export class ExternalTools implements ExternalToolsHandler {
       : this.deps.projectState.overview(ctx.projectKey);
   }
 
-  async getOperatorDiagnostics(ctx: ExternalToolContext, args: { taskKey: string; limit?: number }) {
+  async getProjectManagerDiagnostics(ctx: ExternalToolContext, args: { taskKey: string; limit?: number }) {
     const taskKey = this.taskKeyOf(ctx.projectKey, args.taskKey);
     // The machine read can wait for an engine: the key and the ownership are read again after it.
     return this.deps.projectState.externalDiagnostics(ctx.projectKey, taskKey, args.limit, async () => {
@@ -669,7 +669,7 @@ export class ExternalTools implements ExternalToolsHandler {
 
   async getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string) {
     return this.hostScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
-      this.deps.operatorKnowledge.readInstanceKnowledge(),
+      this.deps.projectManagerKnowledge.readInstanceKnowledge(),
     );
   }
 
@@ -679,7 +679,7 @@ export class ExternalTools implements ExternalToolsHandler {
     args: Parameters<ExternalToolsHandler['updateInstanceKnowledge']>[2],
   ) {
     return this.hostScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
-      updateInstanceKnowledge(this.deps.operatorKnowledge, args, new Date().toISOString()),
+      updateInstanceKnowledge(this.deps.projectManagerKnowledge, args, new Date().toISOString()),
     );
   }
 

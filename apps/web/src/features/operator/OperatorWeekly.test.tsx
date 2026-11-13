@@ -13,7 +13,7 @@ afterEach(() => {
   setFetchImplementation((input, init) => globalThis.fetch(input, init));
 });
 
-const url = routes.operatorOwnerQuestions('AC');
+const url = routes.projectManagerOwnerQuestions('AC');
 
 function question(id: string, payload: Record<string, unknown>, rest: Partial<InboxItem> = {}): InboxItem {
   return {

@@ -66,7 +66,7 @@ describe('the project manager screens AI members’ questions', () => {
 
   const item = (id: string) => h.domain.inbox.get('AR', id);
   const sessionsOf = (member: string): Session[] => h.domain.sessions.list('AR', { member });
-  const operatorTool = (): ToolContext => ({
+  const projectManagerTool = (): ToolContext => ({
     projectKey: 'AR',
     member: 'pm',
     sessionId: sessionsOf('pm')[0]!.id,
@@ -78,14 +78,14 @@ describe('the project manager screens AI members’ questions', () => {
     ...h.runner.messages.filter((m) => m.sessionId === sessionId).map((m) => m.text),
   ];
   /** The owner has a request open with the Operator, as every write of the Operator needs (PM-463). */
-  async function ownerAsksOperator(): Promise<ToolContext> {
+  async function ownerAsksProjectManager(): Promise<ToolContext> {
     // A screening round in progress takes the message only when its turn ends.
     for (const running of sessionsOf('pm')) h.runner.setState(running.id, 'idle');
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['pm'], text: 'Please help' });
-    await vi.waitFor(() => expect(h.repos.operatorRequests.latest('AR', 1)).toHaveLength(1), {
+    await vi.waitFor(() => expect(h.repos.projectManagerRequests.latest('AR', 1)).toHaveLength(1), {
       timeout: 5000,
     });
-    const [request] = h.repos.operatorRequests.latest('AR', 1);
+    const [request] = h.repos.projectManagerRequests.latest('AR', 1);
     return { projectKey: 'AR', member: 'pm', sessionId: request!.sessionId, taskKey: null };
   }
   /** The asking member's turn ended: an answer is typed into its session now. */
@@ -102,7 +102,7 @@ describe('the project manager screens AI members’ questions', () => {
     return result;
   }
   const screen = (args: Parameters<typeof h.domain.teamTools.screenQuestion>[1]) =>
-    h.domain.teamTools.screenQuestion(operatorTool(), args);
+    h.domain.teamTools.screenQuestion(projectManagerTool(), args);
 
   /** A topic of the default list, for the questions that go to the owner (PM-1190). */
   const ownerTopic = 'cost';
@@ -130,13 +130,13 @@ describe('the project manager screens AI members’ questions', () => {
 
   it('stores a todo feedback reference in the payload and timeline', async () => {
     const { inboxItemId } = await ask();
-    const { id: feedbackId } = await h.domain.teamTools.recordSystemFeedback(operatorTool(), {
+    const { id: feedbackId } = await h.domain.teamTools.recordSystemFeedback(projectManagerTool(), {
       title: 'Missing tool',
       what: 'A member needed a person',
       workaround: 'Sent a todo to the owner',
       fix: 'Add the tool',
     });
-    expect((await h.domain.teamTools.listSystemFeedback(operatorTool())).items).toEqual([
+    expect((await h.domain.teamTools.listSystemFeedback(projectManagerTool())).items).toEqual([
       expect.objectContaining({ id: feedbackId }),
     ]);
     await screen({
@@ -158,9 +158,9 @@ describe('the project manager screens AI members’ questions', () => {
 
   it.each(['guest', 'task', 'approval'])('refuses system feedback in the PM %s context', async (variant) => {
     await ask();
-    const ctx = operatorTool();
+    const ctx = projectManagerTool();
     if (variant === 'approval') {
-      h.repos.operatorRequests.insert({
+      h.repos.projectManagerRequests.insert({
         id: 'opr_pm_approval',
         projectKey: 'AR',
         sessionId: ctx.sessionId,
@@ -301,7 +301,7 @@ describe('the project manager screens AI members’ questions', () => {
     });
 
     it('does not screen the Operator’s own question or a human’s', async () => {
-      const asking = await ownerAsksOperator();
+      const asking = await ownerAsksProjectManager();
       const own = await h.domain.teamTools.askHuman(asking, {
         question: 'May I hire a reviewer?',
         ownerTopic,
@@ -585,7 +585,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(err.code).toBe('invalid');
       expect(err.message).toContain('question_not_screening');
       // A moot call does not close one a person already holds if it is not an AI member's.
-      const asking = await ownerAsksOperator();
+      const asking = await ownerAsksProjectManager();
       const own = await h.domain.teamTools.askHuman(asking, { question: 'May I?', ownerTopic });
       const refused = await refusal(screen({ itemId: own.inboxItemId, outcome: 'moot', note: 'x' }));
       expect(refused.message).toContain('the PM cannot screen its own question');
@@ -640,7 +640,7 @@ describe('the project manager screens AI members’ questions', () => {
     });
 
     it("needs a topic for the project manager's own decision and records it, not for information", async () => {
-      const asking = await ownerAsksOperator();
+      const asking = await ownerAsksProjectManager();
       const err = await rejection(
         h.domain.teamTools.askHuman(asking, { question: 'May I hire a reviewer?', options: ['Yes', 'No'] }),
         TeamToolError,
@@ -1237,7 +1237,7 @@ describe('a machine step no integrator can take goes to the technical decider', 
     ...h.runner.messages.filter((m) => m.sessionId === sessionId).map((m) => m.text),
   ];
   const humanQueue = () => h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
-  const operatorTool = (): ToolContext => ({
+  const projectManagerTool = (): ToolContext => ({
     projectKey: 'AR',
     member: 'pm',
     sessionId: sessionsOf('pm')[0]!.id,
@@ -1249,7 +1249,7 @@ describe('a machine step no integrator can take goes to the technical decider', 
     return result.inboxItemId;
   }
   const screenTodo = (itemId: string) =>
-    h.domain.teamTools.screenQuestion(operatorTool(), {
+    h.domain.teamTools.screenQuestion(projectManagerTool(), {
       itemId,
       outcome: 'todo',
       todo: step,
@@ -1319,7 +1319,7 @@ describe('a machine step no integrator can take goes to the technical decider', 
     await start({ lead: true, integratorAvailable: true, pmMachineAccess: true });
     const id = await ask();
 
-    const result = await h.domain.teamTools.screenQuestion(operatorTool(), {
+    const result = await h.domain.teamTools.screenQuestion(projectManagerTool(), {
       itemId: id,
       outcome: 'todo',
       todo: { ...step, recipient: 'owner' },
@@ -1390,7 +1390,7 @@ describe('a machine step no integrator can take goes to the technical decider', 
     await start({ lead: true, integratorAvailable: true, pmMachineAccess: true });
     const id = await ask();
 
-    await h.domain.teamTools.screenQuestion(operatorTool(), {
+    await h.domain.teamTools.screenQuestion(projectManagerTool(), {
       itemId: id,
       outcome: 'decision',
       ownerTopic: 'cost',

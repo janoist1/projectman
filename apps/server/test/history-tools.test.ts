@@ -7,7 +7,7 @@ import { OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { as, historyHarness } from './helpers/history';
-import { seedOperatorSession } from './helpers/operator-session';
+import { seedProjectManagerSession } from './helpers/operator-session';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -152,7 +152,7 @@ describe('the history tools of a member (PM-787)', () => {
 
   describe('the project manager in a guest’s conversation', () => {
     // The guest's conversation is seeded.
-    const say = (from: string) => seedOperatorSession(h, 'AR', { member: 'pm', with: from });
+    const say = (from: string) => seedProjectManagerSession(h, 'AR', { member: 'pm', with: from });
     const conversationWith = (handle: string): Session | undefined =>
       h.domain.sessions
         .list('AR', { member: 'pm' })

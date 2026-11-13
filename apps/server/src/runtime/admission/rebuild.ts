@@ -16,7 +16,7 @@ export function createDeferredStartRebuilder(deps: {
   handoffs: Pick<HandoffService, 'rebuild'>;
   rebuildLoopNotice(spec: Extract<StartSpec, { kind: 'loop_notice' }>): AutomaticStart | null;
   memberQueueDriver: { ensure(projectKey: string, handle: string): Promise<void> };
-  operatorSignals: { deliver(projectKey: string): Promise<void> };
+  projectManagerSignals: { deliver(projectKey: string): Promise<void> };
   questionScreening: { enqueue(projectKey: string): Promise<void> };
   background: BackgroundTasks;
   logger: FastifyBaseLogger;
@@ -29,7 +29,7 @@ export function createDeferredStartRebuilder(deps: {
     handoffs,
     rebuildLoopNotice,
     memberQueueDriver,
-    operatorSignals,
+    projectManagerSignals,
     questionScreening,
     background,
     logger,
@@ -59,7 +59,7 @@ export function createDeferredStartRebuilder(deps: {
         background.run(
           () =>
             spec.kind === 'operator_signals'
-              ? operatorSignals.deliver(spec.projectKey)
+              ? projectManagerSignals.deliver(spec.projectKey)
               : questionScreening.enqueue(spec.projectKey),
           (err) => logger.warn({ err, projectKey: spec.projectKey }, 'working the PM queue failed'),
         );

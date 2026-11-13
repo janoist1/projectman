@@ -62,7 +62,7 @@ export class StructuralPatterns {
   evaluate(config: ProjectConfig, until = this.ctx.now().toISOString()): StructuralEvaluation {
     const projectKey = config.project.key;
     const armed = new Map(
-      STRUCTURAL_KINDS.map((kind) => [kind, this.ctx.repos.operatorSignals.armedAt(projectKey, kind)]),
+      STRUCTURAL_KINDS.map((kind) => [kind, this.ctx.repos.projectManagerSignals.armedAt(projectKey, kind)]),
     );
     const windows = new Map<string, ReturnType<typeof load>>();
     const requests = new Map<string, Map<unknown, TimelineEvent>>();

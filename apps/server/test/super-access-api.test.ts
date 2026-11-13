@@ -162,7 +162,7 @@ describe('credential REST and domain access (PM-759)', () => {
       routes.tasks('AR'),
       routes.teamMessages('AR'),
       `${routes.mergeQueueOrder('AR')}?repo=web`,
-      routes.operatorPreferences('AR'),
+      routes.projectManagerPreferences('AR'),
     ]) {
       const response = await h.app.inject({ url, headers });
       expect(response.statusCode, `${mode} ${url}: ${response.body}`).toBe(200);

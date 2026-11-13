@@ -313,12 +313,12 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         },
       };
     },
-    async getOperatorKnowledge(ctx) {
-      await enter('getOperatorKnowledge', ctx, {});
+    async getProjectManagerKnowledge(ctx) {
+      await enter('getProjectManagerKnowledge', ctx, {});
       return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
     },
-    async proposeOperatorKnowledge(ctx, args) {
-      await enter('proposeOperatorKnowledge', ctx, args);
+    async proposeProjectManagerKnowledge(ctx, args) {
+      await enter('proposeProjectManagerKnowledge', ctx, args);
       return {
         status: 'awaiting_approval',
         inbox_item_id: 'inb_fake',
@@ -548,12 +548,12 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('openIntegratorTodo', ctx, args);
       return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
     },
-    async getOperatorPreference(ctx) {
-      await enter('getOperatorPreference', ctx, {});
+    async getProjectManagerPreference(ctx) {
+      await enter('getProjectManagerPreference', ctx, {});
       return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
     },
-    async setOperatorPreference(ctx, args) {
-      await enter('setOperatorPreference', ctx, args);
+    async setProjectManagerPreference(ctx, args) {
+      await enter('setProjectManagerPreference', ctx, args);
       return {
         schemaVersion: 1,
         revision: args.expectedRevision + 1,
@@ -627,8 +627,8 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       });
     },
 
-    async getOperatorDiagnostics(ctx, args) {
-      await enter('getOperatorDiagnostics', ctx, args);
+    async getProjectManagerDiagnostics(ctx, args) {
+      await enter('getProjectManagerDiagnostics', ctx, args);
       return {
         task: {
           taskKey: args.taskKey,

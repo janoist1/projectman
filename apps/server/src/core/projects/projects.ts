@@ -687,13 +687,13 @@ export class ProjectService {
     const stepId = meta.author.operatorStepId;
     if (stepId && meta.author.operatorOperation && meta.author.operatorRequestId) {
       if (
-        !this.ctx.repos.operatorRequests
+        !this.ctx.repos.projectManagerRequests
           .steps(meta.author.operatorRequestId)
           .some((step) => step.id === stepId)
       )
         throw forbidden('operator_no_request', 'the configuration commit needs its persisted request step');
       if (
-        this.ctx.repos.operatorRequests
+        this.ctx.repos.projectManagerRequests
           .executions(key)
           .some(
             (intent) =>
@@ -705,7 +705,7 @@ export class ProjectService {
       )
         throw forbidden('operator_no_request', 'this operation already committed for the owner request');
       this.ctx.unitOfWork(() =>
-        this.ctx.repos.operatorRequests.prepareExecution({
+        this.ctx.repos.projectManagerRequests.prepareExecution({
           id: stepId,
           projectKey: key,
           requestId: meta.author.operatorRequestId!,
@@ -733,7 +733,7 @@ export class ProjectService {
           save,
         )
       : await save(meta.author);
-    if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
+    if (stepId) this.finishProjectManagerExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);
     this.rememberVersion(key, version, loaded.config);
@@ -800,12 +800,14 @@ export class ProjectService {
     return settled;
   }
 
-  finishOperatorExecution(key: string, stepId: string, version: string, actor: Actor): void {
+  finishProjectManagerExecution(key: string, stepId: string, version: string, actor: Actor): void {
     this.ctx.unitOfWork(() => {
-      const intent = this.ctx.repos.operatorRequests.executions(key).find((entry) => entry.id === stepId);
+      const intent = this.ctx.repos.projectManagerRequests
+        .executions(key)
+        .find((entry) => entry.id === stepId);
       if (
         !intent ||
-        !this.ctx.repos.operatorRequests.finishExecution(stepId, 'committed', isoNow(this.ctx), version)
+        !this.ctx.repos.projectManagerRequests.finishExecution(stepId, 'committed', isoNow(this.ctx), version)
       )
         return;
       if (intent.approvalMode === 'waived' && intent.agreementVersion !== null)

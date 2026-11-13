@@ -46,7 +46,7 @@ function remark(items: string[], label?: string): string {
 const close = () => h.domain.tasks.moveToStage('AR', 'AR-1', 'done', OWNER_ACTOR);
 const cancel = () => h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
 const reopen = () => h.domain.tasks.reopen('AR', 'AR-1', OWNER_ACTOR);
-const signals = () => h.repos.operatorSignals.listOfTask('AR', 'AR-1', 'review_follow_ups');
+const signals = () => h.repos.projectManagerSignals.listOfTask('AR', 'AR-1', 'review_follow_ups');
 
 describe('review follow-ups of a closed card (PM-1362)', () => {
   it('raises one signal for the remarks of a card that went to done', async () => {
@@ -95,7 +95,7 @@ describe('review follow-ups of a closed card (PM-1362)', () => {
     const id = remark(['Reuse the helper', 'Add a test'], 'code-review-ok');
     await close();
     const signal = signals()[0]!;
-    const text = h.domain.operatorSignals.noticeText('AR', [signal.id]);
+    const text = h.domain.projectManagerSignals.noticeText('AR', [signal.id]);
     const facts = JSON.parse(text.split('\n').at(-1)!).facts as ReviewFollowUpsFacts;
     expect(facts).toMatchObject({ taskKey: 'AR-1', title: 'Reviewed card', status: 'done' });
     expect(facts.items).toEqual([
@@ -109,7 +109,7 @@ describe('review follow-ups of a closed card (PM-1362)', () => {
     remark(['Reuse the helper']);
     await close();
     const signal = signals()[0]!;
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     await flush();
     const session = await waitForSession(h.domain, { member: 'pm' });
     h.runner.setState(session.id, 'idle');
@@ -123,12 +123,12 @@ describe('review follow-ups of a closed card (PM-1362)', () => {
         signalIds: [signal.id],
       }),
     ).rejects.toThrow('for you only');
-    await h.domain.operatorSignals.sweep('AR');
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    await h.domain.projectManagerSignals.sweep('AR');
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
     await expect(
       h.domain.teamTools.dismissSignal(ctx, { signalId: signal.id, note: 'Moved to AR-2.' }),
     ).resolves.toEqual({ signalId: signal.id, state: 'dismissed' });
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({
       state: 'dismissed',
       decisionNote: 'Moved to AR-2.',
     });

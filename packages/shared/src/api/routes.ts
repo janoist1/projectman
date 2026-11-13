@@ -34,15 +34,15 @@ export const routes = {
   workQueueMember: (key: string, handle: string) => `/api/projects/${key}/work-queues/members/${handle}`,
   /** GET the connected Claude's work queue (`WorkQueueDetail`); `?closedSince=<iso>`. */
   workQueueIntegrator: (key: string) => `/api/projects/${key}/work-queues/integrator`,
-  operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
-  operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
+  projectManagerPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
+  projectManagerKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   /** GET the weekly owner question measure (`OwnerQuestionsReport`, PM-1192); `?weeks=8`; the owner's own login only. */
-  operatorOwnerQuestions: (key: string) => `/api/projects/${key}/operator/owner-questions`,
+  projectManagerOwnerQuestions: (key: string) => `/api/projects/${key}/operator/owner-questions`,
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
   projectChecklistItemState: (key: string, itemId: string) =>
     `/api/projects/${key}/checklist/items/${itemId}/state`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
-  operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
+  superAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
   /** POST `SuperOperateRequest`: starts a command; 202 `{operation}` (PM-764). */
   superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
   /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
@@ -53,8 +53,8 @@ export const routes = {
   /** POST `ResolveIntegratorFixLimitRequest`: the integrator decides a fix round limit item addressed to it (PM-714). */
   resolveIntegratorFixLimit: (key: string, itemId: string) =>
     `/api/projects/${key}/inbox/${itemId}/resolve-integrator-fix-limit`,
-  operatorPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
-  dismissOperatorSignal: (key: string, signalId: string) =>
+  projectManagerPreferenceMe: (key: string) => `/api/projects/${key}/operator/preferences/me`,
+  dismissProjectManagerSignal: (key: string, signalId: string) =>
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',

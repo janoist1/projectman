@@ -154,13 +154,13 @@ export class SessionContextInput {
     const projectKey = config.project.key;
     const { stage, memory, attachments, parentAttachments, documents, relatedSessions } = prepared;
     const { cardWorkers, cardQuestions, relations, themeCard, acceptance } = standing;
-    const operatorKnowledge = await this.deps.operatorKnowledge
+    const projectManagerKnowledge = await this.deps.projectManagerKnowledge
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator knowledge');
         return undefined;
       });
-    const operatorPreference = await this.deps.operatorPreferences
+    const projectManagerPreference = await this.deps.projectManagerPreferences
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
@@ -202,8 +202,8 @@ export class SessionContextInput {
         : 0,
       team: this.deps.members.rosterFor(config),
       memory,
-      ...(operatorPreference ? { operatorPreference } : {}),
-      ...(operatorKnowledge ? { operatorKnowledge } : {}),
+      ...(projectManagerPreference ? { projectManagerPreference } : {}),
+      ...(projectManagerKnowledge ? { projectManagerKnowledge } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parentAttachments ? { parentAttachments } : {}),
       ...(documents.length > 0 ? { documents } : {}),

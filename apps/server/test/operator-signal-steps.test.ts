@@ -63,9 +63,9 @@ async function overdueCard(
 ) {
   const card = await place(opts.patch ?? { stageId: 'development', status: 'active', assignee: 'dev-1' });
   const { id, signalId } = openOverdueObligation(h, card, { at: now, ...opts });
-  await h.domain.operatorSignals.deliver('AR');
+  await h.domain.projectManagerSignals.deliver('AR');
   await flush();
-  return { card, id, signal: h.repos.operatorSignals.get(signalId)! };
+  return { card, id, signal: h.repos.projectManagerSignals.get(signalId)! };
 }
 
 function mergeRow(taskKey: string, over: Partial<MergeRecord> = {}): MergeRecord {
@@ -93,9 +93,11 @@ function mergeRow(taskKey: string, over: Partial<MergeRecord> = {}): MergeRecord
 async function blockedMergeCard() {
   const card = await place({ stageId: 'code_review', status: 'waiting' });
   h.repos.taskMerges.save(mergeRow(card.key, { state: 'failed' }));
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
-  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'merge_blocked' && !s.resolvedAt)!;
+  const signal = h.repos.projectManagerSignals
+    .list('AR')
+    .find((s) => s.kind === 'merge_blocked' && !s.resolvedAt)!;
   return { card, signal };
 }
 
@@ -106,10 +108,10 @@ const operator = async (): Promise<ToolContext> => ({
   sessionId: (await waitForSession(h.domain, { member: 'pm' })).id,
 });
 const roundSteps = () =>
-  h.repos.operatorRequests
+  h.repos.projectManagerRequests
     .latest('AR', 10)
     .filter((r) => r.source === 'signal')
-    .flatMap((r) => h.repos.operatorRequests.steps(r.id));
+    .flatMap((r) => h.repos.projectManagerRequests.steps(r.id));
 const startAssignee = async (card: Task, signal: { id: string }, ctx?: ToolContext) =>
   h.domain.teamTools.startTask(ctx ?? (await operator()), { taskKey: card.key, signalId: signal.id });
 const startMerger = async (card: Task, signal: { id: string }, member = 'dev-1') =>
@@ -150,9 +152,9 @@ describe('level unblock', () => {
     expect(roundSteps()).toMatchObject([
       { action: 'task_start', taskKey: card.key, status: 'done', signalId: signal.id },
     ]);
-    const round = h.repos.operatorRequests.latest('AR', 10).find((r) => r.source === 'signal')!;
+    const round = h.repos.projectManagerRequests.latest('AR', 10).find((r) => r.source === 'signal')!;
     expect(round).toMatchObject({ fromHandle: OPERATOR_SIGNAL_ROUND_FROM, quote: '' });
-    expect(h.repos.operatorSignals.get(signal.id)!.followUpAt).toBe(
+    expect(h.repos.projectManagerSignals.get(signal.id)!.followUpAt).toBe(
       new Date(now.getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000).toISOString(),
     );
   });
@@ -333,7 +335,7 @@ describe('the unreleased signal (PM-1201)', () => {
     ]);
     publishRelease(h, 'web', sha(1), at(3));
     expect(h.domain.releasePublications.unreleased('AR')).toMatchObject([{ repo: 'web', count: 1 }]);
-    h.repos.operatorSignals.insert({
+    h.repos.projectManagerSignals.insert({
       id: 'ops_old_unreleased',
       projectKey: 'AR',
       caseKey: `unreleased:web:${sha(1)}`,
@@ -353,7 +355,7 @@ describe('the unreleased signal (PM-1201)', () => {
       decisionNote: null,
       deliveredTo: null,
     });
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     await flush();
   };
 
@@ -361,9 +363,9 @@ describe('the unreleased signal (PM-1201)', () => {
     'gives the coordinator no unreleased step at level %s: the old signal ends and the devops is not started',
     async (level) => {
       await unreleased(level);
-      expect(h.repos.operatorSignals.get('ops_old_unreleased')).toMatchObject({ state: 'resolved' });
+      expect(h.repos.projectManagerSignals.get('ops_old_unreleased')).toMatchObject({ state: 'resolved' });
       expect(
-        h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'unreleased' && !s.resolvedAt),
+        h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'unreleased' && !s.resolvedAt),
       ).toEqual([]);
       expect(h.domain.sessions.list('AR', { member: 'devops' })).toEqual([]);
       expect(roundSteps()).toEqual([]);
@@ -428,14 +430,14 @@ describe('follow-up', () => {
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
     later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    const operatorSession = (await operator()).sessionId;
-    h.runner.setState(operatorSession, 'working');
-    h.runner.setState(operatorSession, 'idle');
+    const projectManagerSession = (await operator()).sessionId;
+    h.runner.setState(projectManagerSession, 'working');
+    h.runner.setState(projectManagerSession, 'idle');
     await flush();
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({ state: 'open' });
-    await h.domain.operatorSignals.deliver('AR');
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({ state: 'open' });
+    await h.domain.projectManagerSignals.deliver('AR');
     await flush();
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({
       state: 'pending',
       messageId: null,
       actionable: false,
@@ -450,9 +452,9 @@ describe('follow-up', () => {
     await startAssignee(card, signal);
     later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
     h.repos.obligations.close(id, 'fulfilled', now.toISOString());
-    const delivered = h.repos.operatorSignals.get(signal.id)!.deliveredAt;
-    await h.domain.operatorSignals.deliver('AR');
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({ deliveredAt: delivered });
+    const delivered = h.repos.projectManagerSignals.get(signal.id)!.deliveredAt;
+    await h.domain.projectManagerSignals.deliver('AR');
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({ deliveredAt: delivered });
   });
 });
 
@@ -482,9 +484,9 @@ describe('the project manager on its own authority (PM-1287)', () => {
     await setup('unblock');
     const { card, signal } = await overdueCard();
     await h.domain.teamTools.startTask(await operator(), { taskKey: card.key });
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual([]);
     await startAssignee(card, signal);
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toHaveLength(1);
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toHaveLength(1);
   });
 
   it('keeps the owner_request setting`s ban', async () => {

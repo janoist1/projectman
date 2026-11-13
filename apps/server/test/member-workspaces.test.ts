@@ -1126,7 +1126,7 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
     // The failure was recovered within the grace period: no signal was ever raised (PM-1204).
     expect(
-      h.repos.operatorSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
+      h.repos.projectManagerSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
     ).toBe(false);
   });
 

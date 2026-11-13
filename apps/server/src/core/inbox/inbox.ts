@@ -579,8 +579,8 @@ export class InboxService {
     };
   }
 
-  staleOperator(id: string, payload: Record<string, unknown>): void {
-    const updated = this.ctx.repos.inbox.updateOperator(
+  markProjectManagerItemStale(id: string, payload: Record<string, unknown>): void {
+    const updated = this.ctx.repos.inbox.updateProjectManagerItem(
       id,
       payload,
       [OPERATOR_DISMISS_OPTION],

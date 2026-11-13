@@ -66,7 +66,14 @@ interface SuperPath {
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
 type ProjectManagerToolsChecklist = Pick<
   ChecklistService,
-  'get' | 'init' | 'add' | 'edit' | 'setCondition' | 'setStateByOperator' | 'applyTemplate' | 'templateBases'
+  | 'get'
+  | 'init'
+  | 'add'
+  | 'edit'
+  | 'setCondition'
+  | 'setStateByProjectManager'
+  | 'applyTemplate'
+  | 'templateBases'
 >;
 
 export class ProjectManagerTools implements ProjectManagerToolsHandler {
@@ -82,9 +89,9 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   private readonly projectState: ProjectState;
   private readonly taskStarts: TaskStarts;
   private readonly seniorDecisions: Pick<SeniorDecisions, 'decide'>;
-  private readonly operatorSignals: Pick<ProjectManagerSignals, 'dismissByOperator'>;
-  private readonly operatorPreferences: ProjectManagerPreferences;
-  private readonly operatorKnowledge: ProjectManagerKnowledge;
+  private readonly projectManagerSignals: Pick<ProjectManagerSignals, 'dismissByProjectManager'>;
+  private readonly projectManagerPreferences: ProjectManagerPreferences;
+  private readonly projectManagerKnowledge: ProjectManagerKnowledge;
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
   private readonly superPath: () => SuperPath;
@@ -103,9 +110,9 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     projectState: ProjectState;
     taskStarts: TaskStarts;
     seniorDecisions: Pick<SeniorDecisions, 'decide'>;
-    operatorSignals: Pick<ProjectManagerSignals, 'dismissByOperator'>;
-    operatorPreferences: ProjectManagerPreferences;
-    operatorKnowledge: ProjectManagerKnowledge;
+    projectManagerSignals: Pick<ProjectManagerSignals, 'dismissByProjectManager'>;
+    projectManagerPreferences: ProjectManagerPreferences;
+    projectManagerKnowledge: ProjectManagerKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
     checklist: ProjectManagerToolsChecklist;
@@ -124,9 +131,9 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     this.projectState = deps.projectState;
     this.taskStarts = deps.taskStarts;
     this.seniorDecisions = deps.seniorDecisions;
-    this.operatorSignals = deps.operatorSignals;
-    this.operatorPreferences = deps.operatorPreferences;
-    this.operatorKnowledge = deps.operatorKnowledge;
+    this.projectManagerSignals = deps.projectManagerSignals;
+    this.projectManagerPreferences = deps.projectManagerPreferences;
+    this.projectManagerKnowledge = deps.projectManagerKnowledge;
     this.structuralReviews = deps.structuralReviews;
     this.loopTriages = deps.loopTriages;
     this.checklist = deps.checklist;
@@ -220,7 +227,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
         return { checklist: await checklist.setCondition(key, itemId, args.condition!, handle), itemId };
       case 'set_state':
         return {
-          checklist: await checklist.setStateByOperator(
+          checklist: await checklist.setStateByProjectManager(
             key,
             itemId,
             args.state === 'not_needed'
@@ -251,16 +258,16 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     });
   }
 
-  async getOperatorKnowledge(ctx: ToolContext) {
+  async getProjectManagerKnowledge(ctx: ToolContext) {
     await this.calls.caller(ctx, 'get_operator_knowledge');
-    return this.operatorKnowledge.get(ctx).catch((err: unknown) => {
+    return this.projectManagerKnowledge.get(ctx).catch((err: unknown) => {
       if (err instanceof DomainError)
         throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
       throw err;
     });
   }
 
-  async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
+  async proposeProjectManagerKnowledge(ctx: ToolContext, args: ProposeProjectManagerKnowledgeRequest) {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (!isProjectManager(member))
@@ -270,23 +277,23 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
       );
     this.calls.assertCoordinationSession(ctx, config);
     await this.calls.callerWithRequest(ctx, 'propose_operator_knowledge');
-    return this.operatorKnowledge.propose(ctx, args).catch((err: unknown) => {
+    return this.projectManagerKnowledge.propose(ctx, args).catch((err: unknown) => {
       if (err instanceof DomainError)
         throw new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
       throw err;
     });
   }
 
-  async getOperatorPreference(ctx: ToolContext) {
-    return this.preferenceCall(ctx, 'get_operator_preference', () => this.operatorPreferences.get(ctx));
+  async getProjectManagerPreference(ctx: ToolContext) {
+    return this.preferenceCall(ctx, 'get_operator_preference', () => this.projectManagerPreferences.get(ctx));
   }
 
-  async setOperatorPreference(
+  async setProjectManagerPreference(
     ctx: ToolContext,
     args: { expectedRevision: number; preference: ProjectManagerPreferenceData },
   ) {
     return this.preferenceCall(ctx, 'set_operator_preference', () =>
-      this.operatorPreferences.set(ctx, args.expectedRevision, args.preference),
+      this.projectManagerPreferences.set(ctx, args.expectedRevision, args.preference),
     );
   }
 
@@ -327,7 +334,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     return this.calls.guard(async () => {
       await this.calls.callerWithRequest(ctx, 'dismiss_signal');
       try {
-        const signal = this.operatorSignals.dismissByOperator(
+        const signal = this.projectManagerSignals.dismissByProjectManager(
           ctx.projectKey,
           args.signalId,
           ctx.member,
@@ -492,7 +499,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     });
   }
 
-  async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
+  async getProjectManagerDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
     return this.calls.guard(async () => {
       await this.calls.caller(ctx, 'get_operator_diagnostics');
       return this.projectState.diagnostics(ctx, args.taskKey, args.limit).catch((err: unknown) => {
@@ -556,7 +563,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
               : operation.state === 'succeeded'
                 ? ('done' as const)
                 : ('refused' as const),
-          step_id: this.ctx.repos.operatorRequests.steps(caller.request!.id).at(-1)!.id,
+          step_id: this.ctx.repos.projectManagerRequests.steps(caller.request!.id).at(-1)!.id,
           changes: [],
           ...(operation.ownerQuestionId ? { inbox_item_id: operation.ownerQuestionId } : {}),
         };

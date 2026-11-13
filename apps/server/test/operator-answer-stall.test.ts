@@ -37,11 +37,11 @@ const sweep = async () => {
   // The coordinator ends its turn before the next notice: the queue types at the turn boundary.
   const coordinator = h.domain.sessions.findRunning('AR', 'pm', { type: 'general' });
   if (coordinator && coordinator.state !== 'idle') h.runner.setState(coordinator.id, 'idle');
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
 };
 const open = (kind: ProjectManagerSignalKind = 'answer_stalled') =>
-  h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
+  h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 const GRACE = OPERATOR_ANSWER_STALL_GRACE_MS / 1000;
 
 async function setup(level: ProjectManagerWatch = 'drive') {
@@ -416,7 +416,7 @@ describe('the Operator’s steps', () => {
   /** An earlier own step on a signal, as the old rows hold it: the new signal itself never creates one. */
   async function oldStep(signal: { id: string; taskKey: string | null }, at: number) {
     const requestId = `req_old_${++messageCount}`;
-    h.repos.operatorRequests.insert({
+    h.repos.projectManagerRequests.insert({
       id: requestId,
       projectKey: 'AR',
       sessionId: (await operator()).sessionId!,
@@ -427,7 +427,7 @@ describe('the Operator’s steps', () => {
       quote: '',
       openedAt: iso(at),
     });
-    h.repos.operatorRequests.insertStep({
+    h.repos.projectManagerRequests.insertStep({
       id: `ops_old_${messageCount}`,
       requestId,
       at: iso(at),
@@ -473,7 +473,7 @@ describe('the Operator’s steps', () => {
       });
       expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toEqual([]);
       expect(h.domain.sessions.list('AR', { member: 'dev-2' })).toEqual([]);
-      expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+      expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual([]);
       expect(h.repos.tasks.get(card.key)).toMatchObject({ stageId: 'development', assignee: 'dev-1' });
       if (level !== 'report') {
         const result = await push(card, signal);
@@ -482,8 +482,10 @@ describe('the Operator’s steps', () => {
           to: ['dev-1'],
           taskKey: card.key,
         });
-        const [step] = h.repos.operatorRequests.stepsOfSignal(signal.id);
-        expect(h.repos.operatorRequests.get(step!.requestId)?.sessionId).toBe((await operator()).sessionId);
+        const [step] = h.repos.projectManagerRequests.stepsOfSignal(signal.id);
+        expect(h.repos.projectManagerRequests.get(step!.requestId)?.sessionId).toBe(
+          (await operator()).sessionId,
+        );
       }
     },
   );
@@ -513,7 +515,7 @@ describe('the Operator’s steps', () => {
         );
       }
       await expect(push(card, signal)).rejects.toThrow(/operator_signal_closed|operator_no_request/);
-      expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+      expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual([]);
     },
   );
 
@@ -526,7 +528,9 @@ describe('the Operator’s steps', () => {
     });
     await expect(push(card, signal)).rejects.toThrow('no longer open');
     changed.mockRestore();
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id).every((s) => s.status === 'refused')).toBe(true);
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id).every((s) => s.status === 'refused')).toBe(
+      true,
+    );
     seconds(GRACE + 1);
     await sweep();
     const current = open()[0]!;
@@ -538,7 +542,7 @@ describe('the Operator’s steps', () => {
     const outcomes = await Promise.allSettled([push(card, signal), push(card, signal)]);
     expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
     expect(
-      h.repos.operatorRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
+      h.repos.projectManagerRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
     ).toHaveLength(1);
     const worker = await waitForSession(h.domain, { member: 'dev-1' });
     h.runner.setState(worker.id, 'idle');
@@ -548,7 +552,7 @@ describe('the Operator’s steps', () => {
     await sweep();
     await expect(push(card, signal)).rejects.toThrow(/operator_signal_budget|operator_signal_closed/);
     expect(
-      h.repos.operatorRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
+      h.repos.projectManagerRequests.stepsOfSignal(signal.id).filter((s) => s.status !== 'refused'),
     ).toHaveLength(1);
   });
 

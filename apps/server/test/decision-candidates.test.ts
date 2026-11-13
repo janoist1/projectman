@@ -108,7 +108,7 @@ async function ask(text: string, from = 'owner', to = 'pm') {
     expect(h.repos.messages.pending('AR', to).map((message) => message.id)).not.toContain(result.message.id);
     if (from === 'owner') {
       expect(
-        h.repos.operatorRequests.openOfSession(conversation[0]!.id).map((request) => request.messageId),
+        h.repos.projectManagerRequests.openOfSession(conversation[0]!.id).map((request) => request.messageId),
       ).toEqual([result.message.id]);
     }
   });
@@ -124,10 +124,10 @@ const toolOf = (session: Session): ToolContext => ({
 });
 /** The PM's turn is over: its open requests close. */
 function endTurn(): void {
-  for (const request of h.repos.operatorRequests.openOfSession(ownerSession().id))
-    h.repos.operatorRequests.close(request.id, now.toISOString());
+  for (const request of h.repos.projectManagerRequests.openOfSession(ownerSession().id))
+    h.repos.projectManagerRequests.close(request.id, now.toISOString());
 }
-const requestOf = (session: Session) => h.repos.operatorRequests.openOfSession(session.id)[0]!;
+const requestOf = (session: Session) => h.repos.projectManagerRequests.openOfSession(session.id)[0]!;
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 
 describe('the decision candidates (PM-496)', () => {
@@ -259,7 +259,7 @@ describe('mark_decision_candidates (PM-496)', () => {
       decidedAt: now.toISOString(),
     });
     expect(h.repos.decisionOffers.get('AR', 'inb_2')).toMatchObject({ verdict: 'declined', decision: null });
-    expect(h.repos.operatorRequests.steps(requestId)).toEqual([
+    expect(h.repos.projectManagerRequests.steps(requestId)).toEqual([
       expect.objectContaining({ action: 'decision_offer', status: 'done' }),
     ]);
     expect((await candidates()).candidates.map((c) => c.item_id)).toEqual(['inb_3']);
@@ -282,7 +282,7 @@ describe('mark_decision_candidates (PM-496)', () => {
       expect(error.message).toContain(bad);
     }
     expect(h.repos.decisionOffers.get('AR', 'inb_1')).toBeNull();
-    expect(h.repos.operatorRequests.steps(requestId).map((s) => [s.action, s.status])).toEqual([
+    expect(h.repos.projectManagerRequests.steps(requestId).map((s) => [s.action, s.status])).toEqual([
       ['decision_offer', 'refused'],
       ['decision_offer', 'refused'],
     ]);
@@ -340,7 +340,7 @@ describe('mark_decision_candidates (PM-496)', () => {
     await setup();
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     const { ctx, requestId } = await ownerAsks();
-    h.repos.operatorRequests.close(requestId, now.toISOString());
+    h.repos.projectManagerRequests.close(requestId, now.toISOString());
     expect((await h.domain.teamTools.listDecisionCandidates(ctx, {})).candidates).toMatchObject([
       { item_id: 'inb_1' },
     ]);

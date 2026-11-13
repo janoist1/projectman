@@ -369,7 +369,7 @@ export class MessageService {
     )
       return;
     if (message.operatorSignal) {
-      const signal = this.ctx.repos.operatorSignals.get(message.operatorSignal);
+      const signal = this.ctx.repos.projectManagerSignals.get(message.operatorSignal);
       const presentation = signal?.messageId && this.ctx.repos.messages.get(signal.messageId);
       if (
         !signal ||

@@ -17,7 +17,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
-import { seedOperatorSession } from './helpers/operator-session';
+import { seedProjectManagerSession } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now: Date;
@@ -53,7 +53,7 @@ async function internal(member = 'pm'): Promise<ToolContext> {
   // The Operator is retired (decision 66): only a legacy row of its old session is seeded.
   const session =
     member === 'operator'
-      ? seedOperatorSession(h, 'AR', { at: now.toISOString() })
+      ? seedProjectManagerSession(h, 'AR', { at: now.toISOString() })
       : (await h.domain.sessions.ensureSession('AR', member, { type: 'general' })).session;
   await flush();
   return { projectKey: 'AR', member, sessionId: session.id, taskKey: null };
@@ -65,7 +65,7 @@ async function deliverSignals(): Promise<void> {
     for (const session of h.domain.sessions.list('AR', {}))
       if (session.member.startsWith('pm') && (session.state === 'starting' || session.state === 'working'))
         h.runner.setState(session.id, 'idle');
-    await h.domain.operatorSignals.deliver('AR');
+    await h.domain.projectManagerSignals.deliver('AR');
     await flush();
   }
 }
@@ -85,9 +85,9 @@ async function idleSignal() {
   const card = await h.domain.tasks.create('AR', { title: 'Waiting work', repo: 'web' }, OWNER_ACTOR);
   h.repos.tasks.update(card.id, { stageId: 'development', assignee: 'dev-1' });
   const { signalId } = openOverdueObligation(h, h.repos.tasks.get(card.key)!, { at: now });
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
-  return { card, signal: h.repos.operatorSignals.get(signalId)!, pm: await internal() };
+  return { card, signal: h.repos.projectManagerSignals.get(signalId)!, pm: await internal() };
 }
 
 describe('PM authorization', () => {
@@ -105,7 +105,7 @@ describe('PM authorization', () => {
       text: 'Approved.',
     };
     expect(() => requests().open(input)).toThrow('no structural approval continuation');
-    h.repos.operatorRequests.insert({
+    h.repos.projectManagerRequests.insert({
       id: 'opr_legacy_approval',
       ...input,
       fromHandle: input.from,
@@ -146,7 +146,7 @@ describe('PM authorization', () => {
       { to: ['pm'], text: 'Yes, coordinate.' },
       { actor: OWNER_ACTOR, operatorSignal: signal.id },
     );
-    expect(h.repos.operatorSignals.get(signal.id)?.state).toBe('accepted');
+    expect(h.repos.projectManagerSignals.get(signal.id)?.state).toBe('accepted');
     expect(requests().openFor(pm.sessionId)).toBeNull();
     expect(accepted.message.receipts?.find((r) => r.handle === 'pm')?.deliveredAt).toBeNull();
     release();
@@ -161,12 +161,12 @@ describe('PM authorization', () => {
     await expect(
       h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Explicitly requested coordination.' }),
     ).resolves.toHaveProperty('messageId');
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual([]);
     requests().closeForSession(pm.sessionId);
     h.domain.messages.markRecipientDelivered(accepted.message.id, 'pm');
     expect(requests().openFor(pm.sessionId)).toBeNull();
     expect(
-      h.repos.operatorRequests.latest('AR', 20).filter((r) => r.messageId === accepted.message.id),
+      h.repos.projectManagerRequests.latest('AR', 20).filter((r) => r.messageId === accepted.message.id),
     ).toHaveLength(1);
   });
 
@@ -188,8 +188,8 @@ describe('PM authorization', () => {
       signalId: signal.id,
       signalActionable: true,
     });
-    const current = h.repos.operatorSignals.get(signal.id)!;
-    h.repos.operatorSignals.save({
+    const current = h.repos.projectManagerSignals.get(signal.id)!;
+    h.repos.projectManagerSignals.save({
       ...current,
       state: wrong === 'pending' ? 'open' : 'accepted',
       actionable: wrong !== 'non-actionable',
@@ -205,8 +205,8 @@ describe('PM authorization', () => {
     });
     if (wrong === 'other-presenter') {
       const old = h.repos.messages.get(presented.messageId)!;
-      h.repos.operatorSignals.save({
-        ...h.repos.operatorSignals.get(signal.id)!,
+      h.repos.projectManagerSignals.save({
+        ...h.repos.projectManagerSignals.get(signal.id)!,
         messageId: h.domain.messages.record({
           projectKey: 'AR',
           from: 'operator',
@@ -449,21 +449,21 @@ describe('persisted coordination signal bindings', () => {
         member: 'dev-1',
         signalId: signal.id,
       });
-      h.repos.operatorSignals.save({ ...signal, deliveredTo });
+      h.repos.projectManagerSignals.save({ ...signal, deliveredTo });
       await expect(
         h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
       ).rejects.toThrow('operator_signal_closed');
-      const oldSteps = h.repos.operatorRequests.stepsOfSignal(signal.id);
+      const oldSteps = h.repos.projectManagerRequests.stepsOfSignal(signal.id);
       await deliverSignals();
-      expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+      expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({
         id: signal.id,
         caseKey: signal.caseKey,
         deliveredTo: 'pm',
       });
-      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue')).toHaveLength(
-        1,
-      );
-      expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual(oldSteps);
+      expect(
+        h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'obligation_overdue'),
+      ).toHaveLength(1);
+      expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual(oldSteps);
       await expect(
         h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
       ).rejects.toThrow('operator_signal_budget');
@@ -475,13 +475,13 @@ describe('persisted coordination signal bindings', () => {
     await setup();
     const { card, signal, pm } = await idleSignal();
     await h.domain.members.update('AR', 'pm', { onLeave: true }, by);
-    expect(h.repos.operatorSignals.get(signal.id)?.deliveredTo).toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.deliveredTo).toBeNull();
     await h.domain.members.update('AR', 'pm', { onLeave: false }, by);
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
     ).rejects.toThrow('operator_signal_closed');
     await deliverSignals();
-    expect(h.repos.operatorSignals.get(signal.id)?.deliveredTo).toBe('pm');
+    expect(h.repos.projectManagerSignals.get(signal.id)?.deliveredTo).toBe('pm');
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
     ).resolves.toHaveProperty('session_id');
@@ -496,7 +496,7 @@ describe('persisted coordination signal bindings', () => {
       { to: ['owner'], text: 'Earlier proposal.' },
       { actor: { kind: 'ai', handle: 'operator' }, kind: 'info' },
     );
-    h.repos.operatorSignals.save({
+    h.repos.projectManagerSignals.save({
       ...signal,
       state: 'open',
       deliveredTo: null,
@@ -504,7 +504,7 @@ describe('persisted coordination signal bindings', () => {
       actionable: true,
     });
     await deliverSignals();
-    expect(h.repos.operatorSignals.get(signal.id)?.messageId).toBe(sent.message.id);
+    expect(h.repos.projectManagerSignals.get(signal.id)?.messageId).toBe(sent.message.id);
     await expect(
       h.domain.messaging.sendReporting(
         'AR',
@@ -513,7 +513,7 @@ describe('persisted coordination signal bindings', () => {
         { actor: OWNER_ACTOR, operatorSignal: signal.id },
       ),
     ).rejects.toMatchObject({ code: 'not_found' });
-    expect(h.repos.operatorSignals.get(signal.id)?.state).toBe('open');
+    expect(h.repos.projectManagerSignals.get(signal.id)?.state).toBe('open');
   });
 
   it('rejects an old PM session after the selected coordinator changes', async () => {
@@ -524,7 +524,7 @@ describe('persisted coordination signal bindings', () => {
     const { card, signal, pm } = await idleSignal();
     await h.domain.members.update('AR', 'pm', { onLeave: true }, by);
     await deliverSignals();
-    expect(h.repos.operatorSignals.get(signal.id)?.deliveredTo).toBe('pm-2');
+    expect(h.repos.projectManagerSignals.get(signal.id)?.deliveredTo).toBe('pm-2');
     await expect(
       h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),
     ).rejects.toThrow('project_manager_only');

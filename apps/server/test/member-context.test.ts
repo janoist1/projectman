@@ -139,7 +139,7 @@ describe('member context preview', () => {
       ['owner', 'brief'],
       ['other', 'detailed'],
     ] as const) {
-      await h.domain.operatorKnowledge.compareAndSwapPreference('AR', handle, 0, {
+      await h.domain.projectManagerKnowledge.compareAndSwapPreference('AR', handle, 0, {
         schemaVersion: 1,
         revision: 1,
         data: { ...DEFAULT_OPERATOR_PREFERENCE, length },
@@ -151,7 +151,7 @@ describe('member context preview', () => {
       ['other', 'detailed'],
     ] as const) {
       await h.domain.sessions.previewContext('AR', 'pm', { viewer });
-      expect(h.contextBuilder.inputs.at(-1)!.operatorPreference).toEqual({
+      expect(h.contextBuilder.inputs.at(-1)!.projectManagerPreference).toEqual({
         ...DEFAULT_OPERATOR_PREFERENCE,
         length,
       });

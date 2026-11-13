@@ -19,10 +19,10 @@ import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 
-export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
+export function registerProjectManagerRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
   /** The super mode's audit (PM-757): the owner's own login reads it by token prefix; never a key. */
-  app.get<ProjectParams>(routes.operatorSuperAudit(':key'), async (request): Promise<SuperAuditPage> => {
+  app.get<ProjectParams>(routes.superAudit(':key'), async (request): Promise<SuperAuditPage> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'owner' });
     if (access.via)
@@ -31,7 +31,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   });
   /** The weekly owner question measure (PM-1192): like the audit, the owner's own login only. */
   app.get<ProjectParams>(
-    routes.operatorOwnerQuestions(':key'),
+    routes.projectManagerOwnerQuestions(':key'),
     async (request): Promise<OwnerQuestionsReport> => {
       const key = request.params.key;
       const access = await requireAccess(domain, request, key, { minimum: 'owner' });
@@ -63,33 +63,33 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       return domain.superOperations.operation(key, operationId);
     },
   );
-  app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
+  app.get<ProjectParams>(routes.projectManagerKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
     if ((access.via && !request.principal) || !canReadOperatorKnowledge({ access: access.access }))
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',
       );
-    return domain.sharedOperatorKnowledge.read(request.params.key);
+    return domain.sharedProjectManagerKnowledge.read(request.params.key);
   });
-  app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
+  app.get<ProjectParams>(routes.projectManagerPreferences(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
-    return domain.operatorPreferences.list(request.params.key);
+    return domain.projectManagerPreferences.list(request.params.key);
   });
 
-  app.get<ProjectParams>(routes.operatorPreferenceMe(':key'), async (request) => {
+  app.get<ProjectParams>(routes.projectManagerPreferenceMe(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    return domain.operatorPreferences.me(request.params.key, access.handle);
+    return domain.projectManagerPreferences.me(request.params.key, access.handle);
   });
 
   app.post<{ Params: { key: string; signalId: string } }>(
-    routes.dismissOperatorSignal(':key', ':signalId'),
+    routes.dismissProjectManagerSignal(':key', ':signalId'),
     async (request) => {
       const { key, signalId } = request.params;
       const access = await requireAccess(domain, request, key);
       if (access.access !== 'owner' || access.via)
         throw forbidden('operator_owner_only', "only the owner's own login may dismiss a signal");
-      return domain.operatorSignals.decision(key, signalId, access.handle, false);
+      return domain.projectManagerSignals.decision(key, signalId, access.handle, false);
     },
   );
 

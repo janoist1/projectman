@@ -42,7 +42,7 @@ export class LoopTriages {
       signalId = signal.id;
       if (signal.deliveredAt && signal.deliveredTo === member.handle) return { state: 'delivered', signalId };
       await this.deps.signals.deliver(input.projectKey);
-      const current = this.deps.ctx.repos.operatorSignals.get(signal.id);
+      const current = this.deps.ctx.repos.projectManagerSignals.get(signal.id);
       if (current?.deliveredAt && current.deliveredTo === member.handle)
         return { state: 'delivered', signalId };
       // The signal lane marks the item of a start that failed for good (a wait is no failure).
@@ -71,7 +71,7 @@ export class LoopTriages {
     const config = await projects.config(input.projectKey);
     if (coordinationActorRefusal(config, { kind: 'ai', handle: input.by }))
       throw forbidden('project_manager_only', 'only the selected PM may assess a loop');
-    const signal = ctx.repos.operatorSignals.get(input.signalId);
+    const signal = ctx.repos.projectManagerSignals.get(input.signalId);
     if (!signal || signal.projectKey !== input.projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
     if (signal.kind !== 'loop_suspected' || !signal.taskKey)

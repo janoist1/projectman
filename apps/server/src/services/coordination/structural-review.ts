@@ -292,13 +292,13 @@ export class StructuralReviews {
       if (!this.deps.signals.structuralFacts(signal))
         throw conflict('operator_signal_closed', 'the structural evidence expired');
     }
-    for (const step of this.deps.ctx.repos.operatorRequests.stepsOfSignal(payload.signalId))
+    for (const step of this.deps.ctx.repos.projectManagerRequests.stepsOfSignal(payload.signalId))
       if (
         step.inboxItemId === item.id &&
         step.action === 'structural_review' &&
         step.status === 'awaiting_approval'
       )
-        this.deps.ctx.repos.operatorRequests.updateStep(
+        this.deps.ctx.repos.projectManagerRequests.updateStep(
           step.id,
           option === 'approve' ? 'approved' : 'rejected',
         );

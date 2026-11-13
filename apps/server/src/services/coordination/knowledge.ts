@@ -60,7 +60,7 @@ export class ProjectManagerKnowledge {
     handle: string,
     workItem: WorkItemRef,
     cause: SessionStartCause | null,
-  ): Promise<ContextPackInput['operatorKnowledge']> {
+  ): Promise<ContextPackInput['projectManagerKnowledge']> {
     if (workItem.type !== 'general' || workItem.with !== undefined) return undefined;
     const config = await this.deps.projects.config(projectKey);
     const member = memberOf(config, handle);
@@ -160,7 +160,7 @@ export class ProjectManagerKnowledge {
       if (current.state !== 'open') return;
       if (option === 'dismiss' || option === 'reject') {
         this.deps.ctx.unitOfWork(() => {
-          this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'rejected');
+          this.deps.ctx.repos.projectManagerRequests.updateStep(payload.stepId, 'rejected');
           this.close(current, by.handle, option, isoNow(this.deps.ctx), note);
         });
         return;
@@ -296,7 +296,7 @@ export class ProjectManagerKnowledge {
   ): void {
     const applying = payload.applying!;
     this.deps.ctx.unitOfWork(() => {
-      this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'approved');
+      this.deps.ctx.repos.projectManagerRequests.updateStep(payload.stepId, 'approved');
       this.deps.timeline.append({
         projectKey: item.projectKey,
         actor: humanActor(applying.by),
@@ -320,7 +320,7 @@ export class ProjectManagerKnowledge {
   }
 
   private update(item: InboxItem, payload: ProjectManagerKnowledgeApprovalPayload): void {
-    const updated = this.deps.ctx.repos.inbox.updateOperator(
+    const updated = this.deps.ctx.repos.inbox.updateProjectManagerItem(
       item.id,
       { ...item.payload, operatorKnowledge: payload },
       item.options,
@@ -336,11 +336,11 @@ export class ProjectManagerKnowledge {
     reason: 'knowledge_changed' | 'config_changed',
   ): void {
     this.deps.ctx.unitOfWork(() => {
-      this.deps.inbox.staleOperator(item.id, {
+      this.deps.inbox.markProjectManagerItemStale(item.id, {
         ...item.payload,
         operatorKnowledge: { ...payload, stale: { reason, at: isoNow(this.deps.ctx) } },
       });
-      this.deps.ctx.repos.operatorRequests.updateStep(payload.stepId, 'stale');
+      this.deps.ctx.repos.projectManagerRequests.updateStep(payload.stepId, 'stale');
     });
   }
 

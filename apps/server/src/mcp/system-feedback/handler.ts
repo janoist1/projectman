@@ -25,12 +25,12 @@ function systemFeedbackToolError(err: unknown): unknown {
 export class SystemFeedbackTools implements SystemFeedbackToolsHandler {
   private readonly calls: ToolCaller;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly systemFeedback: Pick<SystemFeedbackService, 'listForOperator' | 'record'>;
+  private readonly systemFeedback: Pick<SystemFeedbackService, 'listForProjectManager' | 'record'>;
 
   constructor(deps: {
     calls: ToolCaller;
     projects: Pick<ProjectService, 'config'>;
-    systemFeedback: Pick<SystemFeedbackService, 'listForOperator' | 'record'>;
+    systemFeedback: Pick<SystemFeedbackService, 'listForProjectManager' | 'record'>;
   }) {
     this.calls = deps.calls;
     this.projects = deps.projects;
@@ -50,7 +50,7 @@ export class SystemFeedbackTools implements SystemFeedbackToolsHandler {
     await this.requireRecorder(ctx, 'list_system_feedback');
     await this.calls.callerWithRequest(ctx, 'list_system_feedback');
     return {
-      items: this.systemFeedback.listForOperator(ctx.projectKey).map((row) => ({
+      items: this.systemFeedback.listForProjectManager(ctx.projectKey).map((row) => ({
         id: row.id,
         state: row.state,
         title: row.title,

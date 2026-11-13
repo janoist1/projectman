@@ -21,7 +21,7 @@ import { registerOwnerAccountRoutes } from './owner-accounts';
 import { registerMemberRoutes } from './members';
 import { registerEmailChannelRoutes } from './email-channel';
 import { registerHostRequestRoutes } from './host-requests';
-import { registerOperatorRoutes } from './operator';
+import { registerProjectManagerRoutes } from './operator';
 import { registerMemberQueueRoutes } from './member-queue';
 import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
@@ -97,7 +97,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerNtfyRoutes(app, domain);
   registerProviderRoutes(app, services);
   registerProjectRoutes(app, services);
-  registerOperatorRoutes(app, services);
+  registerProjectManagerRoutes(app, services);
   registerMemberQueueRoutes(app, services);
   registerTaskRoutes(app, domain);
   registerMergeRoutes(app, domain);

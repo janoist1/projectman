@@ -40,7 +40,7 @@ export class ProjectState {
     pauses: Pick<ProjectManagerPauses, 'projectView'>;
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
-    operatorSignals: Pick<ProjectManagerSignals, 'active'>;
+    projectManagerSignals: Pick<ProjectManagerSignals, 'active'>;
     requests: Pick<ProjectManagerRequests, 'openFor'>;
     workQueues: Pick<WorkQueues, 'overview'>;
     diagnostics: ProjectManagerDiagnosticSources;
@@ -173,7 +173,7 @@ export class ProjectState {
       assignee: task.assignee,
       labels: task.labels,
       wait: this.deps.taskWaits.ofCard(config, task, null),
-      signals: this.deps.operatorSignals.active(projectKey).filter((s) => s.taskKey === taskKey),
+      signals: this.deps.projectManagerSignals.active(projectKey).filter((s) => s.taskKey === taskKey),
       startWaiting: task.startWaiting ?? null,
       startBlock: startBlock(task, config),
       missingGateLabels: [
@@ -311,7 +311,7 @@ export class ProjectState {
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
       operatorWatch: operatorWatchOf(config),
-      signals: this.deps.operatorSignals.active(projectKey),
+      signals: this.deps.projectManagerSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
         // The board shows only open cards; done and cancelled ones stay in their last stage.

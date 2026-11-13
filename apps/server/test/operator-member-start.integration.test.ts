@@ -57,12 +57,12 @@ it(
     await vi.waitFor(
       () => {
         expect(domain.sessions.get('AR', operator.id).state).toBe('idle');
-        expect(domain.ctx.repos.operatorRequests.openOfSession(operator.id)).toEqual([]);
+        expect(domain.ctx.repos.projectManagerRequests.openOfSession(operator.id)).toEqual([]);
       },
       { timeout: 15_000 },
     );
     const requestId = 'opr_member_start';
-    domain.ctx.repos.operatorRequests.insert({
+    domain.ctx.repos.projectManagerRequests.insert({
       id: requestId,
       projectKey: 'AR',
       sessionId: operator.id,
@@ -73,7 +73,7 @@ it(
       quote: 'Check the engine with Devops.',
       openedAt: new Date().toISOString(),
     });
-    expect(domain.ctx.repos.operatorRequests.openOfSession(operator.id)).toHaveLength(1);
+    expect(domain.ctx.repos.projectManagerRequests.openOfSession(operator.id)).toHaveLength(1);
     const text = 'Inspect the engine readiness without a card.';
     const result = await domain.teamTools.startMember(
       {
@@ -104,7 +104,7 @@ it(
     );
     // Replies may open newer Operator requests; this start belongs to the request captured at the call.
     expect(domain.messages.get(result.messageId)?.operatorRequest).toBe(requestId);
-    expect(domain.ctx.repos.operatorRequests.steps(requestId)).toMatchObject([
+    expect(domain.ctx.repos.projectManagerRequests.steps(requestId)).toMatchObject([
       { action: 'task_start', taskKey: null, member: 'devops', status: 'done' },
     ]);
   },

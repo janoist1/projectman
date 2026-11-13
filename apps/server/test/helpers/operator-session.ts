@@ -9,7 +9,7 @@ type Repos = Pick<DomainHarness, 'repos'>;
  * operations, requests and approvals) seeds the session and the owner request the way a delivered owner
  * message used to leave them.
  */
-export function seedOperatorSession(
+export function seedProjectManagerSession(
   h: Repos,
   projectKey: string,
   opts: { member?: string; with?: string; at?: string } = {},
@@ -35,7 +35,7 @@ export function seedOperatorSession(
   return session;
 }
 
-export function seedOperatorRequest(
+export function seedProjectManagerRequest(
   h: Repos,
   projectKey: string,
   opts: {
@@ -52,7 +52,7 @@ export function seedOperatorRequest(
   } = {},
 ) {
   const now = opts.at ?? new Date().toISOString();
-  const session = seedOperatorSession(h, projectKey, { member: opts.member, with: opts.with, at: now });
+  const session = seedProjectManagerSession(h, projectKey, { member: opts.member, with: opts.with, at: now });
   const text = opts.text ?? 'Change the writer to Sonnet.';
   const messageId =
     opts.messageId === undefined ? `msg_${randomUUID().replaceAll('-', '').slice(0, 16)}` : opts.messageId;
@@ -78,6 +78,6 @@ export function seedOperatorRequest(
     quote: text.replace(/\s*[\r\n]+\s*/g, ' ').trim(),
     openedAt: now,
   } as const;
-  h.repos.operatorRequests.insert(request);
+  h.repos.projectManagerRequests.insert(request);
   return { session, request };
 }

@@ -73,7 +73,7 @@ describe('loop watch', () => {
   const loopEvents = () =>
     h.repos.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === 'task_loop');
   const firstInputs = () => h.runner.started.map((spec) => spec.initialMessage ?? '');
-  const signal = () => h.repos.operatorSignals.get(loop()!.triage!.pendingSignalId!);
+  const signal = () => h.repos.projectManagerSignals.get(loop()!.triage!.pendingSignalId!);
   const pmContext = () => ({
     projectKey: 'AR',
     member: 'pm',
@@ -228,7 +228,7 @@ describe('loop watch', () => {
 
     it('falls back when the signal cannot be stored', async () => {
       await prepare();
-      vi.spyOn(h.repos.operatorSignals, 'insert').mockImplementation(() => {
+      vi.spyOn(h.repos.projectManagerSignals, 'insert').mockImplementation(() => {
         throw new Error('storage failed');
       });
       await goRound();
@@ -354,7 +354,7 @@ describe('loop watch', () => {
         phase: 'notified',
         triage: { generation: 0, assessed: { count: 3, outcome: 'progress', by: 'pm' } },
       });
-      expect(h.repos.operatorSignals.get(id)?.state).toBe('resolved');
+      expect(h.repos.projectManagerSignals.get(id)?.state).toBe('resolved');
       await expect(
         h.domain.teamTools.triageLoop(pmContext(), {
           signalId: id,
@@ -374,7 +374,9 @@ describe('loop watch', () => {
       await talk('cr', ['dev-1']);
       expect(loop()!.triage).toMatchObject({ generation: 1, requestedCount: 6, assessed: null });
       await h.domain.loopWatch.sweep();
-      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(2);
+      expect(
+        h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'loop_suspected'),
+      ).toHaveLength(2);
       await expect(
         h.domain.teamTools.triageLoop(pmContext(), {
           signalId: id,
@@ -402,7 +404,9 @@ describe('loop watch', () => {
       await talk('pm', ['dev-1']);
       expect(loop()).toMatchObject({ phase: 'notified', members: ['dev-1', 'pm'] });
       expect(items()).toEqual([]);
-      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(2);
+      expect(
+        h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'loop_suspected'),
+      ).toHaveLength(2);
     });
 
     it('rechecks a new commit before the sixth message could reach an owner', async () => {
@@ -420,7 +424,7 @@ describe('loop watch', () => {
       await talk('cr', ['dev-1']);
       expect(loop()).toBeNull();
       expect(items()).toEqual([]);
-      expect(h.repos.operatorSignals.get(id)?.state).toBe('resolved');
+      expect(h.repos.projectManagerSignals.get(id)?.state).toBe('resolved');
       expect(loopEvents().at(-1)?.data.endReason).toBe('commit');
     });
 
@@ -491,7 +495,7 @@ describe('loop watch', () => {
       await expect(
         h.domain.teamTools.triageLoop({ ...pmContext(), sessionId: 'ses_guest' }, args),
       ).rejects.toMatchObject({ code: 'forbidden' });
-      h.repos.operatorSignals.save({ ...signal()!, deliveredTo: 'dev-1' });
+      h.repos.projectManagerSignals.save({ ...signal()!, deliveredTo: 'dev-1' });
       await expect(h.domain.teamTools.triageLoop(pmContext(), args)).rejects.toMatchObject({
         code: 'invalid',
       });
@@ -500,7 +504,7 @@ describe('loop watch', () => {
 
     it('does not turn a report into an owner request or start permission at any watch level', async () => {
       const id = signal()!.id;
-      expect(() => h.domain.operatorSignals.presentation('AR', id, 'pm')).toThrow('use triage_loop');
+      expect(() => h.domain.projectManagerSignals.presentation('AR', id, 'pm')).toThrow('use triage_loop');
       for (const level of ['report', 'unblock', 'drive'] as const) {
         await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
           config.team.operatorWatch = level;
@@ -510,7 +514,7 @@ describe('loop watch', () => {
           h.domain.teamTools.startTask(pmContext(), { taskKey: 'AR-1', signalId: id }),
         ).rejects.toMatchObject({ code: 'forbidden' });
       }
-      expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([]);
+      expect(h.repos.projectManagerRequests.latest('AR', 10)).toEqual([]);
       expect(items()).toEqual([]);
     });
 
@@ -573,7 +577,9 @@ describe('loop watch', () => {
       pendingSignalId: id,
       deadline: { remainingMs: 6 * MINUTE, resumedAt: now.toISOString() },
     });
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(1);
+    expect(h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'loop_suspected')).toHaveLength(
+      1,
+    );
     expect(items()).toEqual([]);
   });
 

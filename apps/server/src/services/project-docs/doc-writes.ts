@@ -217,7 +217,7 @@ export class DocWrites {
         externalOrigin: null,
         autonomousLessons: false,
       });
-      ctx.repos.operatorRequests.insertStep({
+      ctx.repos.projectManagerRequests.insertStep({
         id: stepId,
         requestId: input.requestId,
         at: now,
@@ -743,7 +743,7 @@ export class DocWrites {
         error,
       });
       // Bearer MCP and autonomous lessons writes have no Operator step.
-      if (row.stepId) ctx.repos.operatorRequests.updateStep(row.stepId, status, null, refusal);
+      if (row.stepId) ctx.repos.projectManagerRequests.updateStep(row.stepId, status, null, refusal);
     });
     if (ended.state === 'published') {
       try {

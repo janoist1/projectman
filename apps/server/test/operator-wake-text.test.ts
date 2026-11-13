@@ -47,9 +47,9 @@ async function overdueCard(
 ) {
   const card = await place(opts.patch ?? { stageId: 'development', status: 'active', assignee: 'dev-1' });
   const { id, signalId } = openOverdueObligation(h, card, { at: now, ...opts });
-  await h.domain.operatorSignals.deliver('AR');
+  await h.domain.projectManagerSignals.deliver('AR');
   await flush();
-  return { card, id, signal: h.repos.operatorSignals.get(signalId)! };
+  return { card, id, signal: h.repos.projectManagerSignals.get(signalId)! };
 }
 
 const operator = async (): Promise<ToolContext> => ({
@@ -183,7 +183,7 @@ describe('level drive', () => {
     h.runner.setState(session, 'working');
     h.runner.setState(session, 'idle');
     await flush();
-    await h.domain.operatorSignals.deliver('AR');
+    await h.domain.projectManagerSignals.deliver('AR');
     await flush();
     expect(wakeRows()).toMatchObject([
       {

@@ -375,7 +375,7 @@ describe('a new relation on a card that is being worked on', () => {
       // The system's only action message goes to the project manager (its wake-up), none to an analyst.
       expect(asked().flatMap((m) => m.to)).toEqual(['pm']);
       expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
-      expect(h.repos.operatorSignals.list('AR')).toEqual([
+      expect(h.repos.projectManagerSignals.list('AR')).toEqual([
         expect.objectContaining({ kind: 'relation_check', taskKey: 'AR-1' }),
       ]);
       // The worker still gets the plain notice; the owners get nothing.
@@ -391,7 +391,7 @@ describe('a new relation on a card that is being worked on', () => {
 
       expect(asked()).toEqual([]);
       expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
-      expect(h.repos.operatorSignals.list('AR')).toEqual([]);
+      expect(h.repos.projectManagerSignals.list('AR')).toEqual([]);
       expect(fromSystem().find((m) => m.to.includes('owner'))).toMatchObject({
         origin: { kind: 'system_notice', notice: 'relation_check' },
       });

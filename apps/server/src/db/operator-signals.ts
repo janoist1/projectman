@@ -76,6 +76,17 @@ export function createOperatorSignalRepository(db: Db) {
     listOpen(projectKey: string): OperatorSignalRecord[] {
       return (listOpen.all(projectKey) as Row[]).map(record);
     },
+    /** The signals of one kind raised for one card, open or not, oldest first. */
+    listOfTask(projectKey: string, taskKey: string, kind: OperatorSignalKind): OperatorSignalRecord[] {
+      return (
+        db
+          .prepare(
+            `SELECT ${columns} FROM operator_signals
+          WHERE project_key = ? AND task_key = ? AND kind = ? ORDER BY raised_at, rowid`,
+          )
+          .all(projectKey, taskKey, kind) as Row[]
+      ).map(record);
+    },
     /** The signals raised at or after `since` (ISO time), oldest first. */
     listSince(projectKey: string, since: string): OperatorSignalRecord[] {
       return (listSince.all(projectKey, since) as Row[]).map(record);

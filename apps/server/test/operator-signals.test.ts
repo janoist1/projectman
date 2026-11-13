@@ -116,7 +116,13 @@ async function deliver() {
 describe('Operator system signals', () => {
   it('filters every coordinator-only state from the channel and live owner events, retaining outage', async () => {
     await setup();
-    for (const kind of ['structural_pattern', 'milestone_closed', 'stalled', 'outage'] as const) {
+    for (const kind of [
+      'structural_pattern',
+      'milestone_closed',
+      'review_follow_ups',
+      'stalled',
+      'outage',
+    ] as const) {
       for (const state of ['pending', 'open', 'dismissed', 'resolved'] as const) {
         const signal = h.domain.operatorSignals.raise({
           projectKey: 'AR',

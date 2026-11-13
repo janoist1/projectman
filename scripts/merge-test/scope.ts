@@ -62,6 +62,7 @@ export const OWNED_PATH_RULES: readonly OwnedPathRule[] = [
       'apps/server/test/engine-app-package.test.ts',
       'apps/server/test/engine-app-build.test.ts',
       'apps/server/test/engine-app-fetch.test.ts',
+      'apps/server/test/engine-app-install-script.test.ts',
       'apps/server/test/engine-release-workflow.test.ts',
       'apps/server/test/merge-check-workflow.test.ts',
       'apps/server/test/projectman-job-workflow.test.ts',

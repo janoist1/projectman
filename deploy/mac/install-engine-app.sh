@@ -208,13 +208,12 @@ rm -rf "$target"
 mv "$staged/$APP_NAME" "$target" || refuse copy_failed "cannot move the app to $target"
 step "installed: $target"
 
-cat <<EOF
-
-NEXT  Start the app:
-        open "$target"
-      If this environment does not allow \`open\`, tell the user: open the Applications folder of your home
-      (Finder, Go menu, Home, Applications) and double-click "projectman motor".
-      On first launch the app moves itself to /Applications when it can and installs the engine. It may ask
-      for the Xcode command line tools (click Install), and macOS asks to allow its background item: the app
-      opens System Settings, Login Items, where the user switches "projectman motor" on.
-EOF
+printf '%s\n' \
+  '' \
+  'NEXT  Start the app:' \
+  "        open \"$target\"" \
+  '      If this environment does not allow `open`, tell the user: open the Applications folder of your home' \
+  '      (Finder, Go menu, Home, Applications) and double-click "projectman motor".' \
+  '      On first launch the app moves itself to /Applications when it can and installs the engine. It may ask' \
+  '      for the Xcode command line tools (click Install), and macOS asks to allow its background item: the app' \
+  '      opens System Settings, Login Items, where the user switches "projectman motor" on.'

@@ -2130,6 +2130,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   after `argumentSubmitTimeoutMs`; startup or turn activity alone cannot confirm it.
   The existing `first_input_sent`, `first_input_failed` and exit events carry the result to
   the hub; no server/engine protocol change is needed.
+  **Pause nudge (PM-1369, R-04):** the nudge a pause's release types is awaited until the CLI
+  takes it. When it never does, the engine sends the additive `nudge_failed` event (the session
+  id and the nudge text); the hub stores the text as a `system` message for the member and work
+  item. The same hub-side store (`Messaging.storeNotice`) keeps a notice the hub typed
+  (`delivery.notice`) that the engine reported as not taken.
   **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
   loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
   unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise

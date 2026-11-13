@@ -161,10 +161,14 @@ describe('automatic session admission and retries', () => {
     const message = await humanMessage(h);
     await flush();
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
-    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait?.code).toEqual(expect.any(String));
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait?.code).toBe('start_backoff');
     await h.domain.memberQueueDriver.sweep();
     expect(h.runner.started).toHaveLength(0);
+    // The failed start backs off (PM-1335): the sweep tries again only once the backoff is over.
     failing.mockImplementation(start);
+    await h.domain.memberQueueDriver.sweep();
+    expect(h.runner.started).toHaveLength(0);
+    h.liftStartBackoff();
     await h.domain.memberQueueDriver.sweep();
     await flush();
     expect(h.runner.started).toHaveLength(1);

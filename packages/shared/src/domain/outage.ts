@@ -11,6 +11,8 @@ export const ProviderOutageProblem = z.enum([
   'cli_missing',
   'chatgpt_login',
   'setup_incomplete',
+  // PM-1335: the member's sessions keep failing at start; the starts stopped (`START_FAILURE_LIMIT`).
+  'start_failing',
 ]);
 export type ProviderOutageProblem = z.infer<typeof ProviderOutageProblem>;
 const OutageEngine = z.object({ id: EngineId, name: z.string() });
@@ -33,6 +35,7 @@ export const OUTAGE_REFUSALS = [
   'nanogpt_key_missing',
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
+  'start_failing',
   'engine_offline',
 ] as const satisfies readonly ErrorCode[];
 
@@ -51,6 +54,7 @@ export function providerOutageProblemOf(
   details?: Record<string, unknown>,
 ): ProviderOutageProblem | null {
   if (code === 'nanogpt_key_missing') return 'no_key';
+  if (code === 'start_failing') return 'start_failing';
   if (
     code !== 'provider_not_logged_in' &&
     code !== 'nanogpt_setup_incomplete' &&

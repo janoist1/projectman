@@ -87,6 +87,8 @@ const START_WAITING_CLASS: Record<TaskStartWaiting['reason'], StartClass> = {
   no_free_member: { via: 'hold', code: 'capacity' },
   senior_busy: { via: 'hold', code: 'capacity' },
   engine_offline: { via: 'hold', code: 'engine' },
+  start_backoff: { via: 'retry' },
+  start_failing: { via: 'people' },
   full_test_pending: { via: 'hold', code: 'full_test' },
   handoff_open: { via: 'hold', code: 'handoff' },
   workspace_dependencies_pending: { via: 'hold', code: 'dependencies' },

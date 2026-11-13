@@ -381,7 +381,8 @@ export class SessionOrchestrator {
         this.assertProviderReady(provider, member, engineId),
       removeSessionFolderOf: (sessionId) => this.removeSessionFolderOf(sessionId),
       // A stop reason keeps a resumed conversation: it is no proof the conversation cannot be resumed (PM-340).
-      markStartFailed: (sessionId) => void this.markEnded(sessionId, 1, null, { kind: 'failed' }),
+      markStartFailed: (sessionId, code) =>
+        void this.markEnded(sessionId, 1, null, { kind: 'failed', code: code.slice(0, 64) }),
       folderRemoval: (sessionId) => this.folderRemovals.get(sessionId),
     });
   }
@@ -530,6 +531,13 @@ export class SessionOrchestrator {
 
   useProjectManagerStarts(send: NonNullable<SessionOrchestrator['projectManagerStart']>): void {
     this.projectManagerStart = send;
+  }
+
+  private storeNotice?: (session: Session, text: string) => Promise<void>;
+
+  /** Binds the store for a text the session did not take (the pause's nudge, R-04); messaging is built later. */
+  useNoticeStore(store: (session: Session, text: string) => Promise<void>): void {
+    this.storeNotice = store;
   }
 
   /** Called after the session lock, including admission's running-session shortcut. */
@@ -1735,6 +1743,16 @@ export class SessionOrchestrator {
     this.limits.assertProviderCooldown(provider, engineId);
   }
 
+  /** Whether the provider is on hold now (PM-1335): the same hold as `assertProviderCooldown`, without throwing. */
+  providerOnHold(provider: AgentProvider, engineId: EngineId | null | undefined): boolean {
+    try {
+      this.limits.assertProviderCooldown(provider, engineId);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
   /**
    * Marks a live session as ended (exit, stop, retire); returns the updated row or null if it
    * had ended. `reason` (e.g. a lost login) stays as the session's activity.
@@ -1749,6 +1767,8 @@ export class SessionOrchestrator {
     const session = this.ctx.repos.sessions.get(sessionId);
     if (session) this.cleanupFailures.observe(session, cleanup, this.workspacesOfSession(session));
     const failed = exitCode !== null && exitCode !== 0;
+    // Read before `live.ended` forgets it (PM-1335): the session never took its first input.
+    const beforeFirstTurn = session?.state === 'starting' || this.live.awaitingFirstTurn.has(sessionId);
     const { stop: recordedStop, resuming } = this.live.ended(sessionId);
     // A session a pause held ends as paused, unless it failed; the other ends without a reason are PM-274's.
     const why =
@@ -1803,7 +1823,7 @@ export class SessionOrchestrator {
       data: { member: ended.member, exitCode, ...(reason ? { reason } : {}), ...(why ? { stop: why } : {}) },
     });
     this.publishSession(ended);
-    void this.ctx.events.emit('session_ended', { ...ended, previousState: session.state });
+    void this.ctx.events.emit('session_ended', { ...ended, previousState: session.state, beforeFirstTurn });
     this.recomputeMemberState(ended.projectKey, ended.member);
     return ended;
   }
@@ -1835,6 +1855,20 @@ export class SessionOrchestrator {
             'the first input was typed but the session did not take it',
           );
           this.live.settleFirstInput(session.id, false);
+          return;
+        }
+        case 'nudge_failed': {
+          // The pause's nudge sat unconfirmed in the prompt box: store it, so it goes the usual way (R-04).
+          this.ctx.logger.warn(
+            { sessionId: session.id, member: session.member },
+            'the nudge after a pause was typed but the session did not take it',
+          );
+          void this.storeNotice?.(session, event.text).catch((err: unknown) => {
+            this.ctx.logger.error(
+              { err, sessionId: session.id },
+              'could not store the nudge the session did not take',
+            );
+          });
           return;
         }
         case 'state': {

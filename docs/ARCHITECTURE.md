@@ -464,7 +464,23 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   choice clears it: the start fails and nothing is kept; the board shows the task of an AI
   developer that cannot start for that reason ("Válassz repót a feladathoz", derived from the
   task, see `TaskStore`; also a card without an assignee in a work stage whose every owner is
-  such a developer).
+  such a developer). **A start that fails is not lost (PM-1335).** Only an automatic start is held; a
+  person's start (the Start button, a message typed to a stopped session) is never held, but its
+  failure counts and its success clears the count. `StartFailures` (`admission/start-failures.ts`) counts, per
+  project, member and place, the starts whose session could not run: the start itself failing
+  (`session_start_failed`, or an engine call that fails or times out, which belongs to no session) and a session
+  that ended as `failed` (a non-zero exit; a clean exit may be a stop nobody recorded) before its first turn, unless the provider was in a rate-limit cooldown or the stop
+  was a setup refusal or on purpose. A session is counted once, however many points see it. The count is in the
+  `start_failures` table (migration 156), so it survives a restart. After a failure the next automatic start at
+  the place waits 30 s, then 1, 2 and 4 minutes (`start_backoff`, with `until`); the fifth failure in a row stops
+  the place (`start_failing`). Both refusals can be waited for, so the deferral stays (it is not dropped) and the
+  card, the queue item or the message shows why. A stopped place opens one `work_outage` alert per provider and
+  engine (problem `start_failing`, from `WorkOutages`), and no automatic start is tried at it until something
+  changes: the engine reconnects, the NanoGPT key changes, the provider's CLI version changes or its login is lost
+  (seen by the 30 s check), or a person presses "Check now" on the alert. That gives each stopped place **one** more
+  try; its next failure stops it again at once. A session that works (running, or idle after its first turn)
+  clears the count. A start counts as automatic when it runs under the admission round of a deferred attempt, the
+  member queue's driver or the work-start pull (`Admission.exclusive(..., { automatic: true })`).
 - **Work start** (`admission/work-starts.ts`, PM-119) — an active card moved into a work stage
   without an assignee starts like the Start button starts it: `TaskStarts.startLocked` is the
   same developer choice, temp worker, admission checks and session start, run under the
@@ -542,8 +558,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   it, else `senior_wait_ended`; `seniorWaitEndReasonOf` in `packages/shared`). When no developer's limit
   reaches the points the card starts by the "any"
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
-  stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
-  a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
+  stored rows and events carry them. Stored configurations use `complexityLimit` instead of the old
+  `senior` mark (PM-1383); a DB migration turns a "senior" recommendation into 8 points.
+  No machine-dependent part is affected.
   **A paused provider** (PM-1051): a member whose provider is held (`provider_rate_limited` cooldown) or
   over the plan usage limit (`plan_usage_paused`, `planUsagePause` in `packages/shared`) is not free
   (`Admission.providerAvailable`), so the automatic choice never picks them and a paused high-limit
@@ -593,8 +610,10 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
 - **Timeline** — append-only, attributed events per task and project ("who did what").
 - **Customization repository** (decision 8) — project configuration (project, team, roles,
   pipeline, labels, limits) is YAML in a separate git repository. Every change is a commit
-  with author and reason; admins can revert to any version. Older configuration shapes are
-  migrated on load (`apps/server/src/config`).
+  with author and reason; admins can revert to versions that validate against the current
+  schema and invariants. Retired shapes are no longer converted on load (PM-1383).
+  Restoring a version that cannot be parsed or loses stored keys during parsing is refused
+  with `config_version_outdated`; current invariant violations retain their usual errors.
 
 ### Code names
 
@@ -604,13 +623,13 @@ thing is today ("connected Claude", "project manager") and names the code name o
 with a pointer to this table. One row per code name: what it is today, and what remains of it as old
 data.
 
-| Code name                                                                                                                                                                    | Today                                                                                                                                                                                                                                                                                                                                                   | What remains as old data                                                                                                                                                                                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `integrator` (`integrator_keys`, `integratorExecution`, `via: 'integrator'`, `recipient: 'integrator'`, `integratorFixLimit`, Settings → Integrator)                         | The owner's connected Claude: an outside MCP client that acts with its own key and, for a queue item it issues or decides, as its key holder. The key is managed in Settings → Integrator.                                                                                                                                                              | `via: 'integrator'` on old messages and events, the `integrator_keys` rows, the `integrator_timeout` reason of old `fix_limit_recipient_escalated` events.                                                                                                                                       |
-| `super` (`mcp/super-operator`, `services/super-operator`, `superActor`, `superDecision`, `isCoordinatorSuperActor`, `operatorMode: 'super'`)                                 | The origin of an action taken with the connected Claude's own key, or by the project manager acting as the selected coordinator. `mcp/super-operator` is the connected Claude's own tool list.                                                                                                                                                          | Inbox resolutions and old coordination steps carry the `superActor` and `operatorMode: 'super'` they were written with; an old super step keeps the rule it had.                                                                                                                                 |
-| `operator` (the handle, `ai_operator`, `RETIRED_OPERATOR_HANDLE`, `RETIRED_OPERATOR_ROLE`)                                                                                   | The handle and the member are gone: a project has no Operator member and no channel for one (decision 66). The project manager coordinates, and the owner's connected Claude acts with its own key. The built-in `operator` role id (`packages/shared/src/domain/role.ts`) is alive and is the owner's role, shown as "Tulajdonos" / "Owner"; it stays. | The handle `operator` stays taken (`members.takenHandles`), because old events, messages and request and step rows name it; the web shows it as the raw handle. The `removeOperator` configuration migration removed the member, its contacts, stage ownerships and `ai_operator` role override. |
-| `operator_*` tables and code (`operator_requests`, `operator_steps`, `operator_signals`, `operator_signal_arms`, `OperatorSignals`, `OperatorRequests`, `api/operator.ts`)   | The project manager's coordination: its signals, its owner-approved requests and their steps, and the channel the project manager answers on.                                                                                                                                                                                                           | The rows and the `operator_*` event and origin names (for example `operator_knowledge_approval`) stay as they were written.                                                                                                                                                                      |
-| `team.operatorWatch`, `get_operator_preference`, `set_operator_preference`, `propose_operator_knowledge`, the `operator_knowledge` and `operator_structural_review` deciders | The signal watch setting (report, unblock, drive), the project manager's per-person style tools, the shared agreement and principles proposal, and the owner's structural-review decision.                                                                                                                                                              | Stored configurations keep the `operatorWatch` key; old decision items keep their decider name.                                                                                                                                                                                                  |
+| Code name                                                                                                                                                                    | Today                                                                                                                                                                                                                                                                                                                                                   | What remains as old data                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integrator` (`integrator_keys`, `integratorExecution`, `via: 'integrator'`, `recipient: 'integrator'`, `integratorFixLimit`, Settings → Integrator)                         | The owner's connected Claude: an outside MCP client that acts with its own key and, for a queue item it issues or decides, as its key holder. The key is managed in Settings → Integrator.                                                                                                                                                              | `via: 'integrator'` on old messages and events, the `integrator_keys` rows, the `integrator_timeout` reason of old `fix_limit_recipient_escalated` events.                                                                                                      |
+| `super` (`mcp/super-operator`, `services/super-operator`, `superActor`, `superDecision`, `isCoordinatorSuperActor`, `operatorMode: 'super'`)                                 | The origin of an action taken with the connected Claude's own key, or by the project manager acting as the selected coordinator. `mcp/super-operator` is the connected Claude's own tool list.                                                                                                                                                          | Inbox resolutions and old coordination steps carry the `superActor` and `operatorMode: 'super'` they were written with; an old super step keeps the rule it had.                                                                                                |
+| `operator` (the handle, `ai_operator`, `RETIRED_OPERATOR_HANDLE`)                                                                                                            | The handle and the member are gone: a project has no Operator member and no channel for one (decision 66). The project manager coordinates, and the owner's connected Claude acts with its own key. The built-in `operator` role id (`packages/shared/src/domain/role.ts`) is alive and is the owner's role, shown as "Tulajdonos" / "Owner"; it stays. | The handle `operator` stays taken (`members.takenHandles`), because old events, messages and request and step rows name it; the web shows it as the raw handle. The runtime configuration converters were retired after rewriting old configurations (PM-1383). |
+| `operator_*` tables and code (`operator_requests`, `operator_steps`, `operator_signals`, `operator_signal_arms`, `OperatorSignals`, `OperatorRequests`, `api/operator.ts`)   | The project manager's coordination: its signals, its owner-approved requests and their steps, and the channel the project manager answers on.                                                                                                                                                                                                           | The rows and the `operator_*` event and origin names (for example `operator_knowledge_approval`) stay as they were written.                                                                                                                                     |
+| `team.operatorWatch`, `get_operator_preference`, `set_operator_preference`, `propose_operator_knowledge`, the `operator_knowledge` and `operator_structural_review` deciders | The signal watch setting (report, unblock, drive), the project manager's per-person style tools, the shared agreement and principles proposal, and the owner's structural-review decision.                                                                                                                                                              | Stored configurations keep the `operatorWatch` key; old decision items keep their decider name.                                                                                                                                                                 |
 
 ## Invariants
 
@@ -636,13 +655,11 @@ Enforced on every configuration change, whoever makes it
   `team.releaseFourEyes`) is owner-only; so are account bindings, admin grants and
   filesystem locations.
 
-Real installations hold configurations written before a rule existed. They keep loading: the
-migrations (`apps/server/src/config/migrations.ts`) rewrite older shapes in memory, and a release
-approval that more than the release approval duty may give is narrowed to the duty (with a logged
-warning) when someone holds it. The few errors no migration can repair without guessing (a
-repository name or a column id used twice, a release approval while nobody holds the duty) do not
-stop a load: the store logs each one, the settings page lists them, and every change, a revert
-included, is refused until they are fixed (`isToleratedOnLoad`).
+Stored configurations are parsed against the current schema without compatibility conversions
+(PM-1383). Selected invariant errors still do not stop a load: the store logs them and the
+settings page lists them (`isToleratedOnLoad`). An edit with a previous configuration may
+preserve existing errors but cannot introduce new ones; strict saves and restores reject them.
+Retired configuration shapes must be rewritten before upgrading.
 
 ## Runtime architecture
 
@@ -882,9 +899,8 @@ member that holds it; a new project (template, `POST /projects`) gets none. A co
 key holder or as the issuer of an integrator queue item (PM-1074), and the project manager acts as the selected
 coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `packages/shared/src/config/operator-member.ts`).
 The coordination tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project
-manager's. For old data: the configuration migration `removeOperator` (`config/migrations.ts`, idempotent)
-removes an Operator member stored by an older configuration, with its contacts, stage owners and role
-override (a temp-worker role becomes `developer`); the handle `operator` stays taken
+manager's. Configurations containing an Operator member must be rewritten before upgrading
+(PM-1383); the handle `operator` stays taken
 (`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
 `operator_steps` rows still name it, and the web shows such a name as the raw handle. See "Code names".
 
@@ -930,7 +946,7 @@ The boundary, the programs, their files and facades, the pinned version and the 
   duty catalogue, label and gate rules, owner-only changes, REST DTOs, routes, error codes and
   the websocket protocol (zod).
 - `packages/templates` — factory project templates, role defaults and role views, standard
-  label sets, member naming, legacy-configuration helpers, template locales.
+  label sets, member naming and template locales.
 
 **Server** (`apps/server/src`):
 
@@ -1028,7 +1044,8 @@ message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes 
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
+`schedule_runs`, `deferred_starts`, `start_failures` (PM-1335: the failed session starts of a member at a place, with
+their backoff), `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
 a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
 test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
@@ -1348,8 +1365,7 @@ minutes becomes one `machine_busy` todo for the integrator, withdrawn when the p
 
 ### Loop watch
 
-`LoopWatch` (`runtime/watchers`, PM-261; it replaced the message storm alert of PM-186 and
-its `team.limits.messageBurst`, dropped from old configurations by the `dropMessageBurst` migration) catches AI
+`LoopWatch` (`runtime/watchers`, PM-261; it replaced the message storm alert of PM-186) catches AI
 members writing to each other on a card without progress. The rules are pure and live in
 `packages/shared/src/domain/loop-watch.ts` (`countsForLoop`, `findLoop`, `loopWatchers`, `loopDeciders`), also
 used by the web's fake backend. Only team messages between AI members count; people's messages do not. Progress
@@ -1877,8 +1893,7 @@ confirmation, and `reopen` clears both. `moved` copies the item to the target ca
   MCP all use it.
 - **Gate.** Two system labels (`setBy: 'system'`, written by `SYSTEM_ACTOR` with reason `acceptance`, like
   `pr-merged`): `acceptance-open` while an item is open, `acceptance-unconfirmed` while one is open or
-  unconfirmed. Templates and the config migration (`migrateAcceptanceGates`, once, while the project does not
-  define `acceptance-open`) put `lacks_label acceptance-open` on the first stage after the work stage and
+  unconfirmed. Templates put `lacks_label acceptance-open` on the first stage after the work stage and
   `lacks_label acceptance-unconfirmed` on the merge target (the first release stage, else the done stage;
   `mergeTargetOf`) and on the done stage, so the merge readiness reads them too. A card
   without items has neither label and behaves as before. One `update_task` plans its acceptance changes
@@ -1924,8 +1939,8 @@ followed by). `move()` refuses a merge-requiring move that was not checked (`tas
 closes the race where the approval is put on between the preparation and the write; `decide` asks for the
 merge instead of moving in that case. Every path (moves, hand-on, approval decision, `update`, board drop,
 group drop, AutoAdvance through `moveToStage`) goes through `prepareMove`.
-The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
-the config migration `addMerger` writes the default merger into a valid configuration that has none.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it.
+Templates write the default merger into new configurations.
 `PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
 unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
 pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.

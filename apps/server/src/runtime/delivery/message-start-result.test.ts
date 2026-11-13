@@ -132,7 +132,7 @@ describe('the project manager learns what became of its message (PM-543)', () =>
     expect(after.session).not.toBeNull();
   });
 
-  it('reports a start that fails with its code and remembers it', async () => {
+  it('keeps a start that fails waiting for its backoff, and says so (PM-1335)', async () => {
     await setup();
     // Every attempt fails: the queue's driver also tries on its own when the message is queued.
     vi.spyOn(h.runner, 'start').mockRejectedValue(new Error('the CLI cannot start'));
@@ -141,13 +141,11 @@ describe('the project manager learns what became of its message (PM-543)', () =>
       text: 'Please look at the open cards.',
       kind: 'action',
     });
-    expect(result.recipients[0]!.start).toMatchObject({ state: 'failed' });
-    const failure = (await stateOf(result.messageId)).recipients[0]!.lastStartFailure;
-    expect(failure).toMatchObject({ code: expect.any(String) });
-    expect(failure!.at).toMatch(/^\d{4}-/);
-    expect(formatSentMessage({ ...result, requested: ['dev-1'], taskKey: null })).toContain(
-      'the start failed',
-    );
+    expect(result.recipients[0]!.start).toMatchObject({ state: 'waiting', reason: 'start_backoff' });
+    expect((await stateOf(result.messageId)).recipients[0]!.waiting).toMatchObject({
+      reason: 'start_backoff',
+    });
+    expect(formatSentMessage({ ...result, requested: ['dev-1'], taskKey: null })).toContain('start_backoff');
   });
 
   it('says an info message and a message about a closed card start nothing', async () => {

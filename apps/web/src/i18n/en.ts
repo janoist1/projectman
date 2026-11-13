@@ -325,6 +325,8 @@ export const en = {
       nanogpt_key_missing: 'No NanoGPT key is set, so the session won’t start.',
       nanogpt_setup_incomplete: 'The NanoGPT setup is incomplete, so the session won’t start.',
       codex_setup_incomplete: 'The Codex setup is incomplete, so the session won’t start.',
+      start_backoff: 'The last session start failed, so the next try comes later.',
+      start_failing: 'The session start failed several times in a row, so it stops trying on its own.',
       workspace_codex_config: 'The worktree’s.codex folder contains a Codex setting that isn’t allowed.',
       provider_unsupported: 'The provider isn’t supported in this run profile.',
       nanogpt_key_rejected: 'NanoGPT didn’t accept the key. Check it and try again.',
@@ -630,6 +632,7 @@ export const en = {
       duplicate_repo: 'The same repo is listed twice.',
       invalid_config: 'The setting is invalid.',
       config_invalid: 'The setting is invalid.',
+      config_version_outdated: 'This version uses an older settings format and cannot be restored.',
       config_conflict: 'The settings changed in the meantime.',
       stage_in_use: 'The stage still has cards. Move them to another stage first.',
       already_set_up: 'The owner account already exists.',
@@ -1244,6 +1247,8 @@ export const en = {
       nanogpt_key_missing: 'Waiting to start: no NanoGPT key',
       nanogpt_setup_incomplete: 'Waiting to start: NanoGPT setup incomplete',
       codex_setup_incomplete: 'Waiting to start: Codex setup incomplete',
+      start_backoff: 'The start failed, retrying {until}',
+      start_failing: 'The start keeps failing, no more tries',
       workspace_codex_config: 'Waiting to start: disallowed settings in the worktree .codex folder',
     },
     stageOwners: 'all stage owners',
@@ -1319,6 +1324,10 @@ export const en = {
         'NanoGPT setup is incomplete on the server. The NanoGPT row in Settings → AI providers shows what is missing. If it looks ready, a Codex setting prevents starting: the workspace .codex folder, the server /etc/codex folder or the NanoGPT Codex home settings. Remove the offending setting. This includes hooks (the hooks setting and hooks.json), project_root_markers and the macOS MDM profile (com.openai.codex): the owner must remove them or move them to another Codex home. If Codex is in a disallowed folder, use the official installer or install outside that folder. Work starts automatically once fixed.',
       codex_setup_incomplete:
         'Update Codex to at least {minCliVersion}, or remove sandbox settings (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles) from the configuration file named in the error. Hooks (the hooks setting and hooks.json, both personal and administrator), project_root_markers and the macOS MDM profile (com.openai.codex) also prevent starting: the owner must remove them or move them to another Codex home. For MCP configuration errors, give mcp_servers unique names in the personal config.toml; team is reserved for projectman. If Codex is in a disallowed folder, use the official installer or install outside that folder. Work starts automatically once fixed.',
+      start_backoff:
+        'The session start failed. The server retries on its own after 30 seconds, then 1, 2 and 4 minutes; after the fifth failure it stops.',
+      start_failing:
+        'The start failed five times in a row, so the server stops trying. It tries once more when the provider changes (login, update, engine reconnect); the alert’s Check now button gives it one more try too.',
     },
     next: {
       between: ' · ',
@@ -1361,6 +1370,8 @@ export const en = {
         nanogpt_key_missing: 'no NanoGPT key',
         nanogpt_setup_incomplete: 'NanoGPT setup incomplete',
         codex_setup_incomplete: 'Codex setup incomplete',
+        start_backoff: 'the start failed, retrying later',
+        start_failing: 'the start keeps failing',
         workspace_codex_config: 'disallowed settings in the worktree .codex folder',
         prerequisite_open: 'prerequisite',
       },
@@ -1494,6 +1505,7 @@ export const en = {
     stuckTodo: {
       login: 'Log in on the server: {command}',
       loginOnEngine: 'Log in on the machine running engine {engine}: {command}',
+      startFailing: 'Look at the affected member’s last session and fix the cause.',
       settings: 'Enter it in Settings → AI providers.',
       engine: 'Turn on the engine machine or restart the projectman engine on it.',
     },
@@ -5012,6 +5024,7 @@ export const en = {
           no_key: 'No NanoGPT key',
           setup_incomplete: 'The {provider} set-up is incomplete',
           chatgpt_login: 'The {provider} set-up is incomplete',
+          start_failing: '{provider} sessions keep failing to start',
           engine: 'The {engine} engine isn’t connected',
           engineNone: 'No engine is connected',
         },
@@ -5032,6 +5045,8 @@ export const en = {
           install: 'Install or update the {provider} CLI, then log in:',
           installOnEngine:
             'Install or update the {provider} CLI on the machine of the {engine} engine, then log in:',
+          startFailing:
+            'Look at the affected member’s last session (the exit reason is in the log) and fix the cause. Then Check now gives it one more try.',
           settings: 'Enter it here: Settings → AI providers.',
           openSettings: 'Open AI providers →',
           engine:
@@ -5067,6 +5082,7 @@ export const en = {
           no_key: 'no NanoGPT key',
           setup_incomplete: 'the {provider} set-up is incomplete',
           chatgpt_login: 'the {provider} set-up is incomplete',
+          start_failing: '{provider} sessions keep failing to start',
           engine: 'the {engine} engine isn’t connected',
           engineNone: 'no engine is connected',
           onEngine: '{reason} ({engine})',
@@ -6598,6 +6614,8 @@ export const en = {
       nanogpt_key_missing: 'No NanoGPT key is set, so the session doesn’t start.',
       nanogpt_setup_incomplete: 'The NanoGPT setup is incomplete, so the session doesn’t start.',
       codex_setup_incomplete: 'The Codex setup is incomplete, so the session doesn’t start.',
+      start_backoff: 'The last session start failed, so the next try comes later.',
+      start_failing: 'The session start failed several times in a row, so it stops trying on its own.',
       workspace_codex_config:
         'The worktree’s own .codex folder holds a Codex setting that could run a command outside the sandbox (for example a hook, an MCP server or a rule), so the Codex member doesn’t start.',
       provider_unsupported: 'The provider isn’t supported in this run profile.',

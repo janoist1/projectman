@@ -112,9 +112,11 @@ import {
   RefinementSteps,
   SeniorDecisions,
   StageHandOver,
+  StartFailures,
   TaskStarts,
   WorkStarts,
   createDeferredStartRebuilder,
+  wireStartFailures,
 } from './runtime/admission';
 import type { QueueWait } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
@@ -826,10 +828,19 @@ export function createDomain(opts: DomainOptions) {
     disk,
     keepMs: opts.closedWorktreeKeepMs,
   });
+  const startFailures = new StartFailures({
+    ctx,
+    engineOf: (projectKey, member) => engines.engineFor(projectKey, member),
+    providerOnHold: (provider, engineId) => sessions.providerOnHold(provider, engineId),
+    awaitsFirstTurn: (sessionId) => sessions.awaitsFirstTurn(sessionId),
+  });
+  // Counted before any listener below retries a start of the member whose session ended.
+  wireStartFailures({ events, startFailures });
   const admission = new Admission({
     onOutageRefusal: (key, handle, code, details) => {
       void outages.observeRefusal(key, handle, code, details).catch(() => {});
     },
+    startFailures,
     ctx,
     sessions,
     planUsage,
@@ -959,6 +970,8 @@ export function createDomain(opts: DomainOptions) {
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
   delivery.useMessageHolds((session) => messageRouter.holdsMessagesOf(session));
+  delivery.useNoticeStore((session, text) => messaging.storeNotice(session, text));
+  sessions.useNoticeStore((session, text) => messaging.storeNotice(session, text));
   const sessionCloser = new SessionCloser({
     ctx,
     engines,
@@ -1793,7 +1806,13 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     retry: retryDeferredStarts,
     engineName: opts.engineName,
+    startFailures,
   });
+  // A place that stopped at the failure limit is one alert; a released one gets its one more try at once (PM-1335).
+  startFailures.useReachedLimit((projectKey, member, hold) => {
+    void outages.startFailureStopped(projectKey, member, hold).catch(() => {});
+  });
+  startFailures.useReleased(() => retryDeferredStarts());
   events.on('config_changed', (change) => outages.configChanged(change));
   const unsubscribeOutageKeys = providerKeys?.onChange(() => {
     if (opts.standby) return;

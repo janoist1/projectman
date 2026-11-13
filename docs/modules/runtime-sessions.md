@@ -73,6 +73,12 @@ the team for an update"). The runner's part is `SessionRunner.pause` / `forcePau
   again. When the hub restarts (a deploy), `resumeAfterStartup` hands a session of an engine that is not connected
   yet to that engine's pause instead of starting it; it starts when the engine connects, and no message is stored for
   it. A revoked engine's pause ends with it (`endEnginePause`, without a restart).
+- **A start that fails (PM-1335).** `SessionStop.code` carries the reason when a start fails (`markStartFailed(sessionId, code)`
+  in `SessionLauncher`: the session ends as `failed` and `launch` throws `session_start_failed` with `details.sessionId`).
+  The `session_ended` event has `beforeFirstTurn`, true when the session had not yet had a turn. Admission's
+  `StartFailures` counts both (once per session), backs off and, at the limit, stops automatic starts at the place and
+  opens a `start_failing` alert; the rules are in [ARCHITECTURE.md](../ARCHITECTURE.md), admission. A pause or a rate-limit
+  cooldown (`providerOnHold`) is not a failed start.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project (and by the host owner with no project of their own),
   with only the sessions of the viewer's projects, and changed by the host owner alone (`domain.instanceOwner`,

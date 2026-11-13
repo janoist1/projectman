@@ -151,26 +151,30 @@ export class WorkStarts implements LabelWait, SeniorWait {
     const { projectKey, taskKey, from, to, developer, pulled } = input;
     await this.admission.warm(projectKey, developer);
     let assigned = false;
-    const done = await this.admission.exclusive('work-start', async () => {
-      try {
-        return await this.starts.startLocked(projectKey, taskKey, {
-          actor: SYSTEM_ACTOR,
-          author: SYSTEM_AUTHOR,
-          automatic: true,
-          assignee: developer,
-          pulled,
-          stillWanted: (t) => t.status === 'active' && t.stageId === from && t.assignee === null,
-          onAssigned: () => {
-            assigned = true;
-          },
-        });
-      } catch (err) {
-        const task = this.tasks.find(projectKey, taskKey);
-        if (assigned && task?.status === 'active' && task.stageId === to && task.assignee === developer)
-          return null;
-        throw err;
-      }
-    });
+    const done = await this.admission.exclusive(
+      'work-start',
+      async () => {
+        try {
+          return await this.starts.startLocked(projectKey, taskKey, {
+            actor: SYSTEM_ACTOR,
+            author: SYSTEM_AUTHOR,
+            automatic: true,
+            assignee: developer,
+            pulled,
+            stillWanted: (t) => t.status === 'active' && t.stageId === from && t.assignee === null,
+            onAssigned: () => {
+              assigned = true;
+            },
+          });
+        } catch (err) {
+          const task = this.tasks.find(projectKey, taskKey);
+          if (assigned && task?.status === 'active' && task.stageId === to && task.assignee === developer)
+            return null;
+          throw err;
+        }
+      },
+      { automatic: true },
+    );
     if (done) {
       // The card is started: an automatic start of it that waited has nothing left to do.
       this.admission.discardStale(done.task);

@@ -595,8 +595,18 @@ export class AgentSession {
     this.pauseState = null;
     this.clearPauseTimers();
     if (p.phase === 'stopping') p.cancel();
-    this.input.unhold(p.phase === 'stopped' || p.turnEnding ? opts.nudge : undefined);
+    const nudge = p.phase === 'stopped' || p.turnEnding ? opts.nudge : undefined;
+    this.reportNudge(nudge, this.input.unhold(nudge));
     return true;
+  }
+
+  /** A nudge the CLI never took is reported with its text, so the hub keeps it as a message (R-04). */
+  private reportNudge(nudge: string | undefined, submitted: Promise<void> | undefined): void {
+    submitted?.catch((err: unknown) => {
+      // A process that ended first says so by its exit; a nudge the CLI never took does not.
+      if (err instanceof NotSubmittedError && nudge)
+        this.deps.emit({ type: 'nudge_failed', sessionId: this.id, text: nudge });
+    });
   }
 
   /**

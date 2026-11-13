@@ -124,6 +124,7 @@ const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>
     z.strictObject({ type: z.literal('scope_recovered'), sessionId: text, cleanup: SessionCleanupWire }),
     z.strictObject({ type: z.literal('first_input_sent'), sessionId: text }),
     z.strictObject({ type: z.literal('first_input_failed'), sessionId: text }),
+    z.strictObject({ type: z.literal('nudge_failed'), sessionId: text, text }),
     z.strictObject({ type: z.literal('provider_session_id'), sessionId: text, providerSessionId: text }),
     z.strictObject({
       type: z.literal('auth_error'),

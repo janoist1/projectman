@@ -4,13 +4,14 @@ import {
   alertPayloadOf,
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
+  START_FAILURE_LIMIT,
   isOnLeave,
   isIntegratorTodo,
 } from '@projectman/shared';
 import type { AgentProvider, EngineId, HumanMemberConfig, Task, WorkOutageAlert } from '@projectman/shared';
 import type { ProviderStatus, EngineDirectory } from '../src/contracts';
 import type { AutomaticStart } from '../src/runtime/admission';
-import { DeferredStarts } from '../src/runtime/admission';
+import { DeferredStarts, StartFailures } from '../src/runtime/admission';
 import { WorkOutages } from '../src/runtime/watchers';
 import { createDomainEvents } from '../src/core/base';
 import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
@@ -29,6 +30,16 @@ function status(
   return { provider, loggedIn, problem, method: null, checkedAt: '2026-10-10T20:00:00Z' };
 }
 
+/** The failed-start counter on the harness's database; the provider is never on hold here. */
+function startFailuresOf(h: DomainHarness): StartFailures {
+  return new StartFailures({
+    ctx: h.domain.ctx,
+    engineOf: () => null,
+    providerOnHold: () => false,
+    awaitsFirstTurn: () => false,
+  });
+}
+
 describe('work outage watch', () => {
   let h: DomainHarness;
   let watch: WorkOutages;
@@ -40,6 +51,7 @@ describe('work outage watch', () => {
   let directory: EngineDirectory;
   let engineListeners: Array<(id: EngineId, online: boolean) => void>;
   let startedAt: Date;
+  let failures: StartFailures;
   let clock: number;
   /** Lets a failing provider's backoff (30 s at first) run out. */
   const waitOutBackoff = () => {
@@ -74,6 +86,8 @@ describe('work outage watch', () => {
     Object.assign(h.runner, { providerStatus: probe });
     deferred = new DeferredStarts();
     retry = vi.fn();
+    failures = startFailuresOf(h);
+    failures.useReleased(() => retry());
     watch = new WorkOutages({
       // This watch owns different deferrals and engine names from the domain's watch. Keep its
       // notifications isolated so an Operator wake-up cannot invoke the domain's separate watch.
@@ -92,6 +106,7 @@ describe('work outage watch', () => {
       tasks: h.domain.tasks,
       retry,
       engineName: () => 'Mac mini',
+      startFailures: failures,
     });
     startedAt = h.domain.ctx.now();
     clock = startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS;
@@ -423,6 +438,7 @@ describe('work outage watch', () => {
       members: h.domain.members,
       tasks: h.domain.tasks,
       retry,
+      startFailures: startFailuresOf(h),
     });
     const result = await watch.checkNow('AR', item.id, access());
     expect(result).toMatchObject({ stillFailing: true, item: { state: 'open' } });
@@ -617,6 +633,70 @@ describe('work outage watch', () => {
     expect(watch.factsOf('AR', outage.id)).toBeNull();
   });
 
+  describe('places that stopped at the start failure limit (PM-1335)', () => {
+    /** Fails the starts of both members at their general place until the limit, and tells the watch. */
+    async function stopPlaces(cliVersion?: string) {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        for (const member of config.team.members) if (member.kind === 'ai') member.provider = 'codex';
+        return 'Use Codex';
+      });
+      probe.mockImplementation(async (provider) => ({ ...status(provider, true), cliVersion }));
+      for (const member of ['dev-1', 'dev-2']) {
+        let hold;
+        for (let i = 0; i < START_FAILURE_LIMIT; i++)
+          hold = failures.record(
+            { projectKey: 'AR', member, place: { type: 'general' }, provider: 'codex' },
+            { code: 'link_down', sessionId: null },
+          );
+        await watch.startFailureStopped('AR', member, hold!);
+      }
+    }
+
+    it('opens one alert for the provider, however many places stopped, and tries nothing more by itself', async () => {
+      await stopPlaces();
+      expect(raised()).toHaveLength(1);
+      const { outage } = raised()[0]!.payload;
+      expect(outage).toMatchObject({ provider: 'codex', problem: 'start_failing' });
+      await watch.check();
+      await watch.check();
+      expect(raised()).toHaveLength(1);
+      expect(watch.factsOf('AR', outage.id)).not.toBeNull();
+      expect(retry).not.toHaveBeenCalled();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(true);
+    });
+
+    it('gives the stopped places one more try when a person checks now, and ends the outage', async () => {
+      await stopPlaces();
+      const item = legacyAlert();
+      const result = await watch.checkNow('AR', item.id, access());
+      expect(result.stillFailing).toBe(false);
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(failures.stoppedFor('AR', 'dev-2')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+
+    it('gives the stopped places one more try when the provider login changes', async () => {
+      await stopPlaces();
+      probe.mockImplementation(async (provider) => status(provider, false));
+      await watch.check();
+      probe.mockImplementation(async (provider) => status(provider, true));
+      waitOutBackoff();
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+
+    it('gives the stopped places one more try when the CLI version changes', async () => {
+      await stopPlaces('1.0.0');
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(true);
+      probe.mockImplementation(async (provider) => ({ ...status(provider, true), cliVersion: '1.1.0' }));
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+  });
+
   it('retries a recovered member while another launcher login still fails', async () => {
     await useProvider('dev-2', 'codex');
     await watch.check();
@@ -722,6 +802,7 @@ describe('work outage watch', () => {
         members: h.domain.members,
         tasks: h.domain.tasks,
         retry,
+        startFailures: startFailuresOf(h),
       });
       probe.mockImplementation(async (provider) => status(provider, null));
       await watch.check();

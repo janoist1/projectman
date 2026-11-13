@@ -155,8 +155,11 @@ interface LaunchHost {
     engineId?: EngineId,
   ) => Promise<void>;
   readonly removeSessionFolderOf: (sessionId: string) => void;
-  /** Ends a session whose process never ran as failed, the way the orchestrator ends any session. */
-  readonly markStartFailed: (sessionId: string) => void;
+  /**
+   * Ends a session whose process never ran as failed, the way the orchestrator ends any session. `code` is
+   * what the start failed with (PM-1335): the start failure count tells a setup refusal from an engine fault.
+   */
+  readonly markStartFailed: (sessionId: string, code: string) => void;
   /** The removal of the session's earlier folder that is still running, if any. */
   readonly folderRemoval: (sessionId: string) => Promise<void> | undefined;
 }
@@ -761,7 +764,7 @@ export class SessionLauncher {
     } catch (err) {
       // The start is over before a process ran: the session ends the way any does (what is held for it goes, its
       // folder is removed, the timeline and the listeners are told).
-      this.host.markStartFailed(session.id);
+      this.host.markStartFailed(session.id, errorCode(err) ?? 'session_start_failed');
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
         const status = (err as { status?: { problem?: string; cliVersion?: string; minCliVersion?: string } })
           .status;

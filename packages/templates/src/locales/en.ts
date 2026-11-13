@@ -512,6 +512,5 @@ export const en: TemplateLocale = {
     version: 'projectman version',
     occurrences: 'Occurrences',
   },
-  stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

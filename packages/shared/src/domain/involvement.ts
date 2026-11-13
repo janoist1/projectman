@@ -136,5 +136,7 @@ export const SessionStop = z.object({
   stageId: z.string().optional(),
   /** idle: the whole minutes of silence at the close. */
   idleMinutes: z.number().int().positive().optional(),
+  /** failed (PM-1335): the code of the start error, when the start failed before a process ran. */
+  code: z.string().max(64).optional(),
 });
 export type SessionStop = z.infer<typeof SessionStop>;

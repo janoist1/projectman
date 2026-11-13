@@ -143,6 +143,12 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
+      'the session launch (workspace and session-folder setup) is reached through the domain harness, not by import: the workspace and Codex session-folder tests exercise it (PM-1407)',
+    sources: ['apps/server/src/runtime/sessions/launch.ts'],
+    tests: ['apps/server/test/member-workspaces.test.ts', 'apps/server/test/codex-session-folder.test.ts'],
+  },
+  {
+    reason:
       'card start admission and the TaskWaits queries are reached through the domain harness (`domain.taskStarts`, `domain.taskWaits`), not by import: the tests that read the waits or exercise the start itself, not the 65 files that only start a card to set up (PM-1345, PM-1402)',
     sources: ['apps/server/src/runtime/admission/task-starts.ts', 'apps/server/src/core/tasks/task-wait.ts'],
     tests: [

@@ -625,6 +625,9 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
           role: 'designer',
           sponsor: 'owner',
         });
+        // The scope exists only for a repository that has a screenshot command (PM-1353).
+        const web = config.project.repos.find((repo) => repo.name === 'web');
+        if (web) web.screenshots = { command: 'npm run shots --' };
       },
     });
     await startTask('AR-1', 'dev-1');

@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { createConfigStore } from '../../apps/server/src/config';
 import {
   BASELINE_VERSION,
-  LATEST_SCHEMA_VERSION,
+  latestSchemaVersion,
   hasSchemaObjects,
   schemaRefusal,
 } from '../../apps/server/src/db';
@@ -126,7 +126,7 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
       if (refusal)
         add(
           'blocker',
-          schema > LATEST_SCHEMA_VERSION
+          schema > latestSchemaVersion()
             ? 'schema_newer'
             : schema < BASELINE_VERSION && schema > 0
               ? 'schema_before_baseline'
@@ -134,12 +134,12 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
           'db.sqlite',
           refusal,
         );
-      else if (schema < LATEST_SCHEMA_VERSION)
+      else if (schema < latestSchemaVersion())
         add(
           'warning',
           'schema_older',
           'db.sqlite',
-          `schema ${schema}, this build migrates to ${LATEST_SCHEMA_VERSION} at the first start`,
+          `schema ${schema}, this build migrates to ${latestSchemaVersion()} at the first start`,
         );
       const integrity = String(db.pragma('integrity_check', { simple: true }));
       if (integrity !== 'ok') add('blocker', 'integrity_failed', 'db.sqlite', integrity);

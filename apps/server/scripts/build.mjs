@@ -30,6 +30,9 @@ for (const [outfile, entry] of Object.entries(entries)) {
   console.log(`built ${outfile}`);
 }
 
+rmSync('dist/migrations', { recursive: true, force: true });
+cpSync('src/db/migrations', 'dist/migrations', { recursive: true });
+
 // The embedding model of the history search (PM-767) is a release asset, fetched by
 // `npm run prepare:history-model`; a build without it ships a server that searches by text only.
 const modelSource = new URL('../models/history', import.meta.url);

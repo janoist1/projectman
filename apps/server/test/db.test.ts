@@ -8,7 +8,7 @@ import {
   createRepositories,
   decodeWorkItem,
   encodeWorkItem,
-  LATEST_SCHEMA_VERSION,
+  latestSchemaVersion,
   migrate,
   openDatabase,
   schemaVersion,
@@ -128,8 +128,8 @@ describe('database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pm-db-'));
     dirs.push(dir);
     const db = openDatabase(join(dir, 'db.sqlite'));
-    expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(schemaVersion(db)).toBe(latestSchemaVersion());
+    expect(migrate(db)).toBe(latestSchemaVersion());
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((r) => r.name);
@@ -315,7 +315,7 @@ describe('database', () => {
 
   it('refuses a database written by a newer build', () => {
     const db = openDatabase(':memory:');
-    db.pragma(`user_version = ${LATEST_SCHEMA_VERSION + 1}`);
+    db.pragma(`user_version = ${latestSchemaVersion() + 1}`);
     expect(() => migrate(db)).toThrow(/schema version .* newer build/);
     db.close();
   });

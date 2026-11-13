@@ -5,7 +5,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { as, historyHarness } from './helpers/history';
-import { HISTORY_INDEX_VERSION, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
+import { HISTORY_INDEX_VERSION, latestSchemaVersion, migrate, schemaVersion } from '../src/db';
 import type { Repositories } from '../src/db';
 import { createHistoryService } from '../src/services/history';
 import { createHistoryIndexer } from '../src/services/history/indexer';
@@ -344,8 +344,8 @@ describe('history index', () => {
       db.close();
 
       h = await createDomainHarness({ directory });
-      expect(schemaVersion(h.repos.db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(migrate(h.repos.db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(schemaVersion(h.repos.db)).toBe(latestSchemaVersion());
+      expect(migrate(h.repos.db)).toBe(latestSchemaVersion());
       expect(h.repos.history.indexState('AR')).toMatchObject({
         complete: true,
         version: HISTORY_INDEX_VERSION,

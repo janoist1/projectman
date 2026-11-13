@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { TimelineEvent } from '@projectman/shared';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
+import { createRepositories, latestSchemaVersion, migrate, schemaVersion } from '../src/db';
 
 describe('attachments baseline schema', () => {
   it('keeps ready card files separate from unsent comment uploads', () => {
@@ -47,9 +47,9 @@ describe('attachments baseline schema', () => {
           .map((row) => row.name)
           .sort();
 
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(11);
+      expect(migrate(db)).toBe(latestSchemaVersion());
+      expect(schemaVersion(db)).toBe(latestSchemaVersion());
+      expect(latestSchemaVersion()).toBeGreaterThanOrEqual(11);
       expect(tables()).toContain('attachments');
 
       const repos = createRepositories(db);
@@ -82,7 +82,7 @@ describe('attachments baseline schema', () => {
       expect(repos.attachments.remove(base.id)).toBe(true);
 
       // A second run applies nothing.
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
       expect(repos.tasks.get('AR-1')).toMatchObject({ key: 'AR-1' });
     } finally {
       db.close();

@@ -80,7 +80,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   a deferred start of the member exists, and commits one configuration change carrying
   `renames: {from: to}`. In that commit the configuration listeners see the previous configuration
   with the rename applied (so nothing is retired or hired), the handle columns of the database are
-  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `REWRITTEN_HANDLE_COLUMNS`),
+  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `handleColumns()`),
   and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
   the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
   message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
@@ -1040,15 +1040,20 @@ a `feedback_deleted` timeline line); `member_queue_items` (PM-894, migration 98:
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table.
 Fresh databases start from the frozen schema baseline in
 `apps/server/src/db/schema/baseline-0152.ts` (PM-1381); subsequent schema changes are
-numbered migrations in `apps/server/src/db/migrations.ts`. The server refuses databases
+numbered SQL files in `apps/server/src/db/migrations/` (PM-1382). Versions come from
+`NNNN-name.sql`; sibling `NNNN-name.meta.json` files classify tables for the journal and handle
+renames. The lazy loader validates consecutive unique versions and strict metadata before any
+migration writes. The server build copies the folder to `dist/migrations`, shipped beside the
+bundle on the hub, single-mode installation and engine package. Only the hub migrates; workers
+and engines can import the database code without reading migration files. The server refuses databases
 at versions 1–151, naming the pre-baseline release that must upgrade them first
 ([recovery procedure](DEPLOY.md#a-database-from-before-the-baseline-pm-1381)).
 It also refuses a database a newer build migrated and an unversioned nonempty database.
 
 **Handle columns (PM-1025).** Every column that stores a member handle is registered in
-`apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,
-`REWRITTEN_HANDLE_JSON`: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
-`task_workspace_bindings`, …) or deliberately not (`UNREWRITTEN_HANDLE_COLUMNS`: the storage keys,
+`handleColumns()` in `apps/server/src/db/member-handles.ts`, combining frozen baseline lists
+with migration metadata: either rewritten by a rename (plain columns or JSON lists: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
+`task_workspace_bindings`, …) or deliberately not (`unrewritten`: the storage keys,
 e.g. `member_workspaces.member`, which hold the storage handle, and the append-only timeline). A
 guard test (`member-handles-columns.test.ts`) fails when a new handle column is in neither list.
 The rewrite is idempotent; at startup `MemberService.recoverRenames` completes a rename whose

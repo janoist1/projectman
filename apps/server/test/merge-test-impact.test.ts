@@ -62,7 +62,7 @@ describe('server test impact', () => {
     expect(result.tests.length).toBeGreaterThan(0);
     // The real Unix control socket boundary is in every module selection (PM-754).
     expect(result.tests).toContain('apps/server/test/control-socket.integration.test.ts');
-    for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations.ts']) {
+    for (const changed of ['apps/server/src/index.ts', 'apps/server/src/db/migrations/0153-example.sql']) {
       const entryImpact = serverTestImpact({
         changed: [changed],
         before: files,

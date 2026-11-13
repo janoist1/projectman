@@ -139,8 +139,9 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   {
     reason:
       'the baseline and schema registry tests inspect the resulting schema; retained migration tests guard current repository behavior (PM-1324, PM-1325, PM-1381)',
-    sources: ['apps/server/src/db/migrations.ts'],
+    sources: ['apps/server/src/db/migrations/'],
     tests: [
+      'apps/server/test/db-migration-files.test.ts',
       'apps/server/test/*-migration.test.ts',
       'apps/server/test/db-baseline.test.ts',
       'apps/server/test/db.test.ts',

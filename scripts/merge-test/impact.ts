@@ -130,6 +130,7 @@ export function serverTestImpact(input: {
       if (!isServerTest(test) || !afterPaths.has(test)) return fail(`unmapped snapshot: ${path}`);
       seeded.add(test);
     } else if (path.startsWith('apps/server/') && path.endsWith('.md')) continue;
+    else if (path.startsWith('apps/server/src/db/migrations/')) selected.add('db');
     else if (!isCode(path)) return fail(`test support changed: ${path}`);
     else if (isProduction(path)) {
       const id = owner(path);

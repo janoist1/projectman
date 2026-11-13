@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
+import { createRepositories, latestSchemaVersion, migrate, schemaVersion } from '../src/db';
 
 describe('task-covers baseline schema', () => {
   it('preserves stored rows when reopened and supports repository writes', () => {
@@ -15,8 +15,8 @@ describe('task-covers baseline schema', () => {
           .map((row) => row.name)
           .sort();
 
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
+      expect(schemaVersion(db)).toBe(latestSchemaVersion());
       expect(tables()).toContain('task_covers');
       const repos = createRepositories(db);
       // Cards start with an automatic cover.
@@ -32,7 +32,7 @@ describe('task-covers baseline schema', () => {
         setBy,
       });
       // A second run applies nothing and keeps what was stored; a new choice replaces the old.
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(migrate(db)).toBe(latestSchemaVersion());
       expect(repos.taskCovers.get('AR-1')?.choice).toEqual({
         mode: 'pinned',
         attachmentId: 'att_aaaaaaaaaa',

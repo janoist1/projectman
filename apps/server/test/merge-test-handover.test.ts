@@ -391,20 +391,23 @@ describe('selection rules', () => {
     expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
   });
 
-  it('selects baseline, retained migration and schema registry tests when db/migrations.ts changes (PM-1324, PM-1325)', () => {
+  it('selects loader, baseline, retained migration and registry tests for migration data files (PM-1382)', () => {
     const tree = [
-      file('apps/server/src/db/migrations.ts', 'export const migrations = [];'),
-      file('apps/server/src/db/index.ts', "export { migrations } from './migrations';"),
-      file('apps/server/test/db-baseline.test.ts', "import { migrations } from '../src/db';"),
+      file('apps/server/src/db/migrations/0153-example.sql', 'SELECT 1;'),
+      file('apps/server/test/db-migration-files.test.ts', ''),
+      file('apps/server/test/db-baseline.test.ts'),
       file('apps/server/test/a-new-migration.test.ts'),
       file('apps/server/test/db.test.ts'),
       file('apps/server/test/project-change-journal.test.ts'),
       file('apps/server/test/member-handles-columns.test.ts'),
       file('apps/server/test/other.test.ts'),
     ];
-    const files = select(tree, ['apps/server/src/db/migrations.ts']).tests.flatMap((entry) => entry.files);
+    const files = select(tree, ['apps/server/src/db/migrations/0153-example.sql']).tests.flatMap(
+      (entry) => entry.files,
+    );
     expect(files).toEqual(
       expect.arrayContaining([
+        'apps/server/test/db-migration-files.test.ts',
         'apps/server/test/db-baseline.test.ts',
         'apps/server/test/a-new-migration.test.ts',
         'apps/server/test/db.test.ts',

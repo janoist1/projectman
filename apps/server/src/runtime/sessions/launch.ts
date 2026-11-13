@@ -605,7 +605,10 @@ export class SessionLauncher {
     // A session in a checkout of the card (worktree or review copy) with a folder of its own, on Claude or a
     // Codex CLI sandbox (Gemini takes none, PM-522). A reading sandbox does not write the folder: the run
     // then writes only the folder, never the checkout (PM-1202).
+    // The repository must have a screenshot command (`screenshots`, PM-1353).
+    const screenshotCommand = repoName ? repoOf(config, repoName)?.screenshots?.command : undefined;
     if (
+      screenshotCommand &&
       sessionFolder &&
       sandbox &&
       screenshotPlacement(policy.access) &&
@@ -615,6 +618,7 @@ export class SessionLauncher {
       this.screenshotScopes.set(sessionId, {
         cwd,
         sessionDir: sessionFolder,
+        command: screenshotCommand,
         ...(browsers ? { browsersDir: browsers } : {}),
         sandbox: {
           allowWrite: sandboxWritesFolder ? [...sandbox.allowWrite] : [sessionFolder],

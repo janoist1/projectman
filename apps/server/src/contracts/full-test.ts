@@ -175,7 +175,9 @@ export interface ScreenshotRunSpec {
   /** The session's own folder: `PROJECTMAN_SESSION_DIR` of the run. */
   sessionDir: string;
   browsersDir?: string;
-  /** Arguments after `npm run shots --`, built by the server from the validated input. */
+  /** The repository's screenshot command (`screenshots.command`, PM-1353): the shell prefix the arguments follow. */
+  command: string;
+  /** Arguments after `command`, built by the server from the validated input. */
   args: string[];
   /** From the session's sandbox (`AgentSandbox`): what the run may read and write besides its own directory. */
   sandbox: { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead: string[] };
@@ -189,6 +191,8 @@ export interface ScreenshotScope {
   cwd: string;
   sessionDir: string;
   browsersDir?: string;
+  /** The screenshot command of the session's repository (PM-1353). */
+  command: string;
   sandbox: ScreenshotRunSpec['sandbox'];
 }
 

@@ -591,6 +591,7 @@ export class SessionOrchestrator {
           email: false,
           machineAccess: false,
           hostRequests: false,
+          screenshots: false,
           duties: new Set(),
         };
   }

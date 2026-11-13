@@ -1,18 +1,22 @@
 import { z } from 'zod';
 import { formatScreenshotRun } from '../format';
-import { defineTool, type TeamToolGroup } from '../kit';
+import { defineTool, type TeamToolGroup, type ToolAudience } from '../kit';
+
+/** Only a project with a repository that has a screenshot command (`screenshots`, PM-1353). */
+const SCREENSHOT_AUDIENCE: ToolAudience = { capabilities: ['screenshots'] };
 
 export const SCREENSHOT_TOOL_GROUP: TeamToolGroup = {
   module: 'services/full-tests',
   tools: [
     defineTool({
+      audience: SCREENSHOT_AUDIENCE,
       name: 'take_screenshots',
       title: 'Take screenshots',
       readOnly: false,
       description:
-        'Take screenshots (`npm run shots`, docs/SCREENSHOTS.md): the server runs a scenario in its own ' +
-        "sandbox, where the browser starts; images go to 'shots' in your session folder. Waits up " +
-        'to 40 seconds, then may answer `running`: follow it with get_screenshot_run. One run at a time per session.',
+        "Take screenshots with the repository's screenshot command: the server runs a scenario in its own " +
+        "sandbox, where the browser starts; images go to 'shots' in your session folder. Waits up to 40 " +
+        'seconds, then may answer `running`: follow it with get_screenshot_run. One run at a time per session.',
       input: {
         scenario: z
           .string()
@@ -20,7 +24,7 @@ export const SCREENSHOT_TOOL_GROUP: TeamToolGroup = {
           .min(1)
           .max(500)
           .describe(
-            "The scenario module (an ES module, e.g. 'scripts/scenarios/card-with-question.mjs'): relative to your " +
+            "The scenario module (an ES module, e.g. 'shots/checkout-mobile.mjs'): relative to your " +
               'working directory, or an absolute path inside it or inside your session folder.',
           ),
         widths: z
@@ -44,7 +48,7 @@ export const SCREENSHOT_TOOL_GROUP: TeamToolGroup = {
         seed: z
           .enum(['demo', 'none'])
           .optional()
-          .describe('demo (default: the Acme webshop with four cards) or none (an empty instance).'),
+          .describe('The data the scenario starts from: demo (the default) or none (empty).'),
       },
       async run({ ctx, args, handler }) {
         const run = await handler.takeScreenshots(ctx, {
@@ -59,6 +63,7 @@ export const SCREENSHOT_TOOL_GROUP: TeamToolGroup = {
       },
     }),
     defineTool({
+      audience: SCREENSHOT_AUDIENCE,
       name: 'get_screenshot_run',
       title: 'Get a screenshot run',
       readOnly: true,

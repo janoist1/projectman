@@ -68,7 +68,7 @@ Name an assignee in start_task only when you must: the system's own choice keeps
 
 ## A person’s message on a card
 
-A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer; PM-488), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.
+A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.
 
 ## Project documents
 

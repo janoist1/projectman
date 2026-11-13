@@ -50,6 +50,7 @@ beforeEach(() => {
     cwd,
     sessionDir,
     browsersDir: '/app/browsers',
+    command: 'npm run shots --',
     sandbox: { allowWrite: [sessionDir], denyWrite: [], denyRead: [], allowRead: [cwd] },
   };
   warn.mockClear();
@@ -264,7 +265,12 @@ describe('take_screenshots', () => {
     const noScope = runs();
     scope = undefined;
     expect((await refusal(noScope.service.take(ctx, input))).code).toBe('forbidden');
-    scope = { cwd, sessionDir, sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] } };
+    scope = {
+      cwd,
+      sessionDir,
+      command: 'npm run shots --',
+      sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] },
+    };
     const linux = runs({ platform: 'linux' });
     const err = await refusal(linux.service.take(ctx, input));
     expect(err.code).toBe('forbidden');

@@ -199,6 +199,8 @@ export interface MemberAudience {
   machineAccess: boolean;
   /** The member may open a request to the instance's host (`hostRequestRefusal` is null; PM-1064). */
   hostRequests: boolean;
+  /** A repository of the project has a screenshot command (`screenshots`, PM-1353). */
+  screenshots: boolean;
   duties: ReadonlySet<DutyId>;
 }
 

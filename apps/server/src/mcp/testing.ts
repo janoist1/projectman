@@ -24,6 +24,7 @@ export const fullAudience: MemberAudience = {
   email: true,
   machineAccess: true,
   hostRequests: true,
+  screenshots: true,
   duties: new Set(Object.keys(DUTIES) as DutyId[]),
 };
 

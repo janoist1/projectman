@@ -212,6 +212,7 @@ export class ScreenshotRuns {
               cwd: scope.cwd,
               sessionDir: scope.sessionDir,
               ...(scope.browsersDir ? { browsersDir: scope.browsersDir } : {}),
+              command: scope.command,
               args,
               sandbox: scope.sandbox,
               label,

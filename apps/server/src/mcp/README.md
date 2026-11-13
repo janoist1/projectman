@@ -350,7 +350,9 @@ outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/se
   own folder) and has the session's engine open the file with `EngineHost.openWorkspaceFile`
   (`engine-host/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
 - Screenshots are for the members whose own sandbox cannot start Chromium (Codex).
-  `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
+  Both tools show only when a repository of the project has a `screenshots.command` setting (PM-1353;
+  `MemberAudience.screenshots`; the config patch field is `repoScreenshots`, owner-only like `reviewTest`).
+  `take_screenshots` starts that command (the PM repository's is `npm run shots --`) in the caller's worktree, in the server's own `srt`
   sandbox (`services/full-tests/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
   still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
   are built from the validated fields only: `--out`, `--keep-data` and `--machine` cannot be given,

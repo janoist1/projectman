@@ -72,6 +72,7 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
       },
     }),
     defineTool({
+      audience: { roles: ['merger', 'project_manager'] },
       name: 'list_merge_checks',
       title: 'List merge checks',
       readOnly: true,

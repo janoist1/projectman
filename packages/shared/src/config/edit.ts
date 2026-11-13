@@ -16,6 +16,7 @@ import {
   MaxConcurrentAi,
   ProjectConfig,
   ReviewTestConfig,
+  ScreenshotsConfig,
   TeamLimits,
   WarnAboveSessionTokens,
 } from './schema';
@@ -115,6 +116,11 @@ export const PatchConfigRequest = z
     /** Repository-specific prompt conventions; null removes the setting (PM-1112). */
     repoHeavyChecks: z
       .array(z.object({ repo: z.string(), heavyChecks: HeavyChecks.nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Per repository: the screenshot command the server runs (`screenshots`, PM-1353); null removes it. Owner-only (`review_test`). */
+    repoScreenshots: z
+      .array(z.object({ repo: z.string(), screenshots: ScreenshotsConfig.nullable() }).strict())
       .max(20)
       .optional(),
     /** Per repository: the full test the server runs (`reviewTest`, PM-538); null removes it. Owner-only (`review_test`). */
@@ -218,7 +224,7 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest`, `repoFullTestAtMerge` or
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoScreenshots`, `repoReviewTest`, `repoFullTestAtMerge` or
  * `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
@@ -230,6 +236,7 @@ export function unknownPatchRepo(
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoScreenshots?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoComputeJobs?.find((entry) => !known.has(entry.repo))?.repo ??
@@ -273,6 +280,8 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
   const repoHeavyChecks =
     patch.repoHeavyChecks && new Map(patch.repoHeavyChecks.map((e) => [e.repo, e.heavyChecks] as const));
+  const repoScreenshots =
+    patch.repoScreenshots && new Map(patch.repoScreenshots.map((e) => [e.repo, e.screenshots] as const));
   const repoReviewTest =
     patch.repoReviewTest && new Map(patch.repoReviewTest.map((e) => [e.repo, e.reviewTest] as const));
   const repoFullTestAtMerge =
@@ -297,9 +306,20 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge || repoComputeJobs
+        repoMerge ||
+        repoDocs ||
+        repoHeavyChecks ||
+        repoScreenshots ||
+        repoReviewTest ||
+        repoFullTestAtMerge ||
+        repoComputeJobs
           ? config.project.repos.map((repo) => {
               let changed = repo;
+              const screenshots = repoScreenshots?.get(repo.name);
+              if (screenshots !== undefined) {
+                const { screenshots: _previous, ...rest } = changed;
+                changed = screenshots === null ? rest : { ...rest, screenshots };
+              }
               const merge = repoMerge?.get(repo.name);
               if (merge !== undefined) {
                 const { requireMerge: _previous, ...rest } = changed;

@@ -17,6 +17,7 @@ import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_
 import {
   DEVELOPER_LEVEL_REFUSED,
   defineTool,
+  PM_ONLY,
   type TeamToolGroup,
   unique,
   taskKeyInput,
@@ -467,6 +468,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           ),
         acceptance: z.array(acceptanceChangeInput).max(20).optional().describe(ACCEPTANCE_HELP),
       },
+      fieldAudience: { despite_prerequisites: PM_ONLY },
       external: { access: 'write', run: runUpdateTask },
       run: runUpdateTask,
     }),

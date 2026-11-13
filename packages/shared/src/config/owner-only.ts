@@ -27,7 +27,7 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
  * - `permissions`: an AI member's permission mode or approver (who answers when the CLI asks), or
  *   a new AI member that starts with other than the defaults;
  * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
- *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
+ *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538), or its `screenshots` command (PM-1353);
  * - `compute_jobs`: a repository's compute jobs, `computeJobs`: their commands run on GitHub with the right to
  *   attest their outputs (PM-1148);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
@@ -128,14 +128,18 @@ function computeJobsSignature(config: ProjectConfig): string {
   );
 }
 
-/** The repositories that have a full test or run it only at the merge, with those two settings. */
+/** The repositories that have a full test, run it only at the merge or take screenshots, with those settings (PM-1353). */
 function reviewTestSignature(config: ProjectConfig): string {
   return canonical(
     config.project.repos
-      .filter((repo) => repo.reviewTest !== undefined || repo.fullTestAtMerge === true)
+      .filter(
+        (repo) =>
+          repo.reviewTest !== undefined || repo.fullTestAtMerge === true || repo.screenshots !== undefined,
+      )
       .map((repo) => ({
         name: repo.name,
         reviewTest: repo.reviewTest ?? null,
+        screenshots: repo.screenshots ?? null,
         fullTestAtMerge: repo.fullTestAtMerge === true,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),

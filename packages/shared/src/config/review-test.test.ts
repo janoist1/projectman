@@ -217,6 +217,7 @@ describe('review_test owner-only change', () => {
     ],
     ['fullTestAtMerge turned off', (r) => (r[1]!.fullTestAtMerge = false)],
     ['fullTestAtMerge turned on', (r) => (r[0]!.fullTestAtMerge = true)],
+    ['adding a screenshot command', (r) => (r[0]!.screenshots = { command: 'npm run shots --' })],
   ])('is reported for %s', (_name, edit) => {
     expect(edited(edit)).toEqual(['review_test']);
   });

@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runNpm } from '../../../scripts/merge-test/npm';
-import { RUN_FACTS_PREFIX } from '../../../scripts/merge-test/reporter';
+import { RUN_FACTS_PREFIX, RUN_FACTS_VARIABLE } from '../../../scripts/merge-test/reporter';
 import { runSteps, type StepRun } from '../../../scripts/merge-test/steps';
 import { vitestFailedFiles } from '../src/full-test/output';
 
 const roots: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -110,6 +111,8 @@ describe('merge-test file watchdog at the process boundary', () => {
     });
 
     it('prints no facts line by default, so the output stays as it was', async () => {
+      // A hand-over run that executes this test has the variable set for its own children.
+      vi.stubEnv(RUN_FACTS_VARIABLE, undefined);
       const run = await runNpm(refused(), { fileTimeoutMs: 20_000, forwardOutput: false });
       expect(run.code).not.toBe(0);
       expect(factsLines(run.output)).toEqual([]);

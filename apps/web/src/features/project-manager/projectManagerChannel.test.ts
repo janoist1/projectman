@@ -16,7 +16,7 @@ function corner(state: ProjectManagerCorner['state'], open: number): ProjectMana
   } as ProjectManagerCorner;
 }
 
-describe('operatorStripOf without an item in work', () => {
+describe('projectManagerStripOf without an item in work', () => {
   it('says the session is starting only while it is starting', () => {
     expect(projectManagerStripOf(corner('starting', 2))).toEqual({ kind: 'starting' });
   });

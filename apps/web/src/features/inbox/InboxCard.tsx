@@ -396,7 +396,7 @@ export function InboxCard({
   // What came with a question from an AI member (PM-556): the project manager's word, why it did not look, why it is asked again.
   const displayKind = displayKindOf(item);
   const open = item.state === 'open';
-  const operatorNote = open ? projectManagerNoteOf(item) : null;
+  const projectManagerNote = open ? projectManagerNoteOf(item) : null;
   const steps = todo && !handoff ? todoRows(item) : [];
   const fallback = open ? projectManagerFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
@@ -752,13 +752,13 @@ export function InboxCard({
             <strong>{nameOf(question?.screening?.by ?? '', members, myHandle)}:</strong> {group.note}
           </span>
         </p>
-      ) : operatorNote ? (
+      ) : projectManagerNote ? (
         <p className={styles.operatorNote}>
           <span className={styles.operatorAvatar} aria-hidden="true">
             OP
           </span>
           <span>
-            <strong>{t('inbox.operatorNote')}</strong> {operatorNote}
+            <strong>{t('inbox.operatorNote')}</strong> {projectManagerNote}
           </span>
         </p>
       ) : null}

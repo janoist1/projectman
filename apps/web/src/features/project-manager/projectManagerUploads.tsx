@@ -26,6 +26,6 @@ export function ProjectManagerUploadsProvider({
 
 export function useProjectManagerUploads(): ProjectManagerUploads {
   const value = useContext(ProjectManagerUploadsContext);
-  if (!value) throw new Error('useOperatorUploads must be used inside the project layout');
+  if (!value) throw new Error('useProjectManagerUploads must be used inside the project layout');
   return value;
 }

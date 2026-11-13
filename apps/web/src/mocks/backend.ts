@@ -3088,7 +3088,7 @@ export class MockBackend {
           });
     }
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
-    if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
+    if (signalMatch && method === 'POST') return this.dismissProjectManagerSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
@@ -7164,7 +7164,7 @@ export class MockBackend {
   }
 
   /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */
-  private dismissOperatorSignal(id: string): MockResponse {
+  private dismissProjectManagerSignal(id: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
     if (viewer?.role !== 'owner') return error(403, 'operator_owner_only', 'Only the owner may decide');
     const signal = this.projectManagerSignals.find((entry) => entry.id === id);

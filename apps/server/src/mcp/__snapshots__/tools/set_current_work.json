@@ -1,0 +1,33 @@
+{
+  "name": "set_current_work",
+  "title": "Say what you are doing",
+  "description": "Say what you are doing on your task's card now; the card shows it next to your name. Call it at the start of a multi-step stretch, in the same response as your next step; not at every step or for a short reply. Only the latest is kept, until your round ends.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "One declarative line in the project language, without your name, at most 80 characters, e.g. \"The gateway tests are being written\"."
+      },
+      "detail": {
+        "description": "More about it, at most 300 characters; only the task page shows it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      }
+    },
+    "required": [
+      "summary"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Say what you are doing",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

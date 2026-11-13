@@ -1,0 +1,157 @@
+{
+  "name": "propose_operator_knowledge",
+  "title": "Propose shared Operator knowledge",
+  "description": "During an open owner message or answer, propose an agreement replacement or a principle put or removal with the current expected_revision. Writes nothing until an owner approves in the inbox. What a setting can express (gate, label, permission, priority, limit) goes to operate instead.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "expected_revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "change": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "agreement_replace"
+              },
+              "agreement": {
+                "type": "object",
+                "properties": {
+                  "summary": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "involvement": {
+                    "type": "string",
+                    "enum": [
+                      "every_step",
+                      "important",
+                      "minimal"
+                    ]
+                  },
+                  "extraCritical": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    }
+                  }
+                },
+                "required": [
+                  "summary",
+                  "involvement",
+                  "extraCritical"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "kind",
+              "agreement"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "principle_put"
+              },
+              "principle": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "example": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "principle": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "effect": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "id",
+                  "example",
+                  "principle",
+                  "effect"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "kind",
+              "principle"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "principle_remove"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "A null principle id gets a server id. Propose a rule only after a repeated failure and name the cards in its reason; refer to a duty or role, not a member name. Never import principles automatically from memory or documents."
+      }
+    },
+    "required": [
+      "expected_revision",
+      "title",
+      "change"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Propose shared Operator knowledge",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

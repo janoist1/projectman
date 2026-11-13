@@ -1,0 +1,40 @@
+{
+  "name": "forward_feedback",
+  "title": "Forward a feedback mark to the owner",
+  "description": "Pass a feedback mark you cannot or should not decide (a decision of the owners, a matter beyond the project, something unclear) to the owners: they get an alert and the mark waits for them. Do not act on the mark again; the owner or a person who processes feedback settles it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "mark_id": {
+        "type": "string",
+        "pattern": "^fbm_[a-z0-9]{10,32}$",
+        "description": "The mark, e.g. \"fbm_…\"."
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000,
+        "description": "Why the owner must decide, in a few sentences; only the owners read it."
+      },
+      "reply": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "Your answer to the marker: what happens to the mark now."
+      }
+    },
+    "required": [
+      "mark_id",
+      "reason",
+      "reply"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Forward a feedback mark to the owner",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

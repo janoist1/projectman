@@ -6,6 +6,7 @@ import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { openStory } from '../../test/cardStory';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -66,6 +67,27 @@ describe('the earlier conversations of the Process view (PM-1290)', () => {
     // Nothing is written here: a new message is a comment.
     expect(within(section).queryByRole('textbox')).toBeNull();
     expect(within(section).queryByRole('button', { name: t('messages.reply') })).toBeNull();
+  });
+
+  it('reads an unread message only once its mark has been on the screen of the open block (PM-1386)', async () => {
+    const project = mockProject();
+    const unread = project.backend.sendTeamMessage('fe-1', ['owner'], 'AC-21', 'Earlier unread');
+    // A message to a person is a direct conversation; the block holds what the card thread held before.
+    delete project.backend.messages.find((message) => message.id === unread.id)!.conversation;
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    project.render(card, '/p/AC/tasks/AC-21/steps');
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    const mark = () =>
+      within(screen.getByText('Earlier unread').closest('li')!).getByText(t('messages.thread.unread'));
+    expect(mark()).toBeTruthy();
+    // Opening the block is no reading.
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(mark()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    expect((reads()[0]!.body as { ids: string[] }).ids).toEqual([unread.id]);
   });
 
   it('names who got a message under it', async () => {
@@ -324,6 +346,8 @@ describe('the failures of the earlier conversations (PM-1358)', () => {
     );
     project.render(<ToastProvider>{card}</ToastProvider>, '/p/AC/tasks/AC-21/steps?message=msg_04');
     await toggle(cardMessages(project, 'AC-21').length);
+    await waitFor(() => expect(row('msg_04')).not.toBeNull());
+    showOnScreen(within(row('msg_04')!).getByText(t('messages.thread.unread')));
     expect(await screen.findByText(t('errors.codes.not_a_recipient'), {}, { timeout: 3000 })).toBeTruthy();
   });
 });

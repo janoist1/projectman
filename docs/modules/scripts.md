@@ -5,6 +5,23 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
+## Sorted registries and generated barrels (PM-1339)
+
+Run `npm run generate:barrels` from the repository root after adding, removing or renaming a
+source file in `packages/shared/src/` or `apps/server/src/contracts/`, and commit the generated
+`index.ts` files with the source change. Do not edit these barrels by hand. The generator
+(`scripts/barrels/generate.ts`) recursively exports TypeScript source files, excluding tests,
+declarations, snapshots and the root barrel itself. Its explicit shared-helper exclusions preserve
+the existing public API. A new private helper belongs in that exclusion list.
+
+Exports are sorted by extensionless relative module path using JavaScript's default string sort
+(case-sensitive, locale-independent). `ERROR_CODES` in `packages/shared/src/api/error-codes.ts`
+uses the same order by code: insert a new code at its alphabetical position, keeping any code-specific
+comment with it, and add its translations to both web locales. MCP imports in
+`apps/server/src/mcp/tools.ts` are sorted by module path; `TEAM_TOOL_GROUPS` is sorted by constant name.
+`apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
+committed barrels with the generator output; handover-check selects it for changes in these folders.
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -141,7 +158,13 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   **Server and script impact (PM-864).** Server contracts and config use their source modules;
   script code uses the server workspace. Both server and script files are read from each git tree.
   Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
-  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  test (an unmapped snapshot falls back). Per-tool JSON snapshots in
+  `apps/server/src/mcp/__snapshots__/tools/` select `apps/server/src/mcp/tools.test.ts` in both
+  merge and hand-over checks. That test compares one JSON file per tool and checks the directory
+  against the registered tool names, so missing and orphaned files fail. Update with
+  `npx vitest run src/mcp/tools.test.ts --configLoader runner -u` in `apps/server`, remove files
+  for retired tools, then rerun without `-u` to verify the complete file set.
+  Changed helpers and scripts select tests reaching them in
   either tree; a script dependency also proves a source dependency. Server markdown is ignored.
   Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
   nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest

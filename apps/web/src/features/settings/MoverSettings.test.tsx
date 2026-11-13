@@ -83,6 +83,43 @@ describe('the card mover in the settings (PM-439)', () => {
     ).toBeTruthy();
   });
 
+  it('shows member involvement off by default, and saves the ticked choice at once (PM-1267)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.memberInvolvement.title') }),
+    );
+    const tick = group.getByRole('checkbox', {
+      name: t('settings.team.memberInvolvement.project_manager'),
+    }) as HTMLInputElement;
+    expect(tick.checked).toBe(false);
+    expect(group.getByText(t('settings.team.memberInvolvement.humansOnly'))).toBeTruthy();
+    fireEvent.click(tick);
+    await waitFor(() =>
+      expect(project.backend.config.team.memberInvolvement).toBe('people_and_project_manager'),
+    );
+    expect(lastConfigPatch(project.requests).memberInvolvement).toBe('people_and_project_manager');
+    await waitFor(() =>
+      expect(group.queryByText(t('settings.team.memberInvolvement.humansOnly'))).toBeNull(),
+    );
+    fireEvent.click(tick);
+    await waitFor(() => expect(project.backend.config.team.memberInvolvement).toBe('people'));
+    expect(lastConfigPatch(project.requests).memberInvolvement).toBe('people');
+  });
+
+  it('only tells a member who may not manage the team who may bring a member in (PM-1267)', async () => {
+    const project = mockProject();
+    project.backend.config.team.memberInvolvement = 'people_and_project_manager';
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.memberInvolvement.title') }),
+    );
+    expect(group.queryByRole('checkbox')).toBeNull();
+    expect(
+      group.getByText(t('settings.team.memberInvolvement.value.people_and_project_manager')),
+    ).toBeTruthy();
+  });
+
   it('shows the project manager as the default priority setter, and saves a ticked duty at once (PM-1096)', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />);

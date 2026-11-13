@@ -1,0 +1,32 @@
+{
+  "name": "prioritize_merge",
+  "title": "Move a merge to the front of the queue",
+  "description": "Make this card's queued merge go next in its repository (one merge runs at a time, in request order), e.g. a fix the queued cards' tests depend on. The running merge is not interrupted; a merge already first is left as it is (moved: false).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "Why this card goes first: who or what it unblocks. It is shown on the timeline."
+      }
+    },
+    "required": [
+      "task_key",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Move a merge to the front of the queue",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

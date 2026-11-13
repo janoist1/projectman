@@ -1,0 +1,95 @@
+{
+  "name": "update_checklist",
+  "title": "Change the project startup checklist",
+  "description": "Change the startup checklist, one op per call; your own tool, so no owner request is needed. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system keeps a conditional item done only while its condition holds.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "op": {
+        "type": "string",
+        "enum": [
+          "init",
+          "add",
+          "edit",
+          "set_condition",
+          "set_state",
+          "apply_template"
+        ],
+        "description": "init: the base list of a project that has none. add: a new item (title, optional hint and condition; its id is custom_<n>). edit: item_id with a new title and/or hint. set_condition: item_id and condition. set_state: item_id and state. apply_template: template_id adds the template items the list lacks and sets the base template; it overwrites nothing."
+      },
+      "item_id": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,39}$"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "hint": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 500
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "condition": {
+        "description": "null takes it off; a done item can get only a condition that holds.",
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "reviewer_member",
+              "review_stage",
+              "qa_member",
+              "merger_resolves",
+              "client_member",
+              "feedback_surface",
+              "agreement_approved",
+              "task_exists",
+              "engine_connected"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "state": {
+        "description": "done is refused while the item condition does not hold (checklist_condition_unmet).",
+        "type": "string",
+        "enum": [
+          "open",
+          "done",
+          "not_needed"
+        ]
+      },
+      "reason": {
+        "description": "Required with state not_needed.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "template_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "op"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Change the project startup checklist",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

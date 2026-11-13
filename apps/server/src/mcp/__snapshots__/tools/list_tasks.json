@@ -1,0 +1,52 @@
+{
+  "name": "list_tasks",
+  "title": "List tasks",
+  "description": "Read the project board as a compact list, newest update first. Defaults to open tasks (active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A theme is marked kind \"theme\"; it is in no stage, so a stage filter leaves themes out.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "default": "open",
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "open"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "active",
+              "waiting",
+              "blocked",
+              "done",
+              "cancelled"
+            ]
+          }
+        ]
+      },
+      "stage": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,31}$"
+      },
+      "assignee": {
+        "description": "Member handle, or \"me\" for your own tasks.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+      },
+      "limit": {
+        "default": 50,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List tasks",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "list_system_feedback",
+  "title": "List the recorded system feedback",
+  "description": "The gaps in projectman itself that this project's team recorded, the latest 50 in any state (id, state, title, occurrences, last seen). Look here before record_system_feedback so a gap is not recorded twice. Your internal coordination session only, never an approval continuation.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List the recorded system feedback",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -1009,6 +1009,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     logger: opts.logger,
   });
+  events.on('task_owner_escalated', (change) => handOver.escalateOwners(change));
   events.on('session_ended', (session) => {
     background.run(
       () => handOver.resumeInterrupted(session, session.previousState),

@@ -1,0 +1,69 @@
+{
+  "name": "take_screenshots",
+  "title": "Take screenshots",
+  "description": "Take screenshots (`npm run shots`, docs/SCREENSHOTS.md): the server runs a scenario in its own sandbox, where the browser starts; images go to 'shots' in your session folder. Waits up to 40 seconds, then may answer `running`: follow it with get_screenshot_run. One run at a time per session.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "scenario": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "The scenario module (an ES module, e.g. 'scripts/scenarios/card-with-question.mjs'): relative to your working directory, or an absolute path inside it or inside your session folder."
+      },
+      "widths": {
+        "description": "Widths of the images in pixels (default 1512, 800, 390, 375).",
+        "minItems": 1,
+        "maxItems": 8,
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 4000
+        }
+      },
+      "full_page": {
+        "description": "Capture the whole page by default.",
+        "type": "boolean"
+      },
+      "scale": {
+        "description": "Device pixel ratio, 1 (default) or 2.",
+        "anyOf": [
+          {
+            "type": "number",
+            "const": 1
+          },
+          {
+            "type": "number",
+            "const": 2
+          }
+        ]
+      },
+      "timeout_seconds": {
+        "description": "The scenario's own time limit in seconds, instance start included (default 240).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600
+      },
+      "seed": {
+        "description": "demo (default: the Acme webshop with four cards) or none (an empty instance).",
+        "type": "string",
+        "enum": [
+          "demo",
+          "none"
+        ]
+      }
+    },
+    "required": [
+      "scenario"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Take screenshots",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

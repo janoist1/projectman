@@ -874,6 +874,7 @@ export function formatMemberStart(result: MemberStartResult): string {
 const staleExplanations: Record<StaleReason, string> = {
   card_closed: 'is closed',
   stage_moved: 'has moved to another stage since',
+  owner_escalated: 'now requires the main stage owners',
   superseded: 'has a newer message from the same sender',
   sender_result: "already has the sender's result",
   result_recorded: 'already has a result for that commit',

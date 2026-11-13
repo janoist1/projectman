@@ -1,0 +1,31 @@
+{
+  "name": "get_guide",
+  "title": "Read a guide topic",
+  "description": "Read the full guide topic indexed in your prompt. Use only when the short index is not enough.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "enum": [
+          "commands",
+          "rules",
+          "role",
+          "sandbox",
+          "operations"
+        ]
+      }
+    },
+    "required": [
+      "topic"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read a guide topic",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { machinePlaces, placeWorkers } from '@projectman/shared';
+import { machinePlaces, mergeTestPlaces, placeWorkers } from '@projectman/shared';
 import { EXIT_ALREADY_RUNNING, EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/run';
 import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
 import { acquireHeavyLock, heavyCommandKey, machineHost, readHeavyQueue } from '../src/full-test/heavy-lock';
@@ -93,6 +93,15 @@ interface Seen {
 }
 
 describe('the arguments of the heavy CLI', () => {
+  it('resolves the merge-test request from the executing machine', () => {
+    const places = mergeTestPlaces(machineHost());
+    expect(parseHeavyArgs(['--places', 'merge-test', 'npm', 'test'])).toEqual({
+      places: { min: places, max: places },
+      command: ['npm', 'test'],
+    });
+    const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    expect(manifest.scripts['merge-test']).toContain('--places merge-test');
+  });
   it('takes the options up to the first other argument, and everything after as the command', () => {
     expect(parseHeavyArgs(['--label', 'a b', '--max-wait', '90', 'npm', 'test', '--label', 'x'])).toEqual({
       label: 'a b',

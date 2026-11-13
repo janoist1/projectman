@@ -31,9 +31,12 @@ A place is one process's share of the machine: a run of `n` places has one main 
 
 - **Capacity.** `machinePlaces({ cpus, memoryBytes })` (`packages/shared/src/config/test-workers.ts`):
   `clamp(min(cpus, floor((GiB − 4) / 2)), 2, 16)`. Two GiB per place, four GiB for the machine itself.
-- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test`, the server's full test and
-  `npm run merge-test` (through the heavy CLI; the server's merge check runs it under its ticket and takes
-  none again) ask for `all`; the root `npm run typecheck` asks for 2, `npm run shots` and `take_screenshots`
+- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test` and the server's ordinary
+  full test ask for `all`. Merge checks use `mergeTestPlaces(host, maxWorkers)` (PM-1338): main + usable
+  workers, capped at `max(2, capacity - 2)` places; the server also respects its configured worker limit.
+  On a six-place machine the merge holds four places with three workers, leaving two for developers.
+  `npm run merge-test` selects this policy through `--places merge-test`; the server's merge check runs it
+  under its ticket and takes none again. The root `npm run typecheck` asks for 2, `npm run shots` and `take_screenshots`
   (`SCREENSHOT_PLACES`) for 3, the members' `npm ci` (`DEPENDENCY_PLACES`) for 2, and a workspace `typecheck`
   or `build` script for 1 (`--places 1`; under a holder's ticket it takes nothing). A workspace vitest asks for 2 to 4
   and gives back what it cannot use once it knows its files (`1 + min(workers, files)`); `npm run
@@ -76,7 +79,7 @@ handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run u
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
   even with a run present. Other closure reasons and meeting sessions are unchanged. Only queued
   commands are covered; grace is in memory and does not survive a server restart.
-- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|<n>|<min>-<max>] <command>`
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|merge-test|<n>|<min>-<max>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn (`--places` defaults to `all`); the root `npm test`,
   `npm run typecheck` (`--places 2`), `npm run shots` (`--places 3`), `npm run merge-test` and `npm run
 handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` script (`--places 1`) go through it. The
@@ -112,6 +115,10 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
+  These required-lock runs reserve `mergeTestPlaces` instead of `all`, and cap their workers to the grant.
+  Merge dependency writers and workspace readers additionally hold the per-repository store lock
+  (`_merge-deps/<repoKey>.lock`, capacity 1; PM-1338) while using a generation. Machine places come first;
+  store holders never request places. This lock is separate from the machine pool and pressure meter.
   A merge train (PM-660) submits one common candidate through that same executor and lock;
   its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
   Dependency preparation (`FullTestSpec.npmCi`, PM-710) requires that lock too: probes, sandboxed

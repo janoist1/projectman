@@ -144,7 +144,7 @@ npm test             # all workspaces; waits its turn in the machine's heavy-run
 npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); takes 3 places
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>, --places all|<n>|<min>-<max>)
-npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); takes all places, none again when the server runs it
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); main + workers, capped at capacity - 2 (minimum 2); none again under the server's ticket
 npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them); takes 2-4 machine places once
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (takes 2-4 machine places)
@@ -157,8 +157,9 @@ npm run typecheck -w <workspace>  # type check only the workspaces you touched (
 ```
 
 The machine has one pool of places (PM-332, PM-1278, `docs/modules/scripts.md` "Machine places"):
-every heavy command takes its places from it. The root `npm test`, the server's full test and
-`merge-test` take all of them; the root `typecheck` and the `npm ci` of the members' dependencies take
+every heavy command takes its places from it. The root `npm test` and the server's ordinary full test
+take all of them. Merge checks take main + usable workers, capped at `max(2, capacity - 2)` places
+(four places and three workers on a six-place machine; PM-1338); the root `typecheck` and the `npm ci` of the members' dependencies take
 two, `shots` three, a workspace `typecheck` or `build` one, a workspace `vitest` run and `handover-check`
 two to four, so a few of them run side by side and a full run waits for them (first come, first served,
 nobody overtakes). A run inside a holder (the root `typecheck`, `handover-check`, the server's merge

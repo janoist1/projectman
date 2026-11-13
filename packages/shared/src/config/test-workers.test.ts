@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { defaultTestWorkers, machinePlaces, placeWorkers } from './test-workers';
+import { defaultTestWorkers, machinePlaces, mergeTestPlaces, placeWorkers } from './test-workers';
 
 const GIB = 2 ** 30;
+
+describe('mergeTestPlaces', () => {
+  it.each([
+    [8, 8, 2],
+    [8, 12, 2],
+    [8, 16, 4],
+    [16, 32, 5],
+  ])('reserves usable workers below the two-place ceiling on %i cores and %i GiB', (cpus, gib, places) => {
+    expect(mergeTestPlaces({ cpus, memoryBytes: gib * GIB })).toBe(places);
+  });
+
+  it('does not reserve workers above the configured limit', () => {
+    expect(mergeTestPlaces({ cpus: 16, memoryBytes: 32 * GIB }, 2)).toBe(3);
+  });
+});
 
 describe('defaultTestWorkers', () => {
   it('uses one worker on a one-core machine', () => {

@@ -64,6 +64,11 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason: 'the heavy CLI test reads the merge-test places option from the root package script (PM-1338)',
+    sources: ['package.json'],
+    tests: ['apps/server/test/heavy-cli.test.ts'],
+  },
+  {
     reason: 'registry tests read both barrel folders and the error-code registry by path',
     sources: [
       'packages/shared/src/',

@@ -15,11 +15,12 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mergeTestPlaces } from '@projectman/shared';
 import type { FullTestSpec } from '../contracts';
 import { silentLogger } from '../runner/test-helpers';
 import * as worktree from '../worktree';
 import { createFullTestExecutor } from './index';
-import { readHeavyQueue } from './heavy-lock';
+import { machineHost, readHeavyQueue } from './heavy-lock';
 import { runSandboxed } from './run-sandboxed';
 import type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 
@@ -45,7 +46,7 @@ const end = (overrides: Partial<SandboxedEnd> = {}): SandboxedEnd => ({
 });
 const write = (root: string, relative: string, content = '{}') => {
   const target = path.join(root, relative);
-  mkdirSync(path.dirname(target), { recursive: true });
+  mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   writeFileSync(target, content);
 };
 const localPackages = ['app', 'apps/server'];
@@ -149,6 +150,12 @@ afterEach(() => {
 });
 
 describe('sandboxed dependency preparation under the full-test lock', () => {
+  it('caps sandbox workers to the places reserved for the merge check', async () => {
+    const spec = { ...fixture(), maxWorkers: 16 };
+    expect(await run(spec)).toMatchObject({ outcome: 'passed' });
+    const workers = String(mergeTestPlaces(machineHost(), spec.maxWorkers) - 1);
+    expect(tests()[0]!.env).toMatchObject({ VITEST_MAX_FORKS: workers, VITEST_MAX_THREADS: workers });
+  });
   it('installs once, publishes all workspace trees and reuses the same generation in another check', async () => {
     const first = fixture();
     const started = vi.fn();
@@ -234,7 +241,7 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
       'CODEX_REFRESH_TOKEN_URL_OVERRIDE',
     ])
       expect(request.env).not.toHaveProperty(name);
-    expect(request.env.VITEST_MAX_FORKS).toBe('2');
+    expect(request.env.VITEST_MAX_FORKS).toBe(String(mergeTestPlaces(machineHost(), spec.maxWorkers) - 1));
   });
 
   it.each(['lock', 'root manifest', 'workspace manifest', 'Node', 'npm'])(
@@ -623,7 +630,7 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
       if (kind === 'node_modules') symlinkSync(outside, path.join(spec.cwd, 'node_modules'));
       if (kind === 'store') symlinkSync(outside, path.join(worktreesRoot, '_merge-deps'));
       if (kind === 'generation') {
-        mkdirSync(path.dirname(current()), { recursive: true });
+        mkdirSync(path.dirname(current()), { recursive: true, mode: 0o700 });
         symlinkSync(outside, current());
       }
       expect(await run(spec)).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed' });

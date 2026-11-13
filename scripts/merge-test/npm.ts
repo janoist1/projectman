@@ -3,7 +3,7 @@ import { constants } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { OutputTail } from '../../apps/server/src/full-test/output';
-import { FILE_EVENT_PREFIX } from './reporter';
+import { FILE_EVENT_PREFIX, RUN_FACTS_VARIABLE } from './reporter';
 import type { StepRun } from './steps';
 
 const fileEventSchema = z.object({ phase: z.enum(['start', 'end']), id: z.string(), file: z.string() });
@@ -16,7 +16,7 @@ const fileEventSchema = z.object({ phase: z.enum(['start', 'end']), id: z.string
  */
 export function runNpm(
   args: string[],
-  { fileTimeoutMs = 180_000, forwardOutput = true } = {},
+  { fileTimeoutMs = 180_000, forwardOutput = true, runFacts = false } = {},
 ): Promise<StepRun> {
   return new Promise((resolve, reject) => {
     const testing = args[0] === 'test';
@@ -35,7 +35,11 @@ export function runNpm(
     const child = spawn(
       process.execPath,
       [fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.url)), 'npm', ...command],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // The reporter prints its structured failure facts only for this variable (the hand-over check asks).
+        ...(runFacts ? { env: { ...process.env, [RUN_FACTS_VARIABLE]: '1' } } : {}),
+      },
     );
     const kept = new OutputTail();
     const active = new Map<string, { file: string; timer: ReturnType<typeof setTimeout> }>();

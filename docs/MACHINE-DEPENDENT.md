@@ -2605,6 +2605,15 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   prove the real socket boundary; Linux has no equivalent guarantee and no fallback. `npm run merge-test` exits 2
   for any scope that runs the server's tests when `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal,
   which `fullTestEnv` never passes), and its cloud scope names the two boundary-test files.
+  PM-1406: with the same signal, `npm run handover-check` (`scripts/merge-test/sandbox-not-run.ts`,
+  `handover-run.ts`) lists a failed test file as "not run (sandbox)" and does not fail on it, when its own
+  loopback `listen` probe was refused (EPERM/EACCES) and every failure of the file carries a sandbox error
+  from the vitest reporter's structured facts: `listen`/`bind` EPERM/EACCES, or an EPERM on a file-system read
+  that the process confirms with `lstat`. This assumes macOS Seatbelt's codes (Claude Code `srt` and Codex
+  refuse a binding with EPERM/EACCES and a read with EPERM); where another platform reports other codes
+  there is no classification and the failure stays a failure. The merge-test is unchanged and runs every
+  file. **Remote engine:** it runs where the member's session runs (the card's engine); the probe and the
+  classification stay in one process, with no server-engine crossing.
   Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine:** `full_test.run/cancel` executes on the card's engine with its

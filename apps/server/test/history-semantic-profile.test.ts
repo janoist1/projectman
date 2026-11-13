@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { historyDocumentEntityId, historySourceId } from '../src/db';
 import { createProfileControl } from '../src/history-semantic-profile-control';
 import { historyHarness, OWNER_ACTOR } from './helpers/history';
+import { listenLoopback } from './helpers/loopback';
 
 /**
  * The release measurement of the history search's local embedding (PM-910): `deploy/cloud/history-semantic-profile.mjs`.
@@ -514,7 +515,7 @@ describe('the measurement search listener', () => {
         },
       },
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await listenLoopback(server);
   });
   afterEach(async () => {
     await new Promise((resolve) => server.close(resolve));

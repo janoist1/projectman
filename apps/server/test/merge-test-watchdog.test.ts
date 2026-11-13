@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runNpm } from '../../../scripts/merge-test/npm';
+import { RUN_FACTS_PREFIX } from '../../../scripts/merge-test/reporter';
 import { runSteps, type StepRun } from '../../../scripts/merge-test/steps';
 import { vitestFailedFiles } from '../src/full-test/output';
 
@@ -77,5 +78,41 @@ describe('merge-test file watchdog at the process boundary', () => {
       'start',
       'end',
     ]);
+  });
+
+  describe('run facts (PM-1406)', () => {
+    const refused = () => {
+      const vitest = resolve(import.meta.dirname, '../../../node_modules/vitest/dist/index.js');
+      return fixture(
+        `import { test, beforeEach } from ${JSON.stringify(vitest)};\n` +
+          `beforeEach(() => { throw Object.assign(new Error('listen EPERM: operation not permitted 127.0.0.1'), ` +
+          `{ code: 'EPERM', syscall: 'listen', address: '127.0.0.1' }); });\n` +
+          `test("binds", () => {});`,
+      );
+    };
+    const factsLines = (output: string) =>
+      output.split('\n').filter((line) => line.startsWith(RUN_FACTS_PREFIX));
+
+    it('hands the structured error facts of a failed file to the caller that asks for them', async () => {
+      const run = await runNpm(refused(), { fileTimeoutMs: 20_000, forwardOutput: false, runFacts: true });
+      expect(run.code).not.toBe(0);
+      const lines = factsLines(run.output);
+      expect(lines).toHaveLength(1);
+      const facts = JSON.parse(lines[0]!.slice(RUN_FACTS_PREFIX.length));
+      expect(facts.reason).toBe('failed');
+      expect(facts.failed).toHaveLength(1);
+      expect(facts.failed[0].file).toMatch(/hang\.test\.js$/);
+      expect(facts.failed[0].failures[0].errors[0]).toMatchObject({
+        code: 'EPERM',
+        syscall: 'listen',
+        address: '127.0.0.1',
+      });
+    });
+
+    it('prints no facts line by default, so the output stays as it was', async () => {
+      const run = await runNpm(refused(), { fileTimeoutMs: 20_000, forwardOutput: false });
+      expect(run.code).not.toBe(0);
+      expect(factsLines(run.output)).toEqual([]);
+    });
   });
 });

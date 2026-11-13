@@ -7,6 +7,8 @@ import type { HandoverSelection, Proximity } from './handover';
 import { isCode } from './impact';
 import type { MergeTestFile } from './impact';
 import { runNpm } from './npm';
+import { probeSandbox, readDenied, sandboxNotRun } from './sandbox-not-run';
+import type { SandboxNotRun, SandboxRefusals } from './sandbox-not-run';
 import { MERGE_TEST_WORKSPACES, runSteps, testStep, typecheckStep } from './steps';
 import type { MergeTestStep, StepRun } from './steps';
 
@@ -32,6 +34,8 @@ interface HandoverIo {
   deadCode?: () => Promise<StepRun>;
   /** Runs `npm <args>`. */
   npm?: (args: string[]) => Promise<StepRun>;
+  /** What the members' sandbox refuses in this process (PM-1406); `null` outside it, so no failure is reclassified. */
+  sandbox?: () => Promise<SandboxRefusals | null>;
   /** Writes the result record where the server reads it (PM-1380); throws when it cannot. */
   writeRecord?: (record: HandoverCheckRecord) => void;
   /** The time now. */
@@ -94,6 +98,12 @@ function header(selection: HandoverSelection, count: number): string {
   return `handover-check: ${count} changed files; kind: ${selection.kind}; type check: ${selection.typecheck.join(', ') || 'none'}; tests: ${tests || 'none'}`;
 }
 
+/** The record's one-line summary (at most 500 characters); the sandbox's not-run count always stays in it. */
+function recordSummary(line: string, notRun: readonly SandboxNotRun[]): string {
+  const suffix = notRun.length ? `; not run (sandbox): ${notRun.length} file(s)` : '';
+  return line.slice(0, 500 - suffix.length) + suffix;
+}
+
 const NAMED_MAX = 20;
 /** The first tests by name, the rest as a count. */
 const named = (paths: readonly string[]): string =>
@@ -102,7 +112,7 @@ const named = (paths: readonly string[]): string =>
     : paths.join(', ');
 
 /** What the run left out, printed last so it is the end of the output. */
-function footer(selection: HandoverSelection): string[] {
+function footer(selection: HandoverSelection, notRun: readonly SandboxNotRun[] = []): string[] {
   return [
     ...(selection.moduleTests.length
       ? [
@@ -130,11 +140,23 @@ function footer(selection: HandoverSelection): string[] {
           `handover-check: not mapped to a test (the merge-test covers them): ${selection.unmapped.join(', ')}`,
         ]
       : []),
+    ...(notRun.length
+      ? [
+          `handover-check: not run in this sandbox (the merge-test runs them; name them in the hand-over note): ${notRun.length} file(s)`,
+          ...notRun.map(
+            ({ file, reason, tests }) =>
+              `handover-check: not run (sandbox): ${file}: ${reason} (${tests} tests)`,
+          ),
+        ]
+      : []),
     'handover-check: this is not the merge-test: it runs the nearest tests only',
   ];
 }
 
-/** Exit codes: 0 green (also when the cap left tests to the merge-test), 1 a step failed, 2 usage or git error. */
+/**
+ * Exit codes: 0 green (also when the cap left tests to the merge-test, and when the members' sandbox kept
+ * boundary test files from running: the footer names them), 1 a step failed for real, 2 usage or git error.
+ */
 export async function runHandoverCheck(argv: readonly string[], io: HandoverIo = {}): Promise<number> {
   const parsed = parseArgs(argv);
   if ('error' in parsed) {
@@ -190,13 +212,30 @@ export async function runHandoverCheck(argv: readonly string[], io: HandoverIo =
       `handover-check: no result record: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  const notRun: SandboxNotRun[] = [];
   const run = async (): Promise<number> => {
     try {
       const checked = await (io.deadCode ?? (() => runNpm(['run', 'dead-code'])))();
       if (checked.signaled || checked.code !== 0) return 1;
+      const refusals = await (io.sandbox ?? probeSandbox)();
+      const runNpmStep = io.npm ?? ((args: string[]) => runNpm(args, { runFacts: refusals !== null }));
       // The working tree is no commit, so there is no step cache and no rerun of a failed file.
       const code = await runSteps(list, {
-        spawn: io.npm ?? runNpm,
+        spawn: async (args) => {
+          const result = await runNpmStep(args);
+          if (!refusals || args[0] !== 'test' || result.signaled || result.code === 0) return result;
+          const workspace = args[args.indexOf('-w') + 1];
+          const found = workspace
+            ? sandboxNotRun(result.output, refusals, {
+                root: resolve('.'),
+                workspaceDir: resolve(workspace),
+                readDenied,
+              })
+            : null;
+          if (!found) return result;
+          notRun.push(...found);
+          return { ...result, code: 0 };
+        },
         changed: null,
         tree: '',
         noCache: true,
@@ -221,7 +260,7 @@ export async function runHandoverCheck(argv: readonly string[], io: HandoverIo =
         exitCode,
         startedAt,
         finishedAt: now().toISOString(),
-        summary: header(selection, count).slice(0, 500),
+        summary: recordSummary(header(selection, count), notRun),
       });
     } catch (error) {
       console.error(
@@ -229,6 +268,6 @@ export async function runHandoverCheck(argv: readonly string[], io: HandoverIo =
       );
     }
   }
-  for (const line of footer(selection)) console.log(line);
+  for (const line of footer(selection, notRun)) console.log(line);
   return exitCode;
 }

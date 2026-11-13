@@ -345,6 +345,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         tag,
         url: args.preview ? null : `https://github.com/fake/fake/releases/tag/${tag}`,
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+        appBuild: args.preview ? null : { state: 'not_configured' },
       };
     },
     async getReleaseStatus(ctx) {

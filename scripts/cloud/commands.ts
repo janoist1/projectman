@@ -1,12 +1,23 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { awsPreflight, runAws } from './aws';
 import { runCheck } from './cloudflare-check';
 import { runPublish } from './cloudflare-publish';
-import { cloudflareApi, cloudflarePreflight, findZone, resolveAccount, runEdge } from './cloudflare';
-import { defaultConfigPath, expandHome, loadConfig } from './config';
+import {
+  cloudflareApi,
+  cloudflarePreflight,
+  findZone,
+  resolveAccount,
+  runEdge,
+  ownerDir,
+  OWNERS_DIR,
+  ENGINE_TOKEN_FILE,
+  INTEGRATOR_TOKEN_FILE,
+} from './cloudflare';
+import { addOwner, defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext, DeployContext } from './context';
 import type { CloudDeps } from './deps';
-import { badUsage, CloudError } from './errors';
+import { badUsage, CloudError, refused } from './errors';
 import { runDnsStatus } from './dns';
 import {
   runDeploy,
@@ -26,12 +37,21 @@ import { runGithubDeploySetup } from './github-deploy-setup';
 import { runImageFetch } from './image-fetch';
 import { imagePreflight } from './image-github';
 import { runImageBuild, type ImageBuildContext } from './images';
-import { ENV_FILE_NAME, secretsDir } from './secrets';
+import {
+  checkSecretsDir,
+  readSecret,
+  secretFileProblem,
+  writeSecret,
+  ENV_FILE_NAME,
+  secretsDir,
+} from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
 
 const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
+  owner add <id> --email <address>    add a further owner to the local configuration; no live changes
+  owner handoff <id>                 package the owner's two Access tokens for encrypted delivery after edge
   image-build --ref <SHA40> --out <new directory> [--dry-run]
                                      build and verify the arm64 image archive on a builder with Docker (the local fallback;
                                      needs no cloud configuration)
@@ -87,6 +107,8 @@ exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state
 
 type Flag = 'dry-run' | 'rotate-keys' | 'rotate-engine-token' | 'rotate-integrator-token' | 'feedback';
 type ValueOption =
+  | 'id'
+  | 'email'
   | 'ref'
   | 'lines'
   | 'to'
@@ -99,6 +121,7 @@ type ValueOption =
   | 'instance';
 
 interface Invocation {
+  configFile?: string;
   dryRun: boolean;
   rotateKeys: boolean;
   flags: ReadonlySet<Flag>;
@@ -157,6 +180,35 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
+  'owner add': {
+    summary: 'add a further owner to the local configuration',
+    flags: [],
+    values: ['email'],
+    required: ['id', 'email'],
+    run: async (context, invocation) => {
+      const changed = addOwner(
+        invocation.configFile!,
+        context.deps.homeDir,
+        invocation.values.id!,
+        invocation.values.email!,
+      );
+      context.report.line(
+        changed ? 'Owner added to the local configuration.' : 'Owner already configured; unchanged.',
+      );
+      context.report.line(
+        'Next: obtain the owner’s approval, then run npm run cloud -- edge (with the same --config, if used).',
+      );
+      context.report.line(
+        'Deploy is needed only if edge reports cloud.env changed; obtain the owner’s approval before deploy.',
+      );
+    },
+  },
+  'owner handoff': {
+    summary: 'package a further owner’s Access tokens',
+    flags: [],
+    required: ['id'],
+    run: (context, invocation) => ownerHandoff(context, invocation.values.id!),
+  },
   'image-build': {
     summary: 'build the image bundle',
     configless: true,
@@ -339,6 +391,59 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
 };
 
+/** Build only the allowlisted files in a private staging directory; never print child output. */
+async function ownerHandoff(context: CloudContext, id: string): Promise<void> {
+  const { config, secretsDir, deps, report } = context;
+  if (!config.access.owners.some((owner) => owner.id === id)) throw refused('no such owner in access.owners');
+  const dir = ownerDir(secretsDir, id);
+  for (const folder of [secretsDir, path.join(secretsDir, OWNERS_DIR), dir]) checkSecretsDir(folder);
+  const tokens = [ENGINE_TOKEN_FILE, INTEGRATOR_TOKEN_FILE].map((name) => {
+    const content = readSecret(path.join(dir, name));
+    if (content === null)
+      throw refused(
+        `missing ${name}; run npm run cloud -- edge first (use --rotate-owner-token ${id} if the remote token already exists)`,
+      );
+    return { name, content };
+  });
+  const target = path.join(dir, `projectman-handoff-${id}.zip`);
+  const problem = secretFileProblem(target);
+  if (problem) throw refused(problem);
+  const staging = fs.mkdtempSync(path.join(dir, '.handoff-'));
+  fs.chmodSync(staging, 0o700);
+  try {
+    const files = tokens.map(({ name, content }) => writeSecret(staging, name, content));
+    files.push(
+      writeSecret(
+        staging,
+        'handoff.json',
+        `${JSON.stringify(
+          {
+            version: 1,
+            ownerId: id,
+            hubUrl: `https://${config.cloudflare.hostname}`,
+            integratorBaseUrl: `https://${config.cloudflare.integratorHostname}`,
+            engineLinkHeadersFile: ENGINE_TOKEN_FILE,
+            integratorAccessHeadersFile: INTEGRATOR_TOKEN_FILE,
+          },
+          null,
+          2,
+        )}\n`,
+      ),
+    );
+    const archive = path.join(staging, 'handoff.zip');
+    const result = await deps.run('zip', ['-q', '-j', archive, ...files]);
+    if (result.code !== 0) throw refused('could not create the handoff archive; install zip and retry');
+    fs.chmodSync(archive, 0o600);
+    fs.renameSync(archive, target);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+  report.line(`Handoff archive: ${target}`);
+  report.line(
+    'Send only through an end-to-end encrypted channel (AirDrop, Signal, iMessage), never by e-mail, projectman messages or cards. Delete the archive after receipt.',
+  );
+}
+
 interface Parsed {
   command: string;
   config: string | null;
@@ -348,7 +453,7 @@ interface Parsed {
 
 function parse(argv: readonly string[]): Parsed {
   const [first, ...args] = argv;
-  const grouped = first === 'dns' || first === 'ses';
+  const grouped = first === 'dns' || first === 'ses' || first === 'owner';
   const command = grouped ? `${first} ${args[0] ?? ''}` : first;
   const rest = grouped ? args.slice(1) : args;
   if (!command) throw badUsage(`no command\n${USAGE}`);
@@ -356,6 +461,11 @@ function parse(argv: readonly string[]): Parsed {
   if (!spec) throw badUsage(`unknown command "${command}"\n${USAGE}`);
   const flags = new Set<Flag>();
   const values: Partial<Record<ValueOption, string>> = {};
+  if (first === 'owner') {
+    const id = rest.shift();
+    if (!id || id.startsWith('--')) throw badUsage(`owner needs an id\n${USAGE}`);
+    values.id = id;
+  }
   let config: string | null = null;
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index]!;
@@ -406,6 +516,7 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);
     const config = loadConfig(configFile, deps.homeDir);
+    invocation.configFile = configFile;
     if (config.releaseTarget !== undefined || config.hybrid !== undefined)
       report.line(
         'warning: releaseTarget and hybrid are retired and ignored; use cloud deploy and publish_release.',

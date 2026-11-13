@@ -323,12 +323,58 @@ On the Mac, with the engine ([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md), "Clou
    `npm run engine -- service install` (it restarts the LaunchAgent) or stop and `start` it again.
    The project's sessions wait with `engine_offline` until then.
 
-A further owner of a multi-owner board (`access.owners`, AWS.md) does not create a token: `npm run cloud -- edge` on the host makes the owner's own engine token and writes
-`owners/<id>/engine-access-token.json` in the host's secrets store. The host hands that file to the owner outside projectman, and the owner's engine uses
-it as in step 2, with `--link-headers-file` pointing at the received file.
+A further owner of a multi-owner board (`access.owners`, AWS.md) receives their own Access tokens
+through the [guided handoff](#adding-a-further-owner-guided). Their engine uses the received
+`engine-access-token.json` as in step 2, with `--link-headers-file` pointing at its protected local path.
 
 The machine key and the service token are different secrets with different jobs: revoke either
 without the other (the key in Settings → Engines, the token in Cloudflare).
+
+## Adding a further owner, guided
+
+The host's connected Claude follows these steps on the host's maintenance machine, on the host's
+request. Team member sessions cannot access the cloud secrets store. Use the same `--config <file>`
+on every cloud command if the host uses a non-default configuration. These commands need the existing
+Cloudflare integrator hostname and `access.integratorServiceToken: true`; do not invent a hostname or
+change the deployment setup without the host's decision.
+
+1. Run `npm run cloud -- owner add <id> --email <address>`. The id is 1–32 lowercase letters,
+   digits or hyphens, starting with a letter or digit; it becomes the entry's display name.
+   This validates and saves only `access.owners` in the local configuration. Repeating the same id
+   and address changes nothing; changing an existing address requires an explicit configuration edit.
+2. Explain the pending Cloudflare Access change and obtain the host's explicit approval for
+   `edge`. Deploy is required only if `edge` reports that `cloud.env` changed; obtain separate
+   approval for that live deployment before running it.
+3. Run `npm run cloud -- edge`. Follow its deployment notice if present and approved.
+4. Run `npm run cloud -- owner handoff <id>`. It requires the two token files written by `edge`
+   and the local `zip` utility. It writes
+   `~/.config/projectman/cloud/owners/<id>/projectman-handoff-<id>.zip` with mode 600 in the
+   protected secrets store. Never display or read token values into an AI conversation.
+   The archive contains exactly:
+
+   - `engine-access-token.json`: the friend's Cloudflare Access headers for the engine;
+   - `integrator-access-token.json`: their Access headers for the connected Claude;
+   - `handoff.json`: non-secret `{ version: 1, ownerId, hubUrl, integratorBaseUrl,
+engineLinkHeadersFile, integratorAccessHeadersFile }`. The two file names are relative to
+     the extracted directory; the URLs are HTTPS origins, with no credentials.
+
+5. The host creates an owner invitation in the web app using their **own login**. The connected
+   Claude cannot perform this action (`requireOwnLogin`). The invitation is single-use and expires
+   after seven days. This click and the final delivery remain the host's actions.
+6. The host sends the archive and invitation together through an **end-to-end encrypted channel**
+   such as AirDrop, Signal or iMessage. Never use e-mail, projectman messages, cards or AI conversations.
+   After receipt, delete the transfer archive on both machines. Keep the extracted token files in a
+   private directory (700), with file mode 600, on the friend's machine; use the engine file with
+   `--link-headers-file` and the integrator file as the client's `accessHeadersFile`.
+
+The archive carries only that owner's two service tokens. It contains no password, engine key or
+integrator key: the friend creates those in their own login. To replace both Access tokens, obtain
+approval for `npm run cloud -- edge --rotate-owner-token <id>`, then create and securely deliver a new
+handoff; replace both received files. Deleting the archive does not revoke the tokens.
+
+**Remote engine:** preparation runs on the host's maintenance machine and `edge` talks to Cloudflare.
+There is no new hub/engine crossing. The friend's engine reads its own local extracted headers file;
+the integrator client reads its separate headers file on its own machine.
 
 ## Smoke test
 

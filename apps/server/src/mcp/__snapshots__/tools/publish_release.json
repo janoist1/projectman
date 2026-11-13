@@ -1,7 +1,7 @@
 {
   "name": "publish_release",
   "title": "Publish a repository release",
-  "description": "Tag a merged commit and create its public GitHub release (`summary`, the cards merged since the last one). `preview: true` is open to the deployment duty; publishing is only the owner’s or their connected Claude’s (release_owner_only). After release_publish_failed, call it again.",
+  "description": "Tag a merged commit, create its public GitHub release (`summary`: cards since the last one) and start its engine app build. `preview: true` is open to the deployment duty; publishing is only the owner’s or their connected Claude’s (release_owner_only). After release_publish_failed, call it again.",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -174,6 +174,12 @@ Entries in the order they appear below (search for the bold name).
   refuse replacement. A complete manifest-backed release is verified without rebuilding.
   This runs on the release Mac with its owner's `gh` login; remote engines only download
   the result, with no server/engine boundary change (PM-1126).
+  **PM-1424:** `publish_release` starts the repository's `projectman-engine-release.yml` compute job on the
+  release commit by itself (`services/releases/publications.ts` port `startAppBuild`, bound in `assembly.ts`
+  to `ComputeJobService.startAppBuild`), so each release gets `projectman-motor.{zip,dmg,json}` (the manifest
+  carries the SHA-256 and size of the zip and DMG) on the public release URL. It runs on the hub (MCP and GitHub
+  Actions); no engine-link crossing is new. A friend's remote engine only reads the public URL (the app's
+  updater needs a logged-in `gh` 2.49+ for the attestation check).
   The CLI takes the machine's heavy-run queue. All scratch/cache files, tool temporary files
   and diagnostics stay under `--out`; existing nonempty output is refused.
   **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,
@@ -237,6 +243,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   owner's folder before `project set`), so the hub never looks at the owner's disk and the wire method and the
   engine limit are unchanged, which keeps an older engine working. A project created that way waits with
   `engine_offline` until the engine reports it, after `project set` and a restart (`service install`).
+  PM-1427's [guided owner handoff](HYBRID.md#adding-a-further-owner-guided) supplies the new owner's
+  `engine-access-token.json`; its manifest names that file relative to the extracted directory. The friend
+  protects the received file on their own machine and passes its local path to `init --link-headers-file`.
 
 - **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
   the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
@@ -397,6 +406,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-1427 adds `owner add <id> --email <address>` (local config only) and `owner handoff <id>`
+  (`scripts/cloud/{commands,config}.ts`). The latter needs the POSIX `zip` utility and stores a mode-600
+  `owners/<id>/projectman-handoff-<id>.zip` under the cloud secrets store, containing only that owner's
+  two Access-token JSON files and a non-secret `handoff.json`. Staging is private and cleaned on failure.
+  The host sends it and the own-login invitation through an end-to-end encrypted channel, then deletes
+  the transfer archive after receipt. `edge` and any required deploy remain explicitly approved live changes.
+  **Remote engine:** preparation stays on the maintenance machine; the friend's engine reads the
+  received headers file locally. No new engine RPC or secret transfer through projectman is added.
   PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
   expiration and expired-delete-marker cleanup; the Litestream database bucket stays unversioned.
   The [hybrid recovery procedure](HYBRID.md) preserves final stopped-cloud data before
@@ -2749,6 +2766,8 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
+  PM-1424: the `engine-release` compute job is also started by `publish_release` through the same
+  `ComputeJobService.start` path (same actor, no `force`); it needs no new engine request.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
   **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the

@@ -29,6 +29,12 @@ starts a worker per core, about 150 MB each. So **the machine has one pool of pl
 pattern; PM-1278, replacing the one-at-a-time lock of PM-332), and every heavy run takes its places from it.
 A place is one process's share of the machine: a run of `n` places has one main process and `n − 1` workers.
 
+Only Claude Code members may run checks in the background: they receive completion
+notifications. Codex, Gemini (agy) and NanoGPT members run in the foreground and follow
+running command ids until completion, as their provider context instructs. Gemini's native
+`command_status` follows a running command; bounded `schedule` wakeups are an optional
+provider-specific path. Never end a turn while a check still runs.
+
 - **Capacity.** `machinePlaces({ cpus, memoryBytes })` (`packages/shared/src/config/test-workers.ts`):
   `clamp(min(cpus, floor((GiB − 4) / 2)), 2, 16)`. Two GiB per place, four GiB for the machine itself.
 - **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test` and the server's ordinary
@@ -226,9 +232,11 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
   test fails when a server or web test that reads a repository file by path (an
   `import.meta.glob`, or a path from `import.meta.url` read with `readFileSync`, `readdirSync`,
-  `existsSync`) is not named by a rule, or a rule names no existing test. The `CLAUDE.md` Commands
-  lines of the form "run this test after changing that" are rules too (`web-get-contracts`, the
-  merge-test watchdog, `start-offer` and the `golden-path-*` tests). The tool-definition snapshot and the
+  `existsSync`) is not named by a rule, or a rule names no existing test. The former conditional
+  `CLAUDE.md` test commands are now rules (`i18n`, `web-get-contracts`, the merge-test watchdog,
+  `start-offer` and `golden-path-*`). App-harness consumers are selected as direct importers;
+  `merge-test-handover.test.ts` guards this, and the cap never cuts direct tests (PM-1337).
+  The tool-definition snapshot and the
   migration folder (`apps/server/src/db/migrations/`) has a `SELECTION_RULES` path rule selecting
   loader, baseline, database, journal, handle, history and retained migration tests: SQL and metadata
   have no import edge. Merge impact treats these data files as changes to the `db` module. A rule

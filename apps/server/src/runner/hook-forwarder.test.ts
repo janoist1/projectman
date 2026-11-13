@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { listenLoopback } from '../../test/helpers/loopback';
 import {
   FAST_HOOK_TIMEOUT_S,
   forwarderCommand,
@@ -44,8 +44,7 @@ async function forward(
       res.end(body);
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  const port = await listenLoopback(server);
   const command = forwarderCommand(await targetFor(`http://127.0.0.1:${port}/hooks/tok`), process.execPath, {
     printResponse: true,
     maxTimeS: 5,
@@ -142,8 +141,7 @@ describe('forwarderCommand without printResponse', () => {
         res.end('this must not reach stdout');
       });
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
+    const port = await listenLoopback(server);
     const command = forwarderCommand(await targetFor(`http://127.0.0.1:${port}/hooks/tok`));
     const stdout = await new Promise<string>((resolve, reject) => {
       const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, out) =>
@@ -223,8 +221,7 @@ describe('the target file (PM-156)', () => {
       requests += 1;
       res.end('x');
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
+    const port = await listenLoopback(server);
     const folder = await mkdtemp(path.join(os.tmpdir(), 'fwd-'));
     folders.push(folder);
     const file = path.join(folder, 'hook.curl');

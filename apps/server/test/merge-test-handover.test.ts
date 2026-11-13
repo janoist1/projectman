@@ -13,6 +13,10 @@ import {
 } from '../../../scripts/merge-test/handover';
 import { runHandoverCheck } from '../../../scripts/merge-test/handover-run';
 import type { MergeTestFile } from '../../../scripts/merge-test/impact';
+import { RUN_FACTS_PREFIX } from '../../../scripts/merge-test/reporter';
+import type { ErrorFact, RunFacts } from '../../../scripts/merge-test/reporter';
+import { sandboxNotRun } from '../../../scripts/merge-test/sandbox-not-run';
+import type { SandboxRefusals } from '../../../scripts/merge-test/sandbox-not-run';
 import type { StepRun } from '../../../scripts/merge-test/steps';
 
 const file = (path: string, source = ''): MergeTestFile => ({ path, source });
@@ -653,6 +657,78 @@ describe('selection rules', () => {
   });
 });
 
+const LISTEN_EPERM: ErrorFact = {
+  message: 'listen EPERM',
+  code: 'EPERM',
+  syscall: 'listen',
+  address: '127.0.0.1',
+};
+const ASSERTION: ErrorFact = { message: 'expected 1 to be 2' };
+const ROOT = '/repo';
+const factsLine = (facts: RunFacts) => `noise\n${RUN_FACTS_PREFIX}${JSON.stringify(facts)}\n`;
+const failedFacts = (...failures: Array<[string, ErrorFact[]]>): RunFacts => ({
+  reason: 'failed',
+  unhandled: [],
+  failed: [
+    {
+      file: `${ROOT}/apps/server/a.test.ts`,
+      failures: failures.map(([name, errors]) => ({ name, errors })),
+    },
+  ],
+});
+
+describe('sandboxNotRun', () => {
+  const classify = (output: string, refusals: SandboxRefusals, readDenied = () => true) =>
+    sandboxNotRun(output, refusals, { root: ROOT, workspaceDir: `${ROOT}/apps/server`, readDenied });
+  const read = (code: string, path = 'test/x.json'): ErrorFact => ({
+    message: 'm',
+    code,
+    syscall: 'open',
+    path,
+  });
+
+  it.each([
+    ['a listen refusal the probe saw', factsLine(failedFacts(['t', [LISTEN_EPERM]])), { listen: true }],
+    ['a confirmed read refusal', factsLine(failedFacts(['t', [read('EPERM')]])), { listen: false }],
+  ])('lists the file for %s', (_name, output, refusals) => {
+    expect(classify(output, refusals)).toEqual([
+      { file: 'apps/server/a.test.ts', reason: expect.stringMatching(/EPERM/), tests: 1 },
+    ]);
+  });
+
+  it.each([
+    [
+      'a listen refusal the probe did not see',
+      factsLine(failedFacts(['t', [LISTEN_EPERM]])),
+      { listen: false },
+    ],
+    [
+      'a listen refusal beside an assertion failure in the file',
+      factsLine(failedFacts(['t', [LISTEN_EPERM]], ['u', [ASSERTION]])),
+      { listen: true },
+    ],
+    ['an EACCES read', factsLine(failedFacts(['t', [read('EACCES')]])), { listen: true }],
+    [
+      'an unhandled error',
+      factsLine({ ...failedFacts(['t', [LISTEN_EPERM]]), unhandled: [ASSERTION] }),
+      { listen: true },
+    ],
+    [
+      'an interrupted run',
+      factsLine({ ...failedFacts(['t', [LISTEN_EPERM]]), reason: 'interrupted' }),
+      { listen: true },
+    ],
+    ['no facts line', 'FAIL a.test.ts\n', { listen: true }],
+  ])('stays a failure for %s', (_name, output, refusals) => {
+    expect(classify(output, refusals)).toBeNull();
+  });
+
+  it('stays a failure for a read refusal this process cannot confirm', () => {
+    const output = factsLine(failedFacts(['t', [read('EPERM')]]));
+    expect(classify(output, { listen: true }, () => false)).toBeNull();
+  });
+});
+
 describe('handover-check command', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -720,6 +796,59 @@ describe('handover-check command', () => {
   it('exits 1 when a step fails', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     expect(await runHandoverCheck([], io({ npm: async () => ({ ...ok, code: 1 }) }))).toBe(1);
+  });
+
+  describe('sandbox boundary tests (PM-1406)', () => {
+    const SES = 'apps/server/src/services/email-login/ses-mailer.test.ts';
+    const failingTests = (facts: RunFacts) => async (args: string[]) =>
+      args[0] === 'test' ? { code: 1, signaled: false, output: factsLine(facts) } : ok;
+    const listenFacts: RunFacts = {
+      reason: 'failed',
+      unhandled: [],
+      failed: [{ file: join(process.cwd(), SES), failures: [{ name: 'a', errors: [LISTEN_EPERM] }] }],
+    };
+
+    it('exits 0 and names the files the sandbox kept from running', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const sandbox = async () => ({ listen: true });
+      expect(await runHandoverCheck([], io({ sandbox, npm: failingTests(listenFacts) }))).toBe(0);
+      expect(printed().join('\n')).toContain(`not run (sandbox): ${SES}: listen EPERM 127.0.0.1 (1 tests)`);
+    });
+
+    it('records the not-run count in the result summary', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const records: HandoverCheckRecord[] = [];
+      const writeRecord = (record: HandoverCheckRecord) => void records.push(record);
+      await runHandoverCheck(
+        [],
+        io({ writeRecord, sandbox: async () => ({ listen: true }), npm: failingTests(listenFacts) }),
+      );
+      expect(records[0]).toMatchObject({ outcome: 'passed', exitCode: 0 });
+      expect(records[0]?.summary).toContain('not run (sandbox): 1 file(s)');
+    });
+
+    it('exits 1 when a real failure is in the run too', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const real: RunFacts = {
+        ...listenFacts,
+        failed: [
+          ...listenFacts.failed,
+          {
+            file: join(process.cwd(), 'apps/server/src/a.test.ts'),
+            failures: [{ name: 'b', errors: [ASSERTION] }],
+          },
+        ],
+      };
+      const sandbox = async () => ({ listen: true });
+      expect(await runHandoverCheck([], io({ sandbox, npm: failingTests(real) }))).toBe(1);
+    });
+
+    it('exits 1 outside the members sandbox, where nothing is classified', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(
+        await runHandoverCheck([], io({ sandbox: async () => null, npm: failingTests(listenFacts) })),
+      ).toBe(1);
+    });
   });
 
   describe('result record (PM-1380)', () => {

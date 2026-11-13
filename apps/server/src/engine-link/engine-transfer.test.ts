@@ -1,13 +1,13 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sha256, startFakeCloud } from '../../test/helpers/fake-cloud';
 import type { FakeCloud } from '../../test/helpers/fake-cloud';
+import { listenLoopback } from '../../test/helpers/loopback';
 import { createEngineTransfers } from './engine-transfer';
 
 describe('engine file transfers', () => {
@@ -132,10 +132,7 @@ describe('engine file transfers', () => {
     let elsewhereRequests: Array<Record<string, string | string[] | undefined>>;
     let redirecting: Server;
 
-    const listen = (server: Server) =>
-      new Promise<number>((resolve) =>
-        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
-      );
+    const listen = (server: Server) => listenLoopback(server);
     const redirectingTransfers = async () => {
       elsewhere = createServer((request, response) => {
         elsewhereRequests.push({ ...request.headers });

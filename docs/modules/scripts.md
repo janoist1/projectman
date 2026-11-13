@@ -304,6 +304,25 @@ finishedAt, summary?}` (`HandoverCheckRecord`, `packages/shared/src/domain/hando
   code as it was. The record is what the gate of the move into review reads when the repository's
   `handoverCheck.command` is set (`docs/modules/core-tasks.md`); a repository that sets another command
   must write the same record, or its developers can only hand over with a recorded reason.
+  **Boundary tests the sandbox cannot run (PM-1406).** In the members' sandbox a test that binds a port
+  or reads a refused path fails with EPERM although the change is fine. The hand-over check lists such a
+  file as `not run (sandbox)` and does not fail on it, when all three hold: (1) `PROJECTMAN_SKIP_PTY_TESTS=1`
+  (the members' sandbox signal, which the merge-test reads too; without it nothing is classified);
+  (2) its own probe (`net.createServer().listen(0, '127.0.0.1')` in the hand-over process, `probeSandbox`)
+  was refused with EPERM or EACCES for a listen failure (the Claude sandbox allows loopback binding, so
+  there a listen failure stays a failure); (3) every failed test, suite and module error of the file
+  carries a sandbox signature in the vitest reporter's structured facts (`code`, `syscall`, `address`,
+  `path`; no output text is parsed): `listen`/`bind` with EPERM/EACCES after the probe, or an EPERM from a
+  file-system read call that the hand-over process confirms (`lstat` of the path is refused too; EACCES
+  and writes never count). One assertion failure in a file, an unhandled error, an interrupted run or an
+  unreadable facts line keeps the run a failure. The reporter prints the facts line
+  (`merge-test run facts: <json>`) only when `PROJECTMAN_TEST_RUN_FACTS=1`, which only the hand-over run
+  sets, so the merge-test output and selection are unchanged and the merge-test still runs every file.
+  The last lines name the files (`not run (sandbox): <file>: <reason> (<n> tests)`); name them in the
+  hand-over note. The exit code stays 0 and the result record's `summary` carries the not-run count.
+  A platform whose sandbox reports other error codes has no classification: the failure stays a failure.
+  `listenLoopback` (`apps/server/test/helpers/loopback.ts`) makes a test's server start reject at once on
+  a listen error instead of running into the hook timeout.
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`
   the hub passed, scope and step timings from the engine; `list_merge_checks`, `get_task`). Requested-to-merged
   timeline intervals include queue time and retries, so they are upper bounds, not run times.

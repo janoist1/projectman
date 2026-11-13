@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
 import type { IncomingHttpHeaders, Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLocale } from '@projectman/templates';
+import { listenLoopback } from '../../../test/helpers/loopback';
 import { EMAIL_CODE_DELIVERY_FAILED, EmailCodeDeliveryError } from '../../contracts';
 import { createSesEmailCodeMailer } from './index';
 
@@ -44,8 +44,7 @@ beforeEach(async () => {
       res.end(JSON.stringify(answer.body));
     });
   });
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  endpoint = `http://127.0.0.1:${await listenLoopback(server)}`;
 });
 
 afterEach(async () => {

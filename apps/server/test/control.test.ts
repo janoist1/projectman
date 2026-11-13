@@ -8,6 +8,7 @@ import { runControl, sendControlRequest } from '../../../scripts/control/client'
 import { serveControlConnection, startControlSocket } from '../src/control';
 import type { ControlPause } from '../src/control';
 import { DomainError } from '../src/kernel';
+import { listenLoopback } from './helpers/loopback';
 import {
   pausedSession as session,
   pauseStatus as status,
@@ -32,8 +33,7 @@ describe('the control protocol and command', () => {
     const log = quietLog();
     const server = net.createServer((connection) => serveControlConnection(connection, pause, log));
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const target = { host: '127.0.0.1', port: (server.address() as net.AddressInfo).port };
+    const target = { host: '127.0.0.1', port: await listenLoopback(server) };
     return { target, log };
   }
 

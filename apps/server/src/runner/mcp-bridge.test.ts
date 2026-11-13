@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { listenLoopback } from '../../test/helpers/loopback';
 import { mcpBridgeCommand, writeMcpBridgeConfig } from './mcp-bridge';
 
 const TOKEN = 'bridge-canary-0f3a9c';
@@ -27,16 +27,15 @@ async function serve(
     req.on('data', (chunk: string) => (body += chunk));
     req.on('end', () => handle(body, req, res));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = await listenLoopback(server);
   cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp/${TOKEN}`;
+  return `http://127.0.0.1:${port}/mcp/${TOKEN}`;
 }
 
 /** A closed port: connecting fails. */
 async function closedUrl(): Promise<string> {
   const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  const port = await listenLoopback(server);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return `http://127.0.0.1:${port}/mcp/${TOKEN}`;
 }

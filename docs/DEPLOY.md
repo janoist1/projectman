@@ -780,8 +780,27 @@ Locally (`http://localhost:4800/mcp`) no ingress is involved.
 `projectman` is a thin client of the REST API and the change journal above, and `projectman mcp-proxy` is a
 stdio shim for MCP clients that cannot send an HTTP header. Both use the same key, the same rights and the
 same audit as the endpoints; the command never decides anything the server does not. It runs on the
-connected Claude's machine only (`npm run projectman -- <command>` in a checkout, or `projectman` once the
-package is linked with `npm link`).
+connected Claude's machine only. Primary way (PM-1429): the engine app ships the client bundled and its install
+and update step writes the shim `~/Library/Application Support/projectman/engine/bin/projectman` next to
+`projectman-engine`; the shim follows `engine/current` and runs the app's own Node on
+`scripts/projectman/cli.js`, so neither a checkout nor a Node of the machine is needed. In a checkout:
+`npm run projectman -- <command>`, or `projectman` once the package is linked with `npm link`.
+
+Setting the client up on a machine (the key comes on standard input, never as an argument or a variable):
+
+```sh
+engine=~/"Library/Application Support/projectman/engine/bin/projectman"
+"$engine" connect --base-url https://<integrator hostname> --access-headers-file ./integrator-access-token.json < key.txt
+"$engine" check
+```
+
+`connect` writes `~/.config/projectman/integrator-key` (0600), the copy of the Access file as
+`~/.config/projectman/cloud/integrator-access-token.json` (0600) and `client.json` (version 1), in directories of
+mode 0700. It follows no symbolic link, writes nothing before every target has been checked, leaves an identical
+file as it is and refuses a file with other content unless `--replace` is given. `--access-headers-file` is left out
+for a loopback hub. `check` asks the reader route `GET /api/projects` with the key and prints the project keys it
+reaches: status 0 when the server accepts the key, 3 for a rejected key, a wrong Access file or a credential file
+problem, 1 for any other failure.
 
 The client has one configuration file, `~/.config/projectman/client.json` (`--config FILE` names another).
 It holds paths and an origin, never a secret:
@@ -877,6 +896,32 @@ output carries protocol lines and nothing else, standard error redacted status l
 serve gets a JSON-RPC error (`-32000`) so the client does not wait, and the proxy ends with `3` after a refused
 key or `1` after another failure. For a client that can send its own headers, the direct configuration above
 is the same thing without the proxy.
+
+Use the absolute path of the app's shim as the command: Claude Desktop does not use the login shell's `PATH`,
+and the app's Node is not on it either. The three clients:
+
+- **Claude Desktop**, `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+  ```json
+  {
+    "mcpServers": {
+      "projectman": {
+        "command": "/Users/<you>/Library/Application Support/projectman/engine/bin/projectman",
+        "args": ["mcp-proxy"]
+      }
+    }
+  }
+  ```
+
+- **Claude Code**:
+  `claude mcp add --scope user projectman -- "$HOME/Library/Application Support/projectman/engine/bin/projectman" mcp-proxy`
+- **Codex**, `~/.codex/config.toml`:
+
+  ```toml
+  [mcp_servers.projectman]
+  command = "/Users/<you>/Library/Application Support/projectman/engine/bin/projectman"
+  args = ["mcp-proxy"]
+  ```
 
 A further owner's client (PM-1063, Claude Desktop with `mcp-proxy`) is set up the same way on that owner's own
 machine: their own `super` or `read` key (made in their own login; an owner account with a password may hold

@@ -66,6 +66,8 @@ class World {
   readonly sandboxRuns: SandboxedRun[] = [];
   /** Commands (substring) the fake sandbox fails. */
   failing: string[] = [];
+  /** The fake bundling step leaves out the `projectman` client. */
+  skipClientBundle = false;
   tag = '';
   archive = ARCHIVE;
   nodeArchiveHasNpm = true;
@@ -140,7 +142,10 @@ class World {
       fs.symlinkSync('../../apps/web', path.join(run.cwd, 'node_modules/@projectman/web'));
     }
     if (run.command.includes('npm run build')) write('apps/server/dist/index.js');
-    if (run.command.includes('bundle-cli.mjs')) write('scripts/engine/cli.js');
+    if (run.command.includes('bundle-cli.mjs')) {
+      write('scripts/engine/cli.js');
+      if (!this.skipClientBundle) write('scripts/projectman/cli.js');
+    }
     return done(0, run.command.includes('node --version') ? `v${NODE_VERSION}\n` : '');
   }
 
@@ -191,6 +196,7 @@ describe('engine package build', () => {
       'apps/server/package.json',
       'apps/server/dist/index.js',
       'scripts/engine/cli.js',
+      'scripts/projectman/cli.js',
       'deploy/mac/com.projectman.engine.plist',
     ])
       expect(fs.existsSync(path.join(root, entry)), entry).toBe(true);
@@ -228,6 +234,12 @@ describe('engine package build', () => {
     for (const run of world.sandboxRuns) expect(run.env.PATH).toMatch(/\/pm-engine-app-[^/]+\/node\/bin:/);
     expect(fs.readdirSync(world.out)).toEqual([COMMIT]);
     expect(fs.readdirSync(world.sandboxTmp)).toEqual([]);
+  });
+
+  it('refuses a package whose build produced no projectman client', async () => {
+    world.skipClientBundle = true;
+    await expect(world.build()).rejects.toThrow(/scripts\/projectman\/cli\.js/);
+    expect(fs.readdirSync(world.out)).toEqual([]);
   });
 
   it('unpacks the npm of the pinned Node archive but ships only bin/node', async () => {

@@ -27,6 +27,8 @@ import {
 } from '@projectman/shared';
 import { z } from 'zod';
 import { ApiError } from './http';
+import { runCheck } from './check';
+import { runConnect } from './connect';
 import { type CommandContext, UsageError } from './context';
 import { ClientFileError, readInputFile, readStream } from './files';
 import { followEvents } from './events';
@@ -408,6 +410,31 @@ export const COMMANDS: CommandSpec[] = [
         operation: { op: 'member_retire', handle: ctx.positionals[0]! },
       });
     },
+  },
+  {
+    name: 'connect',
+    usage: 'connect --base-url URL [--access-headers-file FILE] [--replace]   (the key on standard input)',
+    summary: 'Writes the key, the Access headers and client.json below ~/.config/projectman',
+    options: {
+      json: { type: 'boolean' },
+      verbose: { type: 'boolean' },
+      help: { type: 'boolean' },
+      'base-url': { type: 'string' },
+      'access-headers-file': { type: 'string' },
+      replace: { type: 'boolean' },
+    },
+    positionals: 0,
+    write: false,
+    run: runConnect,
+  },
+  {
+    name: 'check',
+    usage: 'check',
+    summary: 'Proves the key against the server and lists the projects it reaches',
+    options: { ...COMMON },
+    positionals: 0,
+    write: false,
+    run: runCheck,
   },
   {
     name: 'keys revoke',

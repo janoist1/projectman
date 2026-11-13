@@ -1369,7 +1369,7 @@ export interface ExternalToolsHandler {
     requestId: string,
     args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
-  /** The global project manager's own knowledge (PM-1046): one document for the whole instance, no project. */
+  /** The connected Claude's own knowledge (PM-1046): one document for the whole instance, no project. */
   getInstanceKnowledge(
     principal: IntegratorPrincipal,
     requestId: string,

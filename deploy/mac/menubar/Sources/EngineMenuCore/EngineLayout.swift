@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 
 /// Where the app keeps the engine it installed: `versions/<version>` (a copy of the bundle's `Resources/engine`),
-/// `current` (a link to the running version) and `bin/projectman-engine` (the shim that follows `current`).
+/// `current` (a link to the running version) and `bin/projectman-engine` (the shim that follows `current`), with
+/// `bin/projectman` (the client's shim, PM-1429).
 /// The engine's data (`~/.projectman`) is elsewhere and never touched here.
 public struct EngineLayout {
     public let base: URL
@@ -26,10 +27,22 @@ public struct EngineLayout {
         !name.isEmpty && !name.hasPrefix(".") && name.range(of: "^[A-Za-z0-9._+-]+$", options: .regularExpression) != nil
     }
 
+    /// `bin/projectman`, the client (`connect`, `check`, `mcp-proxy`) that follows `current` like the engine shim (PM-1429).
+    public var clientShim: URL { base.appendingPathComponent("bin/projectman") }
+    public static let clientShimContent = """
+    #!/bin/sh
+    root="$(cd "$(dirname "$0")/../current" && pwd -P)"
+    exec "$root/bin/node" "$root/scripts/projectman/cli.js" "$@"
+
+    """
+
+    /// Writes both shims, in the same step, so an update leaves the engine and the client pointing at one version.
     public func writeShim() throws {
         try FileManager.default.createDirectory(at: shim.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(EngineLayout.shimContent.utf8).write(to: shim, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        for (file, content) in [(shim, EngineLayout.shimContent), (clientShim, EngineLayout.clientShimContent)] {
+            try Data(content.utf8).write(to: file, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
     }
 
     /// The version `current` points at, or nil.

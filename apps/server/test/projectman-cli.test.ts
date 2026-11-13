@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLIENT_CHANNEL_HEADER, CLIENT_CHANNEL_VALUE, CLIENT_EXIT } from '@projectman/shared';
@@ -936,6 +937,178 @@ describe('projectman CLI (PM-765)', () => {
         expect(source, name).not.toMatch(/process\.env|child_process|execa|spawn\(/);
         expect(source, name).not.toMatch(/console\.(log|error|warn|debug)/);
       }
+    });
+  });
+
+  describe('connect and check (PM-1429)', () => {
+    let bare: string;
+    beforeEach(() => {
+      bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pm-connect-')));
+    });
+    afterEach(() => fs.rmSync(bare, { recursive: true, force: true }));
+
+    const configDir = () => path.join(bare, '.config', 'projectman');
+    const mode = (file: string) => fs.statSync(file).mode & 0o777;
+    const accessSource = () => {
+      const file = path.join(bare, 'access.json');
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          'CF-Access-Client-Id': CANARY_ACCESS_ID,
+          'CF-Access-Client-Secret': CANARY_ACCESS_SECRET,
+        }),
+      );
+      return file;
+    };
+    const connect = async (extra: string[] = [], stdin: string = `${CANARY_KEY}\n`) => {
+      const t = createTestIo(bare, accepted, { stdin });
+      const args = ['connect', '--base-url', 'https://pm.example.com', ...extra];
+      const code = await main(args, t.io);
+      return { code, ...t };
+    };
+    const connectWithAccess = (extra: string[] = [], stdin?: string) =>
+      connect(['--access-headers-file', accessSource(), ...extra], stdin);
+    const everyCanary = (text: string) => {
+      for (const secret of SECRETS) expect(text).not.toContain(secret);
+    };
+
+    it('writes the key, the Access copy and client.json with 0600 files in 0700 directories', async () => {
+      const result = await connectWithAccess();
+      expect(result.code).toBe(CLIENT_EXIT.ok);
+      everyCanary(result.output());
+      expect(mode(configDir())).toBe(0o700);
+      expect(mode(path.join(configDir(), 'cloud'))).toBe(0o700);
+      for (const name of ['integrator-key', 'client.json', 'cloud/integrator-access-token.json'])
+        expect(mode(path.join(configDir(), name)), name).toBe(0o600);
+      expect(fs.readFileSync(path.join(configDir(), 'integrator-key'), 'utf8')).toBe(`${CANARY_KEY}\n`);
+      const credentials = loadCredentials({ home: bare });
+      expect(credentials.key).toBe(CANARY_KEY);
+      expect(credentials.baseUrl.origin).toBe('https://pm.example.com');
+      expect(credentials.accessHeaders).toEqual({
+        'CF-Access-Client-Id': CANARY_ACCESS_ID,
+        'CF-Access-Client-Secret': CANARY_ACCESS_SECRET,
+      });
+    });
+
+    it('writes no Access file and no accessHeadersFile when none is given', async () => {
+      expect((await connect()).code).toBe(CLIENT_EXIT.ok);
+      expect(fs.existsSync(path.join(configDir(), 'cloud'))).toBe(false);
+      expect(loadCredentials({ home: bare }).accessHeaders).toEqual({});
+    });
+
+    it('does not follow a symbolic link at a target: status 3 and the link target is untouched', async () => {
+      fs.mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+      const elsewhere = path.join(bare, 'elsewhere');
+      fs.writeFileSync(elsewhere, 'precious');
+      fs.symlinkSync(elsewhere, path.join(configDir(), 'integrator-key'));
+      const result = await connectWithAccess(['--replace']);
+      expect(result.code).toBe(CLIENT_EXIT.auth);
+      expect(result.stderr.join('')).toContain('credential_symlink');
+      expect(fs.readFileSync(elsewhere, 'utf8')).toBe('precious');
+      expect(fs.existsSync(path.join(configDir(), 'client.json'))).toBe(false);
+    });
+
+    it('does not follow a symbolic link as the configuration directory', async () => {
+      const elsewhere = path.join(bare, 'elsewhere-dir');
+      fs.mkdirSync(elsewhere, { mode: 0o700 });
+      fs.mkdirSync(path.join(bare, '.config'));
+      fs.symlinkSync(elsewhere, configDir());
+      const result = await connect();
+      expect(result.code).toBe(CLIENT_EXIT.auth);
+      expect(fs.readdirSync(elsewhere)).toEqual([]);
+    });
+
+    it('refuses a symbolic link as the Access headers source as a usage error', async () => {
+      const real = accessSource();
+      const link = path.join(bare, 'link.json');
+      fs.symlinkSync(real, link);
+      const result = await connect(['--access-headers-file', link]);
+      expect(result.code).toBe(CLIENT_EXIT.usage);
+      expect(fs.existsSync(configDir())).toBe(false);
+    });
+
+    it('overwrites a different file only with --replace, and writes nothing when it refuses', async () => {
+      fs.mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+      const keyFile = path.join(configDir(), 'integrator-key');
+      fs.writeFileSync(keyFile, 'pmi_oldKeyOldKeyOldKey\n', { mode: 0o600 });
+      const refused = await connect();
+      expect(refused.code).toBe(CLIENT_EXIT.auth);
+      expect(refused.stderr.join('')).toContain('connect_file_exists');
+      expect(fs.readFileSync(keyFile, 'utf8')).toBe('pmi_oldKeyOldKeyOldKey\n');
+      expect(fs.existsSync(path.join(configDir(), 'client.json'))).toBe(false);
+      everyCanary(refused.output());
+
+      const replaced = await connect(['--replace']);
+      expect(replaced.code).toBe(CLIENT_EXIT.ok);
+      expect(fs.readFileSync(keyFile, 'utf8')).toBe(`${CANARY_KEY}\n`);
+    });
+
+    it('is safe to repeat: identical files are left as they are and a wide mode is narrowed', async () => {
+      expect((await connect()).code).toBe(CLIENT_EXIT.ok);
+      const keyFile = path.join(configDir(), 'integrator-key');
+      fs.chmodSync(keyFile, 0o644);
+      const again = await connect();
+      expect(again.code).toBe(CLIENT_EXIT.ok);
+      expect(again.stdout.join('')).toContain('unchanged');
+      expect(mode(keyFile)).toBe(0o600);
+    });
+
+    it.each([
+      ['a key that is no integrator key', 'not-a-key\n', 'https://pm.example.com'],
+      ['an empty standard input', '', 'https://pm.example.com'],
+      ['a plain http base URL', `${CANARY_KEY}\n`, 'http://pm.example.com'],
+    ])('answers %s with the usage status and writes nothing', async (_name, stdin, baseUrl) => {
+      const t = createTestIo(bare, accepted, { stdin });
+      const code = await main(['connect', '--base-url', baseUrl], t.io);
+      expect(code).toBe(CLIENT_EXIT.usage);
+      expect(fs.existsSync(configDir())).toBe(false);
+      everyCanary(t.output());
+    });
+
+    it('needs --base-url', async () => {
+      const t = createTestIo(bare, accepted, { stdin: `${CANARY_KEY}\n` });
+      expect(await main(['connect'], t.io)).toBe(CLIENT_EXIT.usage);
+    });
+
+    it('check reaches the reader route with the key and lists the project keys, status 0', async () => {
+      await connectWithAccess();
+      const t = createTestIo(bare, () =>
+        jsonResponse([
+          { key: 'PM', name: 'projectman', templateId: null, configVersion: 'v1' },
+          { key: 'AR', name: 'ar', templateId: null, configVersion: 'v1' },
+        ]),
+      );
+      expect(await main(['check'], t.io)).toBe(CLIENT_EXIT.ok);
+      expect(t.requests).toHaveLength(1);
+      expect(t.requests[0]?.method).toBe('GET');
+      expect(t.requests[0]?.url.pathname).toBe('/api/projects');
+      expect(t.requests[0]?.headers.authorization).toBe(`Bearer ${CANARY_KEY}`);
+      expect(t.stdout.join('')).toContain('PM AR');
+      everyCanary(t.output());
+    });
+
+    it('check ends with status 3 when the server rejects the key', async () => {
+      await connect();
+      const t = createTestIo(bare, () =>
+        jsonResponse({ error: { code: 'integrator_key_invalid', message: 'invalid' } }, 401),
+      );
+      expect(await main(['check'], t.io)).toBe(CLIENT_EXIT.auth);
+      expect(t.stderr.join('')).toContain('integrator_key_invalid');
+      everyCanary(t.output());
+    });
+
+    it('check ends with status 3 without a request when the key file is missing', async () => {
+      const t = createTestIo(bare, accepted);
+      expect(await main(['check'], t.io)).toBe(CLIENT_EXIT.auth);
+      expect(t.requests).toHaveLength(0);
+    });
+
+    it('check ends with status 1 when the server cannot be reached', async () => {
+      await connect();
+      const t = createTestIo(bare, () => {
+        throw new TypeError('fetch failed');
+      });
+      expect(await main(['check'], t.io)).toBe(CLIENT_EXIT.failed);
     });
   });
 });

@@ -25,3 +25,6 @@ deploy/mac/menubar/.swiftpm/
 # the bundled engine CLI, built by `node scripts/engine-app/bundle-cli.mjs` (PM-1121)
 scripts/engine/cli.js
 scripts/engine/cli.js.map
+# the bundled `projectman` client, built by the same script (PM-1429)
+scripts/projectman/cli.js
+scripts/projectman/cli.js.map

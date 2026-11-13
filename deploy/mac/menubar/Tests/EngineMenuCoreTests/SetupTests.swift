@@ -56,6 +56,11 @@ final class LayoutTests: XCTestCase {
         XCTAssertTrue(EngineLayout.shimContent.contains("cd \"$(dirname \"$0\")/../current\" && pwd -P"))
         XCTAssertTrue(EngineLayout.shimContent.contains("exec \"$root/bin/node\" \"$root/scripts/engine/cli.js\" \"$@\""))
     }
+    func testClientShimResolvesCurrentAndExecsTheBundledClient() {
+        XCTAssertTrue(EngineLayout.clientShimContent.hasPrefix("#!/bin/sh\n"))
+        XCTAssertTrue(EngineLayout.clientShimContent.contains("cd \"$(dirname \"$0\")/../current\" && pwd -P"))
+        XCTAssertTrue(EngineLayout.clientShimContent.contains("exec \"$root/bin/node\" \"$root/scripts/projectman/cli.js\" \"$@\""))
+    }
     func testVersionNamesBecomeSafeFolderNames() {
         XCTAssertTrue(EngineLayout.isSafeVersion("1.2.3-rc.1+b5"))
         for bad in ["", ".", "..", ".hidden", "a/b", "a b", "../x"] { XCTAssertFalse(EngineLayout.isSafeVersion(bad), bad) }

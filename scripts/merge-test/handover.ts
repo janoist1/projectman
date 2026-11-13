@@ -149,6 +149,17 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
+      'the session policy (sandbox and portable env, heavy lock, session folder) is reached through the domain harness, not by import: the tests that assert the resulting env and policy exactly (PM-1415)',
+    sources: ['apps/server/src/runtime/sessions/session-policy.ts'],
+    tests: [
+      'apps/server/test/heavy-lock-session.test.ts',
+      'apps/server/test/heavy-lock-policy.test.ts',
+      'apps/server/test/session-folder-policy.test.ts',
+      'apps/server/test/session-policy-model.test.ts',
+    ],
+  },
+  {
+    reason:
       'card start admission and the TaskWaits queries are reached through the domain harness (`domain.taskStarts`, `domain.taskWaits`), not by import: the tests that read the waits or exercise the start itself, not the 65 files that only start a card to set up (PM-1345, PM-1402)',
     sources: ['apps/server/src/runtime/admission/task-starts.ts', 'apps/server/src/core/tasks/task-wait.ts'],
     tests: [

@@ -21,7 +21,8 @@
 #   7. the app's code signature is valid and carries the identifier com.projectman.engine-app, its
 #      CFBundleVersion is the manifest's bundleVersion and its bundled engine is the manifest's commit;
 #   8. the checked app is copied to ~/Applications, under a temporary name;
-#   9. only then, if the copy carries the quarantine attribute, it is removed, and the copy takes the app's name.
+#   9. only then, if the copy carries the quarantine attribute, it is removed, and the copy takes the app's name
+#      (a previous install is set aside first, deleted after the move, and put back if the move fails).
 # Every failure prints `REFUSED [code] ...` and exits non-zero; nothing is installed then. No sudo; nothing is
 # written outside the user's home and the temporary directory.
 
@@ -36,6 +37,10 @@ for candidate in /opt/homebrew/bin/gh /usr/local/bin/gh; do
 done
 PATH="${PROJECTMAN_INSTALL_TEST_BIN:+$PROJECTMAN_INSTALL_TEST_BIN:}/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
+if [ -n "${PROJECTMAN_INSTALL_TEST_BIN:-}" ]; then
+  printf 'WARNING PROJECTMAN_INSTALL_TEST_BIN is set: tools are taken from %s before the Apple ones. Unset it unless you are testing this script.\n' \
+    "$PROJECTMAN_INSTALL_TEST_BIN" >&2
+fi
 
 REPO='janoist1/projectman'
 SIGNER_WORKFLOW="$REPO/.github/workflows/projectman-engine-release.yml"
@@ -204,8 +209,21 @@ if xattr -rl "$staged/$APP_NAME" 2>/dev/null | grep -q "$QUARANTINE"; then
 else
   step 'quarantine: none'
 fi
-rm -rf "$target"
-mv "$staged/$APP_NAME" "$target" || refuse copy_failed "cannot move the app to $target"
+# A previous install is set aside first and deleted only after the new app is in place; a failure puts it back.
+previous="$staged/previous.app"
+if [ -e "$target" ] || [ -L "$target" ]; then
+  mv "$target" "$previous" || refuse copy_failed "cannot set the previous install $target aside"
+fi
+if ! mv "$staged/$APP_NAME" "$target"; then
+  if [ -e "$previous" ] || [ -L "$previous" ]; then
+    if mv "$previous" "$target"; then
+      refuse copy_failed "cannot move the app to $target; the previous install is back in place"
+    fi
+    staged='' # the previous install stays where it is: cleanup must not delete it
+    refuse copy_failed "cannot move the app to $target, and the previous install could not be put back: it is at $previous"
+  fi
+  refuse copy_failed "cannot move the app to $target"
+fi
 step "installed: $target"
 
 printf '%s\n' \

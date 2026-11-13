@@ -12,15 +12,30 @@ const usage: PlanUsage = {
   fetchedAt: '2026-10-14T06:00:00.000Z',
 };
 
-function setup(ttlMs = 100) {
-  const provider = { get: vi.fn(async () => usage) };
+const LIVE = [{ provider: 'claude' as const, engineId: 'local' as EngineId }];
+
+function setup(
+  ttlMs = 100,
+  state: {
+    live?: typeof LIVE;
+    paused?: boolean;
+    aiEnabled?: boolean;
+    answer?: PlanUsage | null;
+    idleIntervalMs?: number;
+  } = {},
+) {
+  const live = { current: state.live ?? LIVE, paused: state.paused ?? false };
+  const provider = { get: vi.fn(async () => (state.answer === undefined ? usage : state.answer)) };
   const bus = { publish: vi.fn() };
   const background = new BackgroundTasks();
   const projects = {
     summaries: () => [{ key: 'PM' }],
     config: vi.fn(async () => ({
       project: { key: 'PM' },
-      team: { members: [{ kind: 'ai', handle: 'dev', provider: 'claude' }] },
+      team: {
+        members: [{ kind: 'ai', handle: 'dev', provider: 'claude' }],
+        limits: { aiEnabled: state.aiEnabled ?? true },
+      },
     })),
   } as unknown as ProjectService;
   const monitor = new PlanUsageMonitor({
@@ -31,9 +46,12 @@ function setup(ttlMs = 100) {
     background,
     logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
     now: () => new Date(),
+    liveAccounts: () => live.current,
+    isPaused: () => live.paused,
     ttlMs,
+    idleIntervalMs: state.idleIntervalMs,
   });
-  return { monitor, provider, bus, background };
+  return { monitor, provider, bus, background, projects, live };
 }
 
 const A = 'eng_aaaaaaaaaaaa' as EngineId;
@@ -152,7 +170,7 @@ describe('PlanUsageMonitor', () => {
     const onEngine: Record<string, EngineId> = { PA: A, PB: B, PC: A };
     const configOf = (key: string) => ({
       project: { key },
-      team: { members: [{ kind: 'ai', handle: 'dev', provider: 'claude' }] },
+      team: { members: [{ kind: 'ai', handle: 'dev', provider: 'claude' }], limits: { aiEnabled: true } },
     });
     const projects = {
       summaries: () => [{ key: 'PA' }, { key: 'PB' }, { key: 'PC' }],
@@ -167,6 +185,8 @@ describe('PlanUsageMonitor', () => {
       background,
       logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
       now: () => new Date(),
+      liveAccounts: () => [],
+      isPaused: () => false,
       ttlMs: 100,
     });
     try {
@@ -199,6 +219,72 @@ describe('PlanUsageMonitor', () => {
       expect(vi.getTimerCount()).toBe(0);
       await vi.advanceTimersByTimeAsync(300);
       expect(provider.get).toHaveBeenCalledTimes(1);
+    } finally {
+      monitor.stop();
+      await background.stop();
+    }
+  });
+
+  it('probes an account without a live session only every idle interval and reads nothing between', async () => {
+    const { monitor, provider, projects, background } = setup(100, { live: [], idleIntervalMs: 1000 });
+    try {
+      monitor.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(provider.get).toHaveBeenCalledTimes(1);
+      const configReads = vi.mocked(projects.config).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(800);
+      expect(provider.get).toHaveBeenCalledTimes(1);
+      expect(projects.config).toHaveBeenCalledTimes(configReads);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(provider.get).toHaveBeenCalledTimes(2);
+    } finally {
+      monitor.stop();
+      await background.stop();
+    }
+  });
+
+  it('probes an idle account at once when forced, by a configuration change', async () => {
+    const { monitor, provider, background } = setup(100, { live: [], idleIntervalMs: 100_000 });
+    try {
+      monitor.start();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(provider.get).toHaveBeenCalledTimes(1);
+      monitor.refresh({ force: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(provider.get).toHaveBeenCalledTimes(2);
+    } finally {
+      monitor.stop();
+      await background.stop();
+    }
+  });
+
+  it.each([
+    ['the project is paused', { paused: true }],
+    ['the project has its AI off', { aiEnabled: false }],
+  ])('probes nothing while %s', async (_name, state) => {
+    const { monitor, provider, background } = setup(100, state);
+    try {
+      monitor.start();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(provider.get).not.toHaveBeenCalled();
+    } finally {
+      monitor.stop();
+      await background.stop();
+    }
+  });
+
+  it('waits longer after each probe that gave no answer', async () => {
+    const { monitor, provider, background } = setup(1000, { answer: null, idleIntervalMs: 100_000 });
+    try {
+      monitor.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(provider.get).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(provider.get).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(provider.get).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(provider.get).toHaveBeenCalledTimes(3);
     } finally {
       monitor.stop();
       await background.stop();

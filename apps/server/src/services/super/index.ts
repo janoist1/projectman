@@ -185,7 +185,9 @@ export function createSuperExecution(deps: {
     };
     return {
       active: true,
-      hostOwner: credentials.isHostOwner?.(input.principal.userId) === true,
+      get hostOwner() {
+        return credentials.isHostOwner?.(input.principal.userId) === true;
+      },
       context: {
         principal: input.principal,
         projectKey,

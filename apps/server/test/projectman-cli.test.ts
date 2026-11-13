@@ -1096,6 +1096,7 @@ describe('projectman CLI (PM-765)', () => {
         const result = await connect();
         expect(result.code).toBe(CLIENT_EXIT.auth);
         expect(result.stderr.join('')).toContain('credential_owner');
+        expect(result.stderr.join('')).toContain(keyFile);
         expect(mode(keyFile)).toBe(0o644);
       });
 

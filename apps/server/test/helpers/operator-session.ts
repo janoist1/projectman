@@ -5,7 +5,7 @@ import type { DomainHarness } from './domain-harness';
 type Repos = Pick<DomainHarness, 'repos'>;
 
 /**
- * The app no longer starts the Operator (PM-1045), so a test of the Operator's own tool surface (its
+ * The app no longer starts the Operator (PM-1045), so a test of the project manager's own tool surface (its
  * operations, requests and approvals) seeds the session and the owner request the way a delivered owner
  * message used to leave them.
  */

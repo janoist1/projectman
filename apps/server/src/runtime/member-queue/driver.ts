@@ -478,7 +478,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       (e) => e.wakes && !e.held && !running.get(placeKeyOf(memberConfig, e.place)),
     );
     // One session starts per run: a place whose start is refused lets the next place try (a refusal can be about
-    // the place: the owner's conversation with the Operator is not held back by a guest's), the first start ends it.
+    // the place: the owner's conversation with the project manager is not held back by a guest's), the first start ends it.
     const failure = this.failures.get(memberKey);
     const paused = !net && !!failure && Date.now() - failure.at < FAILED_START_PAUSE_MS;
     const tried = new Set<string>();

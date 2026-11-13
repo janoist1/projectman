@@ -21,7 +21,7 @@ export interface IntegratorPrincipal {
   readonly prefix: string;
   readonly mode: 'super' | 'read';
   /**
-   * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app Operator `app`, whose
+   * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app project manager `app`, whose
    * `keyId` is its session's id. An `app` principal is made only by the server's own issuer and is valid only
    * while `ProjectManagerAppSessions.active` says so; no stored key stands behind it.
    */
@@ -37,8 +37,8 @@ export interface IntegratorPrincipal {
 }
 
 /**
- * Whether the in-app Operator's session may still act as the owner on the shared super-operation path
- * (PM-888): the session runs, it is the project's Operator in its own general conversation, and an owner
+ * Whether the in-app project manager's session may still act as the owner on the shared super-operation path
+ * (PM-888): the session runs, it is the project's project manager in its own general conversation, and an owner
  * request is open.
  */
 export interface ProjectManagerAppSessions {
@@ -46,8 +46,8 @@ export interface ProjectManagerAppSessions {
 }
 
 /**
- * Who a super-mode operation acts as, once a principal is bound to a project: the project's Operator with
- * the credential's id and prefix, and the request the operation belongs to. The core takes this from the
+ * Who a super-mode operation acts as, once a principal is bound to a project: the project's project manager
+ * or connected Claude with the credential's id and prefix, and the request the operation belongs to. The core takes this from the
  * authenticated execution context; it never builds one from a request.
  */
 export interface SuperExecutionContext {
@@ -100,7 +100,7 @@ export interface IntegratorCredentialAuthority {
 
 /**
  * Runs the later steps of a bearer-MCP write under a fresh authenticated scope (PM-784). `action` gets
- * `assertActive`, which re-checks the key, the owner's membership and the Operator and throws when any of
+ * `assertActive`, which re-checks the key, the owner's membership and the project manager and throws when any of
  * them is gone; the runner itself throws the same way before `action` starts.
  */
 export interface DocWriteExternalRunner {

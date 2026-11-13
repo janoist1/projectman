@@ -11,7 +11,7 @@ export interface SystemFeedbackContextProvider {
   current(): Promise<RedactionContext>;
 }
 
-/** What the Operator's tools use to record a gap; the member is the one who found it. */
+/** What the project manager's tools use to record a gap; the member is the one who found it. */
 export interface SystemFeedbackRecorder {
   record(
     projectKey: string,

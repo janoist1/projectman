@@ -20,7 +20,8 @@ import type { NodePin } from './node-pin';
  * checkout, tsx or development dependencies. Layout (the contract the packaged service and the app build on):
  *
  *   engine-package.json  bin/node  package.json  package-lock.json  node_modules/  packages/
- *   apps/server/package.json  apps/server/dist/  scripts/engine/cli.js  deploy/mac/com.projectman.engine*.plist
+ *   apps/server/package.json  apps/server/dist/  scripts/engine/cli.js  scripts/projectman/cli.js
+ *   deploy/mac/com.projectman.engine*.plist
  *
  * Everything that executes code of the commit (`npm ci` with its lifecycle scripts, the builds, the checks) runs in
  * the Anthropic Sandbox Runtime through `scripts/engine-app/sandbox.ts`, with the
@@ -37,13 +38,14 @@ const REQUIRED_PATHS = [
   'apps/server/package.json',
   'apps/server/dist/index.js',
   'scripts/engine/cli.js',
+  'scripts/projectman/cli.js',
 ];
 /** What is unpacked of the pinned Node archive; only `bin/node` goes into the package (`assemble`). */
 const NODE_ARCHIVE_MEMBERS = ['bin/node', 'bin/npm', 'lib/node_modules/npm'];
 const OPTIONAL_PATHS = ['apps/server/node_modules'];
 const SERVICE_TEMPLATE = /^com\.projectman\.engine.*\.plist$/;
 /** Where the build steps may write inside the checkout, besides the package trees. */
-const BUILD_OUTPUTS = ['apps/server/dist', 'scripts/engine'];
+const BUILD_OUTPUTS = ['apps/server/dist', 'scripts/engine', 'scripts/projectman'];
 
 export interface EnginePackageDeps {
   run: CloudDeps['run'];

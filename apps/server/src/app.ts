@@ -300,7 +300,7 @@ export interface BuildAppOptions {
   planUsageTtlMs?: number;
   scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
-  /** Tests: false sends every AI question to the people at once instead of the Operator's screening (PM-558). */
+  /** Tests: false sends every AI question to the people at once instead of the project manager's screening (PM-558). */
   screenQuestions?: boolean;
   doneTurnLimitMs?: number;
   /** The free bytes where the data is kept (default: `statfs` of `home`); null: not measurable (PM-243). */

@@ -11,9 +11,9 @@ import { appRequestId, createProjectManagerAppSessions } from '../src/services/s
 
 const NOW = '2026-10-20T10:00:00.000Z';
 const REQUEST = 'opr_app_1';
-const TASK: NewSuperCommand = { kind: 'task_create', request: { title: 'Made by the Operator' } };
+const TASK: NewSuperCommand = { kind: 'task_create', request: { title: 'Made by the project manager' } };
 
-describe('the in-app Operator on the shared super-operation path (PM-888)', () => {
+describe('the in-app project manager on the shared super-operation path (PM-888)', () => {
   let h: DomainHarness;
   let ctx: ToolContext;
   let userId: string;
@@ -66,10 +66,10 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
   describe('execute_operation', () => {
     beforeEach(() => boot());
 
-    it('runs a routine command as the Operator with the app credential and logs the step', async () => {
+    it('runs a routine command as the connected Claude with the app credential and logs the step', async () => {
       const { operation } = await execute('first');
       expect(operation).toMatchObject({ state: 'succeeded', projectKey: 'AR' });
-      expect(h.repos.tasks.get('AR-1')?.title).toBe('Made by the Operator');
+      expect(h.repos.tasks.get('AR-1')?.title).toBe('Made by the project manager');
       const audit = h.repos.superAudit.ofRequest('AR', operation.requestId);
       expect(audit.length).toBeGreaterThan(0);
       expect(audit.every((entry) => entry.prefix === PROJECT_MANAGER_APP_CREDENTIAL_PREFIX)).toBe(true);
@@ -112,7 +112,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(h.repos.tasks.get('AR-1')?.labels).toContain('merge-ok');
     });
 
-    it('is refused to a member who is not the Operator and in a guest conversation', async () => {
+    it('is refused to a member who is not the project manager and in a guest conversation', async () => {
       await expect(execute('dev', TASK, { ...ctx, member: 'dev-1' })).rejects.toMatchObject({
         code: 'forbidden',
       });
@@ -153,7 +153,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       ).rejects.toMatchObject({ code: 'insufficient_access' });
     });
 
-    it('is never active for the Operator, which has no app session (PM-1045)', () => {
+    it('is never active for the project manager, which has no app session (PM-1045)', () => {
       const sessions = createProjectManagerAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
@@ -432,7 +432,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(input('x'.repeat(101))).toBe(false);
     });
 
-    it('derives the request id from the Operator request and the key: a stable UUID v8', () => {
+    it('derives the request id from the project manager request and the key: a stable UUID v8', () => {
       const id = appRequestId('opr_1', 'key');
       expect(id).toBe(appRequestId('opr_1', 'key'));
       expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

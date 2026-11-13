@@ -238,7 +238,7 @@ export class MessageTools implements MessageToolsHandler {
    * The card a message with no card of its own is the reply to (PM-504): a member working in a general
    * session (no card) is often answering or forwarding a card's message that was typed into that session.
    * That is the latest recent message delivered to the member in a general session (its route for the
-   * member is general: the project manager's and the Operator's card messages always are), when it is
+   * member is general: the project manager's card messages always are), when it is
    * about a card. A message that went to the member's own card session says nothing about this one.
    */
   private repliedCardOf(ctx: ToolContext, config: ProjectConfig): string | null {

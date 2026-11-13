@@ -16,7 +16,7 @@ import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
 import { mergeCards, publishRelease, sha } from './helpers/unreleased-work';
 
-/** PM-545: the Operator's own steps on a system signal, without an owner's request. */
+/** PM-545: the project manager's own steps on a system signal, without an owner's request. */
 let h: DomainHarness;
 let now: Date;
 afterEach(async () => {
@@ -52,7 +52,7 @@ async function place(patch: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'
 
 /**
  * A card with an open step of `responsible` that the PM has been told about (PM-1152): the obligation row stands
- * at its second rung, and its `obligation_overdue` signal has been raised and delivered to the Operator.
+ * at its second rung, and its `obligation_overdue` signal has been raised and delivered to the project manager.
  */
 async function overdueCard(
   opts: {
@@ -214,7 +214,7 @@ describe('level unblock', () => {
     ).rejects.toThrow('invalid_request');
   });
 
-  it('stays closed to the tools that are never the Operator’s, signal or not', async () => {
+  it('stays closed to the tools that are never the project manager’s, signal or not', async () => {
     await setup('unblock');
     await overdueCard();
     await expect(
@@ -425,7 +425,7 @@ describe('start_member on a card', () => {
 });
 
 describe('follow-up', () => {
-  it('shows the signal to the Operator again when the case still stands after the gap', async () => {
+  it('shows the signal to the project manager again when the case still stands after the gap', async () => {
     await setup('unblock');
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);

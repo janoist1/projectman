@@ -83,7 +83,7 @@ const toStep = (row: StepRow): ProjectManagerStepRecord => ({
   systemFeedback: row.systemFeedback ? parseJson(row.systemFeedback, null) : null,
 });
 
-/** The owner's requests to the Operator and the steps it took for them (PM-463). */
+/** The owner's requests to the project manager and the steps it took for them (PM-463). */
 export function createProjectManagerRequestRepository(db: Db) {
   const statements = {
     insertRequest: db.prepare(`INSERT INTO operator_requests
@@ -227,7 +227,7 @@ export function createProjectManagerRequestRepository(db: Db) {
     steps(requestId: string): ProjectManagerStepRecord[] {
       return (statements.stepsOf.all(requestId) as StepRow[]).map(toStep);
     },
-    /** The steps the Operator took on a signal, the oldest first. */
+    /** The steps the project manager took on a signal, the oldest first. */
     stepsOfSignal(signalId: string): ProjectManagerStepRecord[] {
       return (statements.stepsOfSignal.all(signalId) as StepRow[]).map(toStep);
     },

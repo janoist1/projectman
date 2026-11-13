@@ -132,7 +132,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
   review_test: 'only an owner may change the full test of a repository',
   compute_jobs: 'only an owner may change the compute jobs of a repository',
-  operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
+  operator_watch: 'only an owner may change how much the project manager does on its own on a signal',
   task_create_access: 'only an owner may change who may open new cards',
   owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
   project_manager_authority: 'only an owner may change what the project manager may do on its own authority',
@@ -622,8 +622,8 @@ export class ProjectService {
     const executingOwner = assertIntegratorAccess(previous, 'write', meta.actor);
     const member = memberOf(previous, meta.actor.handle);
     if (hasBoundOrigin(meta.actor)) {
-      // A step in the Operator's super mode (PM-757), or the connected Claude's direct instruction (decision 66):
-      // recorded as the Operator or the holder, authorized as the owner who made the token. Only the author built from a bound principal can say so; an actor alone grants nothing.
+      // A step in the super mode (PM-757), or the connected Claude's direct instruction (decision 66):
+      // recorded as the super actor or the holder, authorized as the owner who made the token. Only the author built from a bound principal can say so; an actor alone grants nothing.
       const owner = memberOf(previous, meta.author.authorizedBy);
       const bound = meta.author.superActor;
       if (
@@ -761,7 +761,7 @@ export class ProjectService {
   }
 
   /**
-   * A configuration commit made in the Operator's super mode (PM-757), audited: the `started` entry is the
+   * A configuration commit made in the connected Claude's super mode (PM-757), audited: the `started` entry is the
    * durable intent, its id goes into the commit as a trailer, and a response lost after the commit is settled from
    * that trailer. The execution context comes from the author a bound principal built, never from the actor.
    */

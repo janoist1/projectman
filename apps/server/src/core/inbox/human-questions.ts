@@ -46,7 +46,7 @@ const INFORMATION_ROUTE_TOPIC = 'information';
 
 /**
  * The questions people are asked (PM-784), for a member in a session and for the integrator in super mode.
- * The member path is the one the `ask_human` tool always had: the Operator's screening, the sponsor as
+ * The member path is the one the `ask_human` tool always had: the project manager's screening, the sponsor as
  * the default asked person, the re-ask. The integrator path has no session and no screening: the question
  * goes straight to the owners (or the humans named), it is answered only by a person's own login, and the
  * answer waits in the inbox and in one durable message until the integrator reads it.
@@ -298,7 +298,7 @@ export class HumanQuestions implements HumanQuestionsPort {
         ...(ownerTopic ? { ownerTopic } : {}),
       },
     });
-    // An Operator that cannot take it gives the question to the people before this call returns; one that
+    // A project manager that cannot take it gives the question to the people before this call returns; one that
     // can is woken without waiting for its session.
     const hopeless = screened && this.questionScreening.cannotScreen(projectKey, config);
     if (screened) {
@@ -382,7 +382,7 @@ export class HumanQuestions implements HumanQuestionsPort {
   }
 
   /**
-   * A question asked again after the Operator answered, forwarded or closed it (PM-558): the new question
+   * A question asked again after the project manager answered, forwarded or closed it (PM-558): the new question
    * goes to the people unscreened, once per earlier question. Returns what the new item records, or null for
    * an ordinary question. Throws `reask_not_allowed` before anything is written.
    */
@@ -401,10 +401,10 @@ export class HumanQuestions implements HumanQuestionsPort {
     if (previous.source !== member)
       throw refuse('reask_not_allowed: only the member who asked may ask again.');
     const outcome = questionPayloadOf(previous)?.screening?.outcome;
-    // An Operator answer from its work queue (PM-1009) leaves the screening outcome at `todo`: the rule says it.
+    // A project manager answer from its work queue (PM-1009) leaves the screening outcome at `todo`: the rule says it.
     const answeredFromQueue = previous.resolution?.rule === 'operator_answered';
     if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot' && !answeredFromQueue)
-      throw refuse('reask_not_allowed: the Operator did not answer, forward or close that question.');
+      throw refuse('reask_not_allowed: the project manager did not answer, forward or close that question.');
     if (this.ctx.repos.inbox.findQuestionAskedAgainFrom(projectKey, reaskOf))
       throw refuse('reask_not_allowed: that question was already asked again.');
     return { reason, previousItemId: reaskOf };

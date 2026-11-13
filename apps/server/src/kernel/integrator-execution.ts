@@ -120,8 +120,8 @@ export async function authorizeSuperMutation(input: SuperMutationInput): Promise
 
 /**
  * Where a bearer-MCP tool call came from, built from the live scope (PM-784): the key owner, the project's
- * Operator as the key's super actor and the call's request id. Only a super credential has one; the check of
- * the key, the owner's membership and the Operator runs here again. No public input carries an origin.
+ * connected Claude as the key's super actor and the call's request id. Only a super credential has one; the check of
+ * the key, the owner's membership and the connected Claude runs here again. No public input carries an origin.
  */
 export function externalToolOrigin(config: ProjectConfig): ExternalToolOrigin {
   const scope = execution.getStore();
@@ -174,7 +174,7 @@ export function assertOwnApproval(by?: { via?: 'integrator' | null; superActor?:
     throw forbidden('owner_approval_required', 'a decision requires a person using their own login');
 }
 
-/** A decision by a person's own login, or by the Operator on the owner's authority (PM-875). */
+/** A decision by a person's own login, or by the connected Claude on the owner's authority (PM-875). */
 export function assertOwnOrSuperApproval(by?: { via?: 'integrator' | null; superActor?: Actor }): void {
   const scope = execution.getStore();
   if (scope?.context.principal.mode === 'read')

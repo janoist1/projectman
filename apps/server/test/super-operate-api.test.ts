@@ -167,7 +167,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     through: { holder: 'owner' },
   } as const;
 
-  it('sends a message as the Operator, about a card', async () => {
+  it('sends a message as the connected Claude, about a card', async () => {
     const task = (
       await inject(app.app, 'POST', routes.tasks('AR'), cookie, { title: 'A card' })
     ).json<Task>();
@@ -199,7 +199,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(app.app.projectman.domain.messages.list('AR')).toEqual([]);
   });
 
-  it('pauses and resumes the project as the Operator with the key’s data', async () => {
+  it('pauses and resumes the project as the connected Claude with the key’s data', async () => {
     expect(await operate({ op: 'project_pause', reason: 'Deploy preview' })).toMatchObject({
       state: 'succeeded',
     });
@@ -337,7 +337,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect((await app.app.projectman.domain.projects.load('AR')).version).toBe(before);
   });
 
-  it('creates a labeled card once, binds the result key and records the Operator', async () => {
+  it('creates a labeled card once, binds the result key and records the connected Claude', async () => {
     const command: SuperCommand = {
       kind: 'task_create',
       request: { title: 'A refined card', labels: ['refine'] },
@@ -444,7 +444,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(event?.actor).toMatchObject(operator);
   });
 
-  it('starts a card as the Operator through task admission', async () => {
+  it('starts a card as the connected Claude through task admission', async () => {
     const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
     expect(
       await submit({ kind: 'task_start', taskKey: created.taskKey!, request: { assignee: 'dev-1' } }),
@@ -459,7 +459,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(event?.actor).toMatchObject(operator);
   });
 
-  it('cancels a card as the Operator without an owner question', async () => {
+  it('cancels a card as the connected Claude without an owner question', async () => {
     const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
     expect(await submit({ kind: 'task_cancel', taskKey: created.taskKey!, request: {} })).toMatchObject({
       state: 'succeeded',
@@ -622,7 +622,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect((await config()).team.members.some((m) => m.handle === 'dev-2')).toBe(true);
   });
 
-  it('asks before a revert removes a repository and attributes the commit to the Operator', async () => {
+  it('asks before a revert removes a repository and attributes the commit to the connected Claude', async () => {
     const target = (await app.app.projectman.domain.projects.load('AR')).version;
     await edit((draft) =>
       draft.project.repos.push({ name: 'extra', path: '.', defaultBranch: 'main', requireMerge: false }),

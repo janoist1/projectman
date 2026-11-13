@@ -33,7 +33,7 @@ const reviewersBesidesCr = (config: ProjectConfig) => {
 const stored = (h: DomainHarness) => deferredStartRecords(h.repos).map((record) => record.key);
 
 /**
- * The sessions started on a card. The Operator may be woken about a long-idle imported card (an
+ * The sessions started on a card. The project manager may be woken about a long-idle imported card (an
  * `idle` signal, PM-547): that is a general session, not a start of the card's own work.
  */
 const taskSessions = (h: DomainHarness) =>
@@ -511,7 +511,7 @@ describe('deferred starts across a restart', () => {
     await settle();
     expect(stored(h)).toEqual([]);
     expect(taskSessions(h)).toHaveLength(0);
-    // The one start is the Operator's, woken by the imported card's idle signal.
+    // The one start is the project manager's, woken by the imported card's idle signal.
     expect(h.repos.sessions.list('AR').filter((session) => session.workItem.type === 'general')).toHaveLength(
       h.runner.started.length,
     );

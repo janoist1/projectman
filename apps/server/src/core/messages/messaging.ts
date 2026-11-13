@@ -91,7 +91,7 @@ interface SendOptions {
    * session on a family card (`place`, step 2). Internal, not a contract.
    */
   ownCard?: boolean;
-  /** The owner's request to the Operator this message is sent during (PM-463). Internal, not a contract. */
+  /** The owner's request to the project manager this message is sent during (PM-463). Internal, not a contract. */
   operatorRequest?: string;
   operatorSignal?: string;
   signalActionable?: boolean;
@@ -123,7 +123,7 @@ interface SendInput {
   location?: UiLocation;
 }
 
-/** What presenting or accepting Operator signals records with the message (PM-593). */
+/** What presenting or accepting project manager signals records with the message (PM-593). */
 interface MessageSignals {
   presentation(projectKey: string, signalId: string, by?: string): void;
   decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
@@ -416,7 +416,7 @@ export class Messaging {
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
       if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
-    // The Operator's answer to a question and a forward of one (PM-558) are never stale: they keep no version.
+    // The project manager's answer to a question and a forward of one (PM-558) are never stale: they keep no version.
     const unversioned =
       opts.origin?.kind === 'question_forward' ||
       (opts.origin?.kind === 'answer' && memberOf(config, from)?.kind === 'ai');
@@ -626,7 +626,7 @@ export class Messaging {
       },
       actor,
     );
-    // A person writes into their own conversation with the Operator or the PM, not into another person's
+    // A person writes into their own conversation with the project manager or the PM, not into another person's
     // (PM-475, PM-1080). The PM's meetings, schedules and cards are not conversations: they stay as they were.
     if (
       hasGuestConversations(config, memberOf(config, session.member)) &&
@@ -636,7 +636,7 @@ export class Messaging {
     )
       throw forbidden(
         'operator_owner_only',
-        'a person writes to the Operator or the PM only in their own conversation',
+        'a person writes to the project manager or the PM only in their own conversation',
       );
     const input = actor.via
       ? formatInjectedTeamMessage(
@@ -773,7 +773,7 @@ export class Messaging {
 
   /**
    * A human answered an AI member's `ask_human` question: the answer goes back to the asking session. The
-   * Operator answers one it screens the same way (PM-558): the actor is then the AI member and the text
+   * project manager answers one it screens the same way (PM-558): the actor is then the AI member and the text
    * says how to ask a person after all.
    */
   async answer(
@@ -983,7 +983,7 @@ export class Messaging {
   }
 
   /**
-   * The Operator passes a screened question to another member (PM-558): the member gets an action message
+   * The project manager passes a screened question to another member (PM-558): the member gets an action message
    * (origin `question_forward`, so it wakes even with no role on the card) and the asking member an info
    * message saying where it went and how to ask a person after all. `close` runs in the transaction of the
    * message to the recipient. Returns the closed item. With `reason: 'machine_step'` (PM-1139) the question was
@@ -1016,12 +1016,12 @@ export class Messaging {
             `${screening?.recipientRefusal ? ` (${screening.recipientRefusal})` : ''}:\n\n${question}` +
             (step ? `\n\nWhat: ${step.what}\nWhere: ${step.where}\nExpected: ${step.expected}` : '') +
             (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
-            `\n\nThe Operator's note: ${forward.note}\n\nYou decide whether the step is needed. Tell \`${asker}\` with send_message how to go on without it, or that you take it over. ` +
+            `\n\nThe project manager's note: ${forward.note}\n\nYou decide whether the step is needed. Tell \`${asker}\` with send_message how to go on without it, or that you take it over. ` +
             `If the owners must act, ask them yourself with ask_human.`
-          : `\`${asker}\` asked a person${item.taskKey ? ` on ${item.taskKey}` : ''}, and the Operator passed the question on to you, ` +
+          : `\`${asker}\` asked a person${item.taskKey ? ` on ${item.taskKey}` : ''}, and the project manager passed the question on to you, ` +
             `because answering it is your part of the work:\n\n${question}` +
             (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
-            `\n\nThe Operator's note: ${forward.note}\n\nAnswer \`${asker}\` yourself with send_message.`,
+            `\n\nThe project manager's note: ${forward.note}\n\nAnswer \`${asker}\` yourself with send_message.`,
       },
       {
         beforeRecord: () => {
@@ -1123,7 +1123,7 @@ function resolverActor(resolution: {
   return { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) };
 }
 
-/** The sender handle of that answer: the Operator in the super mode, so the message and its actor agree. */
+/** The sender handle of that answer: the connected Claude in the super mode, so the message and its actor agree. */
 function resolverSender(resolution: { by: string; actor?: Actor | undefined }): string {
   return hasBoundOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
 }

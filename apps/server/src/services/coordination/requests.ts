@@ -22,21 +22,21 @@ import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { forbidden, newId } from '../../kernel';
 
-/** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
+/** An owner's request to the project manager stays open this long at most; the end of its turn closes it sooner. */
 const PROJECT_MANAGER_REQUEST_TTL_MS = 30 * 60_000;
 /** The part of the owner's text a request quotes. */
 const PROJECT_MANAGER_QUOTE_LENGTH = 280;
-/** How many requests the Operator's channel lists. */
+/** How many requests the project manager's channel lists. */
 const PROJECT_MANAGER_CHANNEL_REQUESTS = 50;
 
-/** The first `OPERATOR_QUOTE_LENGTH` characters of the text, its line breaks as spaces. */
+/** The first `PROJECT_MANAGER_QUOTE_LENGTH` characters of the text, its line breaks as spaces. */
 function projectManagerQuoteOf(text: string): string {
   return Array.from(text.replace(/\s*[\r\n]+\s*/g, ' ').trim())
     .slice(0, PROJECT_MANAGER_QUOTE_LENGTH)
     .join('');
 }
 
-/** The team tools (MCP names) the Operator may call without an open request: they only read. */
+/** The team tools (MCP names) the project manager may call without an open request: they only read. */
 export const PROJECT_MANAGER_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_guide',
   'get_role_configuration',
@@ -84,7 +84,7 @@ export const PM_CARD_TOOLS: readonly string[] = [
 ];
 
 /**
- * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):
+ * The team tools the project manager may call in a conversation with someone who is not an owner (PM-475):
  * it reads what that person can see, answers them (`send_message`, to them only), and changes only
  * their personal conversation style (PM-688).
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
@@ -107,7 +107,7 @@ export const PROJECT_MANAGER_GUEST_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * The step a refused write is logged as: the action the call would have been. A tool that is no
- * action of the Operator's (`ProjectManagerAction`) is refused with no step.
+ * action of the project manager's (`ProjectManagerAction`) is refused with no step.
  */
 export const PROJECT_MANAGER_TOOL_ACTIONS: Readonly<Record<string, ProjectManagerAction>> = {
   send_message: 'message',
@@ -140,10 +140,10 @@ interface OpenProjectManagerRequest {
 }
 
 /**
- * The owner's requests to the Operator (PM-463). A request opens when an owner's message, or an owner's
- * answer to the Operator's question, enters its session; it closes when that session's turn ends
+ * The owner's requests to the project manager (PM-463). A request opens when an owner's message, or an owner's
+ * answer to the project manager's question, enters its session; it closes when that session's turn ends
  * (`closeForSession` on `session_idle` and `session_ended`), when a new request opens, or after
- * `OPERATOR_REQUEST_TTL_MS`. The Operator writes only while one is open (`openFor`); the project manager
+ * `PROJECT_MANAGER_REQUEST_TTL_MS`. The project manager writes only while one is open (`openFor`); the project manager
  * under `outside_owner_only` also writes on its session's own round (`actingRequest`, PM-1287).
  */
 export class ProjectManagerRequests {
@@ -293,7 +293,7 @@ export class ProjectManagerRequests {
   }
 }
 
-/** The PM's requests use separate session rows and never inherit an Operator request or signal round. */
+/** The PM's requests use separate session rows and never inherit a project manager request or signal round. */
 interface OpenCoordinationRequest extends OpenProjectManagerRequest {}
 
 export class CoordinationRequests extends ProjectManagerRequests {
@@ -417,7 +417,7 @@ interface ProjectManagerStepInput {
   refusal?: { code: ErrorCode; message: string } | null;
 }
 
-/** What the Operator did for a request, one step per call, the refused ones too. */
+/** What the project manager did for a request, one step per call, the refused ones too. */
 export class ProjectManagerSteps {
   private readonly ctx: DomainContext;
 
@@ -448,7 +448,7 @@ export class ProjectManagerSteps {
     return step;
   }
 
-  /** The steps the Operator took on a signal, the oldest first. */
+  /** The steps the project manager took on a signal, the oldest first. */
   ofSignal(signalId: string): ProjectManagerStepRecord[] {
     return this.ctx.repos.projectManagerRequests.stepsOfSignal(signalId);
   }

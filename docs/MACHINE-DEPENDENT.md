@@ -65,7 +65,10 @@ Entries in the order they appear below (search for the bold name).
   (`com.projectman.engine-app`) installs itself on first launch: it moves itself to `/Applications`
   (fallback `~/Applications`), checks the prerequisites (Apple Silicon, macOS 13+, command line tools),
   copies the bundled engine package (`ditto` to `.partial`, then rename) into
-  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`
+  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine,bin/projectman}`
+  (PM-1429: `bin/projectman` is the second shim, written by `writeShim` in the same step as
+  `projectman-engine`: `exec <root>/bin/node <root>/scripts/projectman/cli.js`, following `current`, so an
+  update points both at the new version; machine assumption: the same `/bin/sh`, `pwd -P` and the bundled Node)
   (PM-1200: `bin/node` moves to `engine/runtimes/<sha256>/node`, kept once per content, and
   `versions/<ver>/bin/node` becomes the relative link `../../../runtimes/<sha256>/node`; `prune` keeps the
   runtimes the kept versions link to, so the firewall sees the same path for the same Node),
@@ -136,12 +139,15 @@ Entries in the order they appear below (search for the bold name).
   `apps/server/src/contracts/engine-package.ts`, its reader `engine-link/engine-package.ts`. One command builds a
   self-contained engine from one commit into `<dir>/<sha>/`: a clean checkout (`scripts/engine-app/checkout.ts`), the
   pinned Node downloaded from nodejs.org and checked by its sha256, then `npm ci`, the server build, the engine
-  CLI bundle (`scripts/engine/cli.js`) and `npm prune --omit=dev`, all in the Sandbox Runtime with the pinned Node
+  CLI bundle (`scripts/engine/cli.js`) and the `projectman` client bundle (`scripts/projectman/cli.js`, PM-1429:
+  the second esbuild entry of `bundle-cli.mjs`, built from the tsx-free `scripts/projectman/entry.ts`, which
+  `bin.mjs` also imports; `scripts/projectman` joins the sandbox's `BUILD_OUTPUTS`) and `npm prune --omit=dev`,
+  all in the Sandbox Runtime with the pinned Node
   first on the PATH (only registry.npmjs.org and nodejs.org reachable, like the PM-750 candidate in
   `scripts/engine-app/sandbox.ts`), so the native modules (better-sqlite3, node-pty, sqlite-vec) fit the bundled
   Node's ABI. Layout (the contract the packaged service and the app build on): `engine-package.json`, `bin/node`,
   `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
-  `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
+  `scripts/engine/cli.js`, `scripts/projectman/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
   `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
   `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). The app's staging
   (PM-1200) replaces `bin/node` with a link into `engine/runtimes/<sha256>/node`; the checks that follow it
@@ -412,6 +418,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   two Access-token JSON files and a non-secret `handoff.json`. Staging is private and cleaned on failure.
   The host sends it and the own-login invitation through an end-to-end encrypted channel, then deletes
   the transfer archive after receipt. `edge` and any required deploy remain explicitly approved live changes.
+  PM-1431: `owner add` rewrites the config atomically keeping its own file mode; `edge` deletes an owner's
+  archive and `.handoff-*` staging leftovers when it writes new token files (asking for a new handoff) or
+  when the owner leaves `access.owners` (`scripts/cloud/cloudflare.ts`).
   **Remote engine:** preparation stays on the maintenance machine; the friend's engine reads the
   received headers file locally. No new engine RPC or secret transfer through projectman is added.
   PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
@@ -1414,8 +1423,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `~/.config/projectman/client.json` names an HTTPS/loopback origin and protected
   credential files (directory 0700, files 0600, owned by the user, no symlinks).
   `scripts/projectman/` supplies REST, event following and the stdio MCP proxy.
-  It needs Node with tsx, stdin/stdout for the proxy and a writable cursor file if
-  requested. It follows no redirects, redacts errors and passes no token in argv.
+  It needs Node with tsx (a checkout) or the engine app's bundled client
+  (`engine/bin/projectman` shim, PM-1429: no checkout, no Node of the machine),
+  stdin/stdout for the proxy and a writable cursor file if requested.
+  `projectman connect` (key on stdin only; `--base-url`, optional `--access-headers-file`,
+  `--replace`) writes `integrator-key`, `cloud/integrator-access-token.json` and
+  `client.json` under `~/.config/projectman` (0600 files, 0700 directories, no symlink
+  followed, a differing file only with `--replace`); `projectman check` reads
+  `GET /api/projects` with the key (exit 0, 3 on a rejected key or credential file, 1
+  otherwise). The client runs on the friend's machine and calls the hub's integrator
+  hostname over HTTPS with the Access headers: the existing client–hub crossing, no
+  engine-link. It follows no redirects, redacts errors and passes no token in argv.
   Member tools and sandboxes deny `.config/projectman`; `runner/env.ts` strips
   `PROJECTMAN_INTEGRATOR_KEY`, `CF_ACCESS_*` and `CLOUDFLARE_ACCESS_*`.
   In the cloud, the separate machine hostname (`PROJECTMAN_INTEGRATOR_HOSTNAME`,

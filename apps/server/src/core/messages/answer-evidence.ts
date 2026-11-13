@@ -8,7 +8,7 @@ const EVIDENCE_MESSAGES = 200;
  * What reached `member` about the card and may need their next step (PM-694), newest last, without any
  * text: a message sent to them (an answer to their question, or a request) that their receipt marks as
  * delivered. The time is the receipt's `deliveredAt`, never the time of sending. Information messages,
- * the member's own and the Operator's own pushes (they are the reaction, not the cause) are left out.
+ * the member's own and the project manager's own pushes (they are the reaction, not the cause) are left out.
  */
 export function answerEvidenceOf(
   ctx: DomainContext,

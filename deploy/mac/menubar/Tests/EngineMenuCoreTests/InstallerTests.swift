@@ -82,6 +82,8 @@ final class InstallerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.partial("1.2.3").path))
         XCTAssertEqual(try String(contentsOf: fixture.layout.shim), EngineLayout.shimContent)
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: fixture.layout.shim.path))
+        XCTAssertEqual(try String(contentsOf: fixture.layout.clientShim), EngineLayout.clientShimContent)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: fixture.layout.clientShim.path))
     }
     func testPrepareWithoutWiringWaitsForSetup() throws {
         let fixture = try InstallerFixture()

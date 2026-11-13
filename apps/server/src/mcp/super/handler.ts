@@ -799,7 +799,7 @@ export class ExternalTools implements ExternalToolsHandler {
   ) {
     const access = this.access(ctx);
     const sender = access.superActor?.handle ?? access.handle;
-    // The start is the project's usual one, made as the Operator through the key: no session, so no start check of its own.
+    // The start is the project's usual one, made as the connected Claude through the key: no session, so no start check of its own.
     return this.deps.structuralReviews.requestExternal(
       ctx.projectKey,
       args.signalId,

@@ -27,6 +27,8 @@ import {
 } from '@projectman/shared';
 import { z } from 'zod';
 import { ApiError } from './http';
+import { runCheck } from './check';
+import { runConnect } from './connect';
 import { type CommandContext, UsageError } from './context';
 import { ClientFileError, readInputFile, readStream } from './files';
 import { followEvents } from './events';
@@ -247,7 +249,7 @@ export const COMMANDS: CommandSpec[] = [
     name: 'tasks update',
     usage:
       'tasks update TASK [--title TEXT] [--description-file FILE] [--priority urgent|high|normal|low|none] [--stage ID] [--assignee HANDLE|none] [--theme KEY|none] [--parent KEY|none] [--add-relation KIND:KEY]… [--remove-relation KIND:KEY]…',
-    summary: 'Updates card fields and relations as the Operator',
+    summary: 'Updates card fields and relations as the connected Claude',
     options: {
       ...WRITE,
       project: { type: 'string' },
@@ -309,7 +311,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'inbox decide',
     usage: 'inbox decide ITEM --option ID [--note TEXT] --project KEY',
-    summary: 'Resolves an inbox item as the Operator; owner decisions wait for approval',
+    summary: 'Resolves an inbox item as the connected Claude; owner decisions wait for approval',
     options: { ...WRITE, project: { type: 'string' }, option: { type: 'string' }, note: { type: 'string' } },
     positionals: 1,
     write: true,
@@ -410,6 +412,31 @@ export const COMMANDS: CommandSpec[] = [
     },
   },
   {
+    name: 'connect',
+    usage: 'connect --base-url URL [--access-headers-file FILE] [--replace]   (the key on standard input)',
+    summary: 'Writes the key, the Access headers and client.json below ~/.config/projectman',
+    options: {
+      json: { type: 'boolean' },
+      verbose: { type: 'boolean' },
+      help: { type: 'boolean' },
+      'base-url': { type: 'string' },
+      'access-headers-file': { type: 'string' },
+      replace: { type: 'boolean' },
+    },
+    positionals: 0,
+    write: false,
+    run: runConnect,
+  },
+  {
+    name: 'check',
+    usage: 'check',
+    summary: 'Proves the key against the server and lists the projects it reaches',
+    options: { ...COMMON },
+    positionals: 0,
+    write: false,
+    run: runCheck,
+  },
+  {
     name: 'keys revoke',
     usage: 'keys revoke KEY_ID --project KEY',
     summary: 'Revokes a credential after the owner approves (K3)',
@@ -490,7 +517,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'messages send',
     usage: 'messages send --project KEY --to HANDLE [--to HANDLE…] [--task TASK] --file FILE',
-    summary: 'Sends the text of FILE (- for standard input) to team members as the Operator',
+    summary: 'Sends the text of FILE (- for standard input) to team members as the connected Claude',
     options: {
       ...WRITE,
       project: { type: 'string' },

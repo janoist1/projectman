@@ -299,7 +299,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
           if (!result || result.gate.every((label) => task.labels.includes(label))) continue;
           if (deps.labelsAddedSince(task.projectKey, task.key, result.results, since)) continue;
           // An imported card stands in the stage since its import: it was not handed over, so no work starts
-          // on it by itself (the Operator's idle signal follows it). Entering the stage again is a hand-over.
+          // on it by itself (the project manager's idle signal follows it). Entering the stage again is a hand-over.
           if (deps.importedEntry(task.projectKey, task.key, since)) continue;
           found.push({
             taskKey: task.key,

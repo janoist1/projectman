@@ -160,7 +160,7 @@ export class FeedbackTools implements FeedbackToolsHandler {
   }
 
   /**
-   * A feedback tool: only an AI member that processes feedback calls it (the Operator and the other roles
+   * A feedback tool: only an AI member that processes feedback calls it (the project manager and the other roles
    * get `feedback_processor_only`), and the refusals of the mark's rules come with their code in the message.
    */
   private async feedbackStep<T>(

@@ -111,7 +111,7 @@ export type SuperCommandSettler = (input: {
   command: SuperCommand;
 }) => Promise<SuperSettlement>;
 
-/** Goes on with an in-app Operator's operation (its credential's key id is the Operator session) as the answering owner approved. */
+/** Goes on with an in-app project manager's operation (its credential's key id is the project manager session) as the answering owner approved. */
 type AppResume = (operation: SuperOperation, keyId: string, ownerHandle: string) => Promise<SuperOperation>;
 
 /** What the service runs: a command the integrator starts. */
@@ -339,7 +339,7 @@ export class SuperHandoffService {
   }
 
   /**
-   * Goes on with an operation of the in-app Operator after the owner's yes (PM-888): the Operator's session may
+   * Goes on with an operation of the in-app project manager after the owner's yes (PM-888): the project manager's session may
    * be gone by then, so the server itself calls `operate` again, as the answering owner approved. Only an
    * operation that waits to resume, was started by the app credential and has a standing yes is taken up; the
    * resume checks the yes, the command and the configuration again. Null for an operation of a key client.
@@ -357,11 +357,12 @@ export class SuperHandoffService {
       item?.resolution?.optionId !== SUPER_OWNER_YES
     )
       throw conflict('super_request_conflict', 'this operation does not wait for the app to go on');
-    if (!this.appResume) throw invalid('super_executor_unavailable', 'the in-app Operator path is not wired');
+    if (!this.appResume)
+      throw invalid('super_executor_unavailable', 'the in-app project manager path is not wired');
     return this.appResume(operation, stored.keyId, item.resolution.by);
   }
 
-  /** The in-app Operator's runner (PM-888), composed after this service: it is set once, at assembly. */
+  /** The in-app project manager's runner (PM-888), composed after this service: it is set once, at assembly. */
   registerAppResume(resume: AppResume): void {
     this.appResume = resume;
   }

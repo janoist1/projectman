@@ -232,13 +232,13 @@ export function registerWebsocket(
     if (!access || !hasAccess(access.access, minimum)) {
       throw forbidden('insufficient_access', 'no access to this terminal');
     }
-    // The Operator's terminals and the PM's conversations with others are the owner's and the admin's to see
+    // The project manager's terminals and the PM's conversations with others are the owner's and the admin's to see
     // (PM-475, PM-1080).
     if (!canSeeProjectManagerSessions(access) && domain.sessions.isRestrictedSession(sessionId))
       throw forbidden('insufficient_access', 'no access to this terminal');
-    // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
+    // Raw input to the project manager is a request of the owner's: an admin watches, but does not type (PM-475).
     if (options.operatorInput && access.access !== 'owner' && domain.sessions.isRestrictedSession(sessionId))
-      throw forbidden('insufficient_access', 'only the owner types into the Operator’s terminal');
+      throw forbidden('insufficient_access', 'only the owner types into the project manager’s terminal');
   };
 
   const handle = async (client: Client, data: unknown) => {

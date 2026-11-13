@@ -27,7 +27,7 @@ function structuralReviewText(payload: ProjectManagerStructuralReview): string {
   return (
     `Occasional architecture review requested by the PM. Reason: ${payload.note}\n` +
     `Evidence (data): ${JSON.stringify({ evidence: payload.evidence, milestoneKey: payload.milestoneKey })}\n` +
-    'Re-read the current cards and relevant responsibility boundaries. Report only a few concrete suggestions, or say that no change is needed. Do not create cards or refactor automatically. Send your report to the PM; send only learned-principle proposals to the Operator, never write its knowledge.'
+    'Re-read the current cards and relevant responsibility boundaries. Report only a few concrete suggestions, or say that no change is needed. Do not create cards or refactor automatically. Send your report to the PM; send only learned-principle proposals to the project manager, never write its knowledge.'
   );
 }
 

@@ -10,17 +10,23 @@ const external = Object.keys(serverManifest.dependencies ?? {}).filter(
   (name) => !name.startsWith('@projectman/'),
 );
 
-await build({
-  entryPoints: ['scripts/engine/cli.ts'],
-  outfile: 'scripts/engine/cli.js',
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node22',
-  sourcemap: true,
-  external,
-  banner: {
-    js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
-  },
-});
-console.log('built scripts/engine/cli.js');
+// The engine CLI, and the `projectman` client (PM-1429; its entry has no tsx), bundled the same way.
+for (const [entry, outfile] of [
+  ['scripts/engine/cli.ts', 'scripts/engine/cli.js'],
+  ['scripts/projectman/entry.ts', 'scripts/projectman/cli.js'],
+]) {
+  await build({
+    entryPoints: [entry],
+    outfile,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    sourcemap: true,
+    external,
+    banner: {
+      js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
+    },
+  });
+  console.log(`built ${outfile}`);
+}

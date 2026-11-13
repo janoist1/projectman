@@ -108,7 +108,7 @@ export function refusalOf(err: unknown): { code: ErrorCode; message: string } {
   return { code: 'internal_error', message: err instanceof Error ? err.message : String(err) };
 }
 
-/** The owners of the project: the people the Operator may report and ask. */
+/** The owners of the project: the people the project manager may report and ask. */
 export function isOwner(config: ProjectConfig, handle: string): boolean {
   return ownerHandles(config).includes(handle);
 }
@@ -135,11 +135,11 @@ export function toToolError(err: unknown): unknown {
   return new TeamToolError('invalid', err.message);
 }
 
-/** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
+/** A tool's caller and, for the project manager, the owner request the call runs for (null for any other caller). */
 export interface CallerWithRequest {
   config: ProjectConfig;
   request: ReturnType<ProjectManagerRequests['openFor']>;
-  /** The person the Operator talks with when they are not an owner: it reads what they see and answers them (PM-475). */
+  /** The person the project manager talks with when they are not an owner: it reads what they see and answers them (PM-475). */
   guest: GuestView | null;
   /** The system signal the call acts on (PM-545); with no owner request, `request` is the signal round. */
   signalId?: string;
@@ -149,7 +149,7 @@ export interface CallerWithRequest {
   beforeRecord?: () => void;
 }
 
-/** The Operator's own step on a system signal, as the guard sees it (PM-545). */
+/** The project manager's own step on a system signal, as the guard sees it (PM-545). */
 interface SignalStep {
   signalId: string;
   tool: 'start_task' | 'start_member';
@@ -209,9 +209,9 @@ export class ToolCaller {
     this.projectManagerSignals = deps.projectManagerSignals;
     this.sessionEngine = deps.sessionEngine;
   }
-  /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
+  /** Signals with an own step of the project manager running now (PM-545); one at a time, whatever the budget left. */
   private readonly signalStepsRunning = new Set<string>();
-  /** Lessons alone may be maintained internally by the selected PM, or by the transitional Operator. */
+  /** Lessons alone may be maintained internally by the selected project manager. */
   async projectDocCaller(
     ctx: ToolContext,
     edits: readonly { doc: ProjectDoc }[],
@@ -255,7 +255,7 @@ export class ToolCaller {
     return { config, request, guest: null };
   }
   /**
-   * `caller`, plus the owner request the guard let the Operator's call through on (null for any other
+   * `caller`, plus the owner request the guard let the project manager's call through on (null for any other
    * caller and for a reading tool with none open). The step log must use this very request: opening it
    * again could find it expired between the guard and the write.
    */
@@ -389,7 +389,7 @@ export class ToolCaller {
       );
     if (tool === 'get_operator_preference' || tool === 'set_operator_preference') {
       if (!isProjectManager(member))
-        throw new TeamToolError('forbidden', 'operator_only: preferences require the Operator or PM.');
+        throw new TeamToolError('forbidden', 'operator_only: preferences require the project manager.');
       if (coordinationMemberOf(config)?.handle !== ctx.member)
         throw new TeamToolError('forbidden', 'project_manager_only: preferences require the selected PM.');
       const session = this.ctx.repos.sessions.get(ctx.sessionId);
@@ -432,7 +432,7 @@ export class ToolCaller {
     return (await this.callerWithRequest(ctx, tool)).config;
   }
 
-  /** Logs a write the Operator was refused as a refused step of its request. */
+  /** Logs a write the project manager was refused as a refused step of its request. */
   recordRefusedWrite(
     who: CallerWithRequest,
     tool: string,
@@ -455,7 +455,7 @@ export class ToolCaller {
   }
 
   /**
-   * Runs the Operator's write and logs it as one step of its open request, done or refused (PM-463).
+   * Runs the project manager's write and logs it as one step of its open request, done or refused (PM-463).
    * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   async recorded<T>(
@@ -506,7 +506,7 @@ export class ToolCaller {
         ...(step.madeSystemFeedback ? { systemFeedback: step.madeSystemFeedback(result) } : {}),
         status: operation?.awaitsOwner ? 'awaiting_approval' : 'done',
       });
-      // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
+      // An own step on a signal: the signal is shown to the project manager again if its case still stands later (PM-545).
       if (signalId && request.source === 'signal') this.projectManagerSignals.stepTaken(signalId);
       return result;
     } finally {
@@ -595,7 +595,7 @@ export class ToolCaller {
   }
 
   /**
-   * The Operator's own step on a system signal without an owner's request (PM-545): the project's level,
+   * The project manager's own step on a system signal without an owner's request (PM-545): the project's level,
    * the signal's targets and the signal's budget of steps decide; a refusal is no step. The step then hangs
    * on the session's signal round.
    */
@@ -608,7 +608,7 @@ export class ToolCaller {
     const refuse: (code: string, text: string) => never = (code, text) => {
       throw new TeamToolError('forbidden', `${code}: ${text}`);
     };
-    const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
+    const noRequest = `${step.tool} writes, and the project manager writes only for an open request of an owner`;
     // At `report` the shared rule refuses every kind.
     const { signal, allowed } = await this.projectManagerSignals
       .stepTargets(ctx.projectKey, step.signalId)

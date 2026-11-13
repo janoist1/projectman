@@ -11,7 +11,7 @@ export interface MergeSessions {
   isRunning(sessionId: string): boolean;
 }
 
-/** Another user of a repository's slot (the Operator's document writes, PM-495). */
+/** Another user of a repository's slot (the project manager's document writes, PM-495). */
 export interface MergeSlotPeer {
   busy(projectKey: string, repo: string): boolean;
   pump(): void;

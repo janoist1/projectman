@@ -74,7 +74,7 @@ export class InboxTools implements InboxToolsHandler {
       recommendationReason?: string;
       details?: string;
       attachmentIds?: string[];
-      /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
+      /** The question asked again after the project manager screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
       /** The open signal delivered to the asking coordinator that the question is about (PM-455). */
@@ -127,7 +127,7 @@ export class InboxTools implements InboxToolsHandler {
       const item = this.ctx.repos.inbox.get(args.itemId);
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `Question ${args.itemId} does not exist in this project.`);
-      // A question the integrator asked through the bearer MCP is withdrawn by the integrator, not by the Operator's session.
+      // A question the integrator asked through the bearer MCP is withdrawn by the integrator, not by the project manager's session.
       if (item.source !== ctx.member || questionPayloadOf(item)?.externalQuestion)
         throw new TeamToolError(
           'forbidden',

@@ -72,7 +72,7 @@ export function attributedMessage(
   const trailers = [
     ...extraTrailers,
     ...(author.via || author.superActor ? ['Projectman-Via: integrator'] : []),
-    // The super origin (PM-757): the mode, the Operator's handle and the credential's id and visible
+    // The super origin (PM-757): the mode, the connected Claude's handle and the credential's id and visible
     // prefix, never its secret. `history()` rebuilds the actor from these.
     ...(author.superActor
       ? [

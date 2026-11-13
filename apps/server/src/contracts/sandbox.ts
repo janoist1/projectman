@@ -75,7 +75,7 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'logs',
     'customization',
     'memory',
-    // Private Operator agreements, principles and preferences (PM-687).
+    // Private project manager agreements, principles and preferences (PM-687).
     'operator-data',
     // Message files follow recipient visibility; authorized copies go to session folders (PM-524).
     'message-attachments',

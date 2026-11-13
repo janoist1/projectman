@@ -165,7 +165,7 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
     await h.domain.sessions.reconcileAfterRestart();
     expect(h.repos.sessionCleanups.list()).toEqual([]);
   });
-  it('tracks separate generations independently and an Operator notice cannot free them', async () => {
+  it('tracks separate generations independently and a project manager notice cannot free them', async () => {
     const session = await start();
     h.runner.emit({
       type: 'exit',
@@ -210,7 +210,7 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       vi.useRealTimers();
     }
   });
-  it('closes the Operator signal when the owner releases the scope, and refuses another project’s scope', async () => {
+  it('closes the project manager signal when the owner releases the scope, and refuses another project’s scope', async () => {
     let at = new Date('2026-01-01T00:00:00Z');
     const session = await start(() => at);
     h.runner.emit({

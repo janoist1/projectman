@@ -64,7 +64,7 @@ type TurnReason = TimelineEventData['refinement_turn']['reason'];
  * ends. A step that was handed to a member is not handed again (no restart for the same step): when
  * its turn ends without the label, the `refinement_turn` obligation (PM-806, PM-1152) watches it. When every label is on, the
  * card leaves refinement: the system takes `refine` off, moves it to the stage before development and
- * tells the configured card mover, project manager or Operator (`done`) through a team message.
+ * tells the configured card mover, project manager (`done`) through a team message.
  * Every change of turn is a `refinement_turn` event on the
  * card. A refused start waits like a hand-over does, and is retried by the usual events and timer.
  * The card moves only when its labels change, it changes stage, or a session on it goes idle or ends.

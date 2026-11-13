@@ -159,7 +159,7 @@ interface CreateInboxItemInput {
   body?: string | null;
   payload: Record<string, unknown>;
   options: InboxOption[];
-  /** `screening`: the Operator looks at an AI member's question first and no person sees it yet (PM-556). */
+  /** `screening`: the project manager looks at an AI member's question first and no person sees it yet (PM-556). */
   state?: 'open' | 'screening';
   /** How the route rule placed the item: stored on it and written to the timeline as `item_routed` (PM-1246). */
   routed?: AppliedRoute;
@@ -199,7 +199,7 @@ interface CreateFixLimitDecisionInput {
   options: InboxOption[];
 }
 
-/** What the Operator settled about a question it screens, with no person involved (PM-558). */
+/** What the project manager settled about a question it screens, with no person involved (PM-558). */
 interface ScreeningSettlement {
   outcome: 'answered' | 'forwarded' | 'moot';
   by: string;
@@ -211,9 +211,9 @@ interface ScreeningSettlement {
   forwardedTo?: string;
 }
 
-/** What the Operator decided to send on to the people, or why the system did (PM-558). */
+/** What the project manager decided to send on to the people, or why the system did (PM-558). */
 interface ScreeningRelease {
-  /** The Operator's outcome; none when the system released the question (`fallback`). */
+  /** The project manager's outcome; none when the system released the question (`fallback`). */
   outcome?: 'decision' | 'todo';
   by?: string;
   note?: string;
@@ -230,7 +230,7 @@ interface ScreeningRelease {
 type TodoRouteKind =
   'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo' | 'unscreened_question';
 
-/** What the `question_screened` timeline entry says about the Operator's outcome. */
+/** What the `question_screened` timeline entry says about the project manager's outcome. */
 type ScreenedEntry = Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
   outcome: TimelineEventData['question_screened']['outcome'];
   todo?: QuestionTodo;
@@ -279,7 +279,7 @@ type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, hand
 
 export interface Resolver {
   via?: 'integrator';
-  /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
+  /** The connected Claude's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
   superActor?: BoundActor;
   handle: string;
   access: HumanAccess;
@@ -603,7 +603,7 @@ export class InboxService {
     if (item) this.publish(item);
   }
 
-  /** Domain-owned transactions keep the same principal and Operator attribution as inbox.resolve. */
+  /** Domain-owned transactions keep the same principal and connected Claude attribution as inbox.resolve. */
   private decisionResolution(
     id: string,
     by: string,
@@ -621,7 +621,7 @@ export class InboxService {
     // The connected Claude answers for its holder only on a direct instruction; a step on a member's
     // queue item does not lend the owner's authority (PM-1010, decision 66).
     if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
-      throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
+      throw forbidden('owner_approval_required', 'a project manager or connected-Claude origin is required');
     const refusal = superDecisionRefusal(item, {
       operatorHandle: scope.actor.handle,
       sessionMember: this.sessionMemberOf(item),
@@ -852,8 +852,8 @@ export class InboxService {
   }
 
   /**
-   * The questions the Operator screens or settled without a person (PM-558): in screening now, or answered,
-   * forwarded or found moot. Newest first by the Operator's decision (else the asking time), at most
+   * The questions the project manager screens or settled without a person (PM-558): in screening now, or answered,
+   * forwarded or found moot. Newest first by the project manager's decision (else the asking time), at most
    * `SCREENED_QUESTIONS_LIMIT`; `today` counts all of them asked at or after `since`.
    */
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
@@ -1147,7 +1147,8 @@ export class InboxService {
     }
     if (projectManagerKnowledgeApprovalOf(item)) {
       const decide = this.deciders.get('operator_knowledge');
-      if (!decide) throw forbidden('operator_owner_only', 'Operator knowledge decisions are unavailable');
+      if (!decide)
+        throw forbidden('operator_owner_only', 'Project manager knowledge decisions are unavailable');
       await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
@@ -1550,7 +1551,7 @@ export class InboxService {
   }
 
   /**
-   * Closes a question that still waits for its answer (open, or with the Operator for screening) because
+   * Closes a question that still waits for its answer (open, or with the project manager for screening) because
    * nothing is left to answer (PM-556): `cancelled`, resolved by `by` with the rule. Null when the item is
    * not a pending question. The timeline records `question_closed`; the asking member's running session is
    * told by the `inbox_cancelled` listener (`SessionMessages.closedNotice`).
@@ -1561,7 +1562,7 @@ export class InboxService {
       rule: QuestionCloseRule;
       by: string;
       note: string | null;
-      /** The Operator found the question moot (PM-558): the screening record keeps the outcome too. */
+      /** The project manager found the question moot (PM-558): the screening record keeps the outcome too. */
       screened?: ScreeningSettlement;
       /**
        * The full actor when the question is closed through the integrator (PM-784): the resolution keeps its
@@ -1802,7 +1803,7 @@ export class InboxService {
   /**
    * The system opens a todo for the integrator itself (PM-806): nobody asked it, so `askedBy` (`system`, or the
    * project manager's handle) is the item's source and no answer is delivered to anyone. It takes the screening's
-   * todo path (`releaseFields`), but opens at once, without the Operator. It always waits in the integrator's
+   * todo path (`releaseFields`), but opens at once, without the project manager. It always waits in the integrator's
    * queue, connected or not (PM-1246); a member without machine access gets a refusal, not the owners. It sets no
    * waiting label. The obligation's id is on the payload, so
    * a todo whose row was not written (a crash) is found again.
@@ -2139,7 +2140,7 @@ export class InboxService {
   }
 
   /**
-   * The question leaves the Operator's screening for the people (PM-558): it opens, with the Operator's
+   * The question leaves the project manager's screening for the people (PM-558): it opens, with the project manager's
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
    * is not in screening any more (closed or released meanwhile). The timeline records `question_screened`,
@@ -2296,7 +2297,7 @@ export class InboxService {
   }
 
   /**
-   * The Operator settles a question it screens with no person involved (PM-558): `answered` and `forwarded`
+   * The project manager settles a question it screens with no person involved (PM-558): `answered` and `forwarded`
    * resolve it (`operator_answered`, `operator_forwarded`), `moot` closes it (`operator_moot`). `deliver`
    * carries the answer or the forward to the asking member or to the recipient: it calls `close` inside the
    * message transaction, so the item closes only when the message is recorded. Null when the question is not
@@ -2385,7 +2386,7 @@ export class InboxService {
     return resolved;
   }
 
-  /** The timeline entry of what the Operator decided about a question (PM-558). */
+  /** The timeline entry of what the project manager decided about a question (PM-558). */
   private appendScreened(item: InboxItem, outcome: ScreenedEntry): void {
     this.timeline.append({
       projectKey: item.projectKey,
@@ -2431,7 +2432,7 @@ export class InboxService {
   }
 
   reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
-    // A question the Operator still screens (PM-556) has its assignees too: it goes to them when released.
+    // A question the project manager still screens (PM-556) has its assignees too: it goes to them when released.
     for (const item of this.ctx.repos.inbox
       .list(projectKey, { state: PENDING_INBOX_STATES })
       .filter((i) => i.assignees.includes(handle))) {

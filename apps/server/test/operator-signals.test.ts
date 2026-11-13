@@ -113,7 +113,7 @@ async function deliver() {
   }
 }
 
-describe('Operator system signals', () => {
+describe('project manager system signals', () => {
   it('filters every coordinator-only state from the channel and live owner events, retaining outage', async () => {
     await setup();
     for (const kind of [
@@ -445,7 +445,7 @@ describe('Operator system signals', () => {
     ).resolves.toHaveProperty('messageId');
   });
 
-  it('rejects pending, foreign, resolved and non-Operator presentations', async () => {
+  it('rejects pending, foreign, resolved and non-project-manager presentations', async () => {
     await setup();
     const signal = raise();
     expect(() => h.domain.projectManagerSignals.presentation('AR', signal.id)).toThrow('no longer open');

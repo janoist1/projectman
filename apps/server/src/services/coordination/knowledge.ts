@@ -42,7 +42,7 @@ export class ProjectManagerKnowledge {
     return this.deps.store.readKnowledge(projectKey);
   }
 
-  /** MCP reads require an actual internal general session of the Operator or project manager. */
+  /** MCP reads require an actual internal general session of the project manager. */
   async get(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument> {
     const config = await this.deps.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);

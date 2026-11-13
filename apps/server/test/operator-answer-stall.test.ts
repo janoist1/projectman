@@ -403,7 +403,7 @@ describe('detection', () => {
   });
 });
 
-describe('the Operator’s steps', () => {
+describe('the project manager’s steps', () => {
   async function stalled(level: ProjectManagerWatch = 'drive') {
     await setup(level);
     const card = await develop();

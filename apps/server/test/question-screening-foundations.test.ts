@@ -16,7 +16,7 @@ function withWaitingLabel(config: ProjectConfig): void {
 }
 
 /**
- * The foundations of the Operator's screening of AI questions (PM-556, part 1): nobody creates a
+ * The foundations of the project manager's screening of AI questions (PM-556, part 1): nobody creates a
  * `screening` item yet, so the tests put an asked question into that state by hand and check that every
  * reader that must see a pending question does, and that the closing and release write only where they
  * may.
@@ -97,7 +97,7 @@ describe('a question the project manager screens: the foundations', () => {
       expect(h.repos.inbox.countOpenFor('AR', 'owner')).toBe(1);
     });
 
-    it('keeps an answered question by the Operator out of the decision candidates', async () => {
+    it('keeps an answered question by the project manager out of the decision candidates', async () => {
       const id = await ask();
       const at = '2026-10-13T10:00:00.000Z';
       const answered = (rule?: 'operator_answered') =>

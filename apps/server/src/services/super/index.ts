@@ -228,7 +228,7 @@ export function createSuperExecution(deps: {
       return runIntegratorExecution(scopeFor({ ...context, projectKey: target.projectKey }), async () => {
         const config = await deps.projects.config(target.projectKey);
         assertIntegratorAccess(config, 'read');
-        // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
+        // A read key's call is audited too (PM-784): the entry carries the connected Claude and the key's
         // id and prefix, while the principal's mode stays `read`. A plain read of the REST API (`audited: false`)
         // leaves no entry: it changes nothing, and its own rows would wake the long poll of the change journal.
         const actor = principalActor(config, context.principal, context.email, context.issuer);

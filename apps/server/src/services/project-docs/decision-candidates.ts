@@ -11,7 +11,7 @@ const DEFAULT_CANDIDATE_LIMIT = 20;
 
 /**
  * Owner answers on cards that may be decisions (PM-496). A question is a candidate when an owner of the
- * project answered it (through the integrator too), no rule closed it, someone but the Operator asked
+ * project answered it (through the integrator too), no rule closed it, someone but the retired Operator asked
  * it, the answer came after the project's `since`, and the owner has not given a verdict on it yet.
  */
 export class DecisionCandidates {
@@ -50,7 +50,7 @@ export class DecisionCandidates {
     return this.ctx.repos.decisionOffers.state(projectKey)?.since ?? '';
   }
 
-  /** The candidates for the Operator, at most `limit`; the call counts as a look (`listed_at`). */
+  /** The candidates for the project manager, at most `limit`; the call counts as a look (`listed_at`). */
   list(
     projectKey: string,
     config: ProjectConfig,
@@ -69,7 +69,7 @@ export class DecisionCandidates {
   }
 
   /**
-   * How many candidates the Operator has not looked at: the ones answered after the later of `since`
+   * How many candidates the project manager has not looked at: the ones answered after the later of `since`
    * and its last look. 0 when the project has no decision log.
    */
   unseen(projectKey: string, config: ProjectConfig): number {

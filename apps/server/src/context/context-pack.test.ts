@@ -3618,6 +3618,16 @@ describe('repositories without GitHub', () => {
       );
     });
 
+    it('names the new commits in the request for a re-review when the server merges the repository', () => {
+      const project = buildProject();
+      project.project.repos.find((entry) => entry.name === 'app')!.requireMerge = true;
+      const steps = stepsOf({ project, handle: 'fe-1', task: makeTask({ stageId: 'qa' }) });
+      expect(steps).toContain('ask the reporter for a re-review or a retest with send_message kind action');
+      expect(steps).toContain('naming the new commits');
+      expect(steps).toContain('a note or an info message starts none');
+      expect(steps).toContain('Never merge into `main` or push manually');
+    });
+
     it('fixes what teammates report in the same pull request when the repository is on GitHub', () => {
       const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'qa' }) });
       expect(steps).toBe(

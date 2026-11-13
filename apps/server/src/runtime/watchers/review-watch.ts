@@ -101,7 +101,12 @@ export class ReviewWatch {
 
   /** Looks at every task in review that has a pinned commit (or those `only` accepts). */
   async check(only?: (pin: { taskKey: string }) => boolean): Promise<void> {
-    for (const pin of this.ctx.repos.reviewPins.list()) {
+    const pins = this.ctx.repos.reviewPins.list();
+    // A reminder is only kept while its task has a pin: a closed or moved-on card forgets it.
+    const pinned = new Set(pins.map((pin) => pin.taskKey));
+    for (const taskKey of this.remindedCommits.keys())
+      if (!pinned.has(taskKey)) this.remindedCommits.delete(taskKey);
+    for (const pin of pins) {
       if (only && !only(pin)) continue;
       try {
         await this.checkTask(pin.projectKey, pin.taskKey);

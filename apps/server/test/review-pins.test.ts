@@ -293,7 +293,9 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     const reminders = () =>
       h.domain.messages
         .list('AR', { taskKey: 'AR-1' })
-        .filter((m) => m.from === 'system' && m.to.includes('dev-1') && m.body.includes('no new round'));
+        .filter(
+          (m) => m.from === 'system' && m.kind === 'action' && m.to.length === 1 && m.to[0] === 'dev-1',
+        );
 
     // Nothing moved yet: no reminder.
     await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
@@ -327,6 +329,31 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     await commitFile(dev1, 'login.txt', 'v3\n');
     await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
     expect(reminders()).toHaveLength(2);
+  });
+
+  it('forgets the reminded commit of a task whose pin is gone (PM-1410)', async () => {
+    await setup();
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    await toReview();
+    await startedCount(2);
+    h.runner.setState(reviewerSession().sessionId, 'idle');
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-changes'] }, aiActor('cr'), {
+      comment: 'Fix the login.',
+    });
+    await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.reviewWatch.sessionStopped({
+      projectKey: 'AR',
+      member: 'dev-1',
+      workItem: { type: 'task', taskKey: 'AR-1' },
+    });
+    const reminded = (h.domain.reviewWatch as unknown as { remindedCommits: Map<string, string> })
+      .remindedCommits;
+    expect(reminded.has('AR-1')).toBe(true);
+
+    // The pin goes with the stage the task leaves; the next round of the watcher drops the entry.
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await h.domain.reviewWatch.check();
+    expect(reminded.has('AR-1')).toBe(false);
   });
 
   it('sends no reminder when the developer asked for the new round with an action message (PM-1405)', async () => {

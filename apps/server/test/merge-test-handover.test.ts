@@ -474,6 +474,24 @@ describe('selection rules', () => {
     expect(files).not.toContain('apps/server/test/other.test.ts');
   });
 
+  it('selects the exact-env session tests when the session policy changes (PM-1415)', () => {
+    const changed = 'apps/server/src/runtime/sessions/session-policy.ts';
+    const exact = [
+      'apps/server/test/heavy-lock-session.test.ts',
+      'apps/server/test/heavy-lock-policy.test.ts',
+      'apps/server/test/session-folder-policy.test.ts',
+      'apps/server/test/session-policy-model.test.ts',
+    ];
+    const tree = [
+      file(changed, 'export const p = 1;'),
+      ...exact.map((path) => file(path)),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(expect.arrayContaining(exact));
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
   it('keeps the alert rule tests ahead of the many farther tests that fill the cap (PM-1399)', () => {
     const outages = 'apps/server/src/runtime/watchers/outages.ts';
     const tree = [

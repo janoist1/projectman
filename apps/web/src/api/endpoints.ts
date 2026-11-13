@@ -204,7 +204,7 @@ export const api = {
     }),
   superAudit: (key: string, prefix: string, before: string) =>
     apiRequest(
-      `${routes.operatorSuperAudit(key)}?limit=50${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
+      `${routes.superAudit(key)}?limit=50${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
       { schema: SuperAuditPage },
     ),
   involvements: (key: string, query = '') =>
@@ -474,21 +474,24 @@ export const api = {
     ),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
   operatorKnowledge: (key: string) =>
-    apiRequest(routes.operatorKnowledge(key), { schema: ProjectManagerKnowledgeDocument }),
+    apiRequest(routes.projectManagerKnowledge(key), { schema: ProjectManagerKnowledgeDocument }),
   /** The weekly owner question measure of the last eight weeks (PM-1192); the owner's own login only. */
   ownerQuestions: (key: string) =>
-    apiRequest(`${routes.operatorOwnerQuestions(key)}?weeks=${OWNER_QUESTION_WEEKS_DEFAULT}`, {
+    apiRequest(`${routes.projectManagerOwnerQuestions(key)}?weeks=${OWNER_QUESTION_WEEKS_DEFAULT}`, {
       schema: OwnerQuestionsReport,
     }),
   operatorPreferenceMe: (key: string) =>
-    apiRequest(routes.operatorPreferenceMe(key), { schema: ProjectManagerPreferenceDocument }),
+    apiRequest(routes.projectManagerPreferenceMe(key), { schema: ProjectManagerPreferenceDocument }),
   operatorPreferences: (key: string) =>
     apiRequest<{ items: { handle: string; preference: ProjectManagerPreferenceDocument }[] }>(
-      routes.operatorPreferences(key),
+      routes.projectManagerPreferences(key),
     ),
   /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
   dismissOperatorSignal: (key: string, signalId: string) =>
-    apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: ProjectManagerSignal }),
+    apiRequest(routes.dismissProjectManagerSignal(key, signalId), {
+      method: 'POST',
+      schema: ProjectManagerSignal,
+    }),
   /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
   teamMessageList: (
     key: string,

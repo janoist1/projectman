@@ -6,7 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
 import { TeamToolError } from '../contracts';
-import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../services/coordination';
+import { PROJECT_MANAGER_GUEST_TOOLS, PROJECT_MANAGER_READ_TOOLS } from '../services/coordination';
 import { createMcpModule } from './index';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, toolListing } from './server';
 import { TEAM_TOOLS } from './tools';
@@ -371,8 +371,8 @@ describe('team tools', () => {
     { topic: 'rules', heading: '# Team rules' },
     { topic: 'role', heading: '# Role guide' },
   ])('get_guide returns $topic markdown for the caller session', async ({ topic, heading }) => {
-    expect(OPERATOR_READ_TOOLS.has('get_guide')).toBe(true);
-    expect(OPERATOR_GUEST_TOOLS.has('get_guide')).toBe(true);
+    expect(PROJECT_MANAGER_READ_TOOLS.has('get_guide')).toBe(true);
+    expect(PROJECT_MANAGER_GUEST_TOOLS.has('get_guide')).toBe(true);
     const { client, handler } = await startTools();
     const result = await call(client, 'get_guide', { topic });
     expect(result.isError).toBeFalsy();

@@ -139,9 +139,7 @@ describe('explicit integrator access key API', () => {
         expect((await request(host, '/mcp', { authorization, cookie })).statusCode).toBe(404);
       expect((await request('machine.example.com', '/mcp', { cookie })).statusCode).toBe(401);
       expect((await request('machine.example.com', '/mcp', { authorization })).statusCode).toBe(405);
-      expect(
-        (await request('board.example.com', routes.operatorSuperAudit('AR'), { cookie })).statusCode,
-      ).toBe(200);
+      expect((await request('board.example.com', routes.superAudit('AR'), { cookie })).statusCode).toBe(200);
       const mcp = await app.inject({
         method: 'POST',
         url: '/mcp',

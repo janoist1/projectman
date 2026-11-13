@@ -90,12 +90,12 @@ describe('personal Operator preference authorization', () => {
     });
   }
   const set = (ctx: ToolContext, preference: ProjectManagerPreferenceData = detailed, expectedRevision = 0) =>
-    h.domain.teamTools.setOperatorPreference(ctx, { preference, expectedRevision });
+    h.domain.teamTools.setProjectManagerPreference(ctx, { preference, expectedRevision });
 
   it('lets the PM change, reset and compare-and-swap the owner style, and nothing else', async () => {
     const pm = conversation(undefined, 'pm');
     request(pm, 'owner');
-    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({
+    expect(await h.domain.teamTools.getProjectManagerPreference(pm)).toMatchObject({
       revision: 0,
       data: DEFAULT_OPERATOR_PREFERENCE,
     });
@@ -112,7 +112,7 @@ describe('personal Operator preference authorization', () => {
 
   it('rejects other AI members', async () => {
     const dev = conversation(undefined, 'dev-1');
-    for (const method of [() => h.domain.teamTools.getOperatorPreference(dev), () => set(dev)])
+    for (const method of [() => h.domain.teamTools.getProjectManagerPreference(dev), () => set(dev)])
       await expect(method()).rejects.toThrow('operator_only');
   });
 
@@ -122,17 +122,17 @@ describe('personal Operator preference authorization', () => {
       const pm = conversation(undefined, 'pm');
       if (state !== 'missing') {
         const open = request(pm, 'owner');
-        if (state === 'closed') h.repos.operatorRequests.close(open.id, new Date().toISOString());
+        if (state === 'closed') h.repos.projectManagerRequests.close(open.id, new Date().toISOString());
         else {
-          h.repos.operatorRequests.close(open.id, new Date().toISOString());
-          h.repos.operatorRequests.insert({
+          h.repos.projectManagerRequests.close(open.id, new Date().toISOString());
+          h.repos.projectManagerRequests.insert({
             ...open,
             id: 'opr_variant',
             ...(state === 'expired' ? { openedAt: '2000-01-01T00:00:00.000Z' } : { source: state }),
           });
         }
       }
-      await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+      await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_no_request');
       await expect(set(pm)).rejects.toThrow('operator_no_request');
     },
   );
@@ -141,7 +141,10 @@ describe('personal Operator preference authorization', () => {
     const pm = conversation(undefined, 'pm');
     request(pm, 'owner', 'answer');
     expect(await set(pm)).toMatchObject({ revision: 1, data: detailed });
-    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 1, data: detailed });
+    expect(await h.domain.teamTools.getProjectManagerPreference(pm)).toMatchObject({
+      revision: 1,
+      data: detailed,
+    });
   });
 
   it.each(['foreign-project', 'foreign-member', 'missing-session', 'task', 'guest'] as const)(
@@ -160,7 +163,7 @@ describe('personal Operator preference authorization', () => {
       request(pm, 'owner');
       if (variant === 'foreign-member') pm = { ...pm, sessionId: conversation(undefined, 'dev-1').sessionId };
       if (variant === 'missing-session') pm = { ...pm, sessionId: 'ses_missing' };
-      await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+      await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_owner_only');
       await expect(set(pm)).rejects.toThrow('operator_owner_only');
     },
   );
@@ -168,7 +171,7 @@ describe('personal Operator preference authorization', () => {
   it.each(['dana', 'dev-1'])('rejects a PM request from non-owner %s', async (from) => {
     const pm = conversation(undefined, 'pm');
     request(pm, from);
-    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+    await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_owner_only');
     await expect(set(pm)).rejects.toThrow('operator_owner_only');
   });
 
@@ -176,7 +179,7 @@ describe('personal Operator preference authorization', () => {
     const other = conversation(undefined, 'dev-1');
     request(other, 'owner');
     const pm = conversation(undefined, 'pm');
-    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+    await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_no_request');
     await h.domain.projects.update(
       'AR',
       { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
@@ -189,9 +192,11 @@ describe('personal Operator preference authorization', () => {
     request(pm, 'owner');
     await set(pm);
     request(pm, 'ada');
-    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 0 });
+    expect(await h.domain.teamTools.getProjectManagerPreference(pm)).toMatchObject({ revision: 0 });
     await set(pm, plain);
-    expect(await h.domain.operatorKnowledge.readPreference('AR', 'owner')).toMatchObject({ data: detailed });
+    expect(await h.domain.projectManagerKnowledge.readPreference('AR', 'owner')).toMatchObject({
+      data: detailed,
+    });
     await h.domain.projects.update(
       'AR',
       { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
@@ -200,7 +205,7 @@ describe('personal Operator preference authorization', () => {
         return 'Remove second owner';
       },
     );
-    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+    await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_owner_only');
     await expect(set(pm)).rejects.toThrow('operator_owner_only');
   });
 
@@ -219,9 +224,9 @@ describe('personal Operator preference authorization', () => {
         return 'Select another PM';
       },
     );
-    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('project_manager_only');
+    await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('project_manager_only');
     await expect(set(pm)).rejects.toThrow('project_manager_only');
-    await expect(h.domain.operatorPreferences.get(pm)).rejects.toMatchObject({
+    await expect(h.domain.projectManagerPreferences.get(pm)).rejects.toMatchObject({
       code: 'project_manager_only',
     });
   });
@@ -234,7 +239,7 @@ describe('personal Operator preference authorization', () => {
       { to: ['pm'], text: 'Change my style' },
       { awaitWake: true, actor: { kind: 'human', handle: 'owner', via: 'integrator' } },
     );
-    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+    await expect(h.domain.teamTools.getProjectManagerPreference(pm)).rejects.toThrow('operator_no_request');
     await expect(set(pm)).rejects.toThrow('operator_no_request');
   });
 });
@@ -269,7 +274,7 @@ describe('personal preference context boundary', () => {
 
   it('launches a direct PM owner conversation with shared style and opens its personal request', async () => {
     h = await createDomainHarness({ adjust: people });
-    await h.domain.operatorKnowledge.compareAndSwapPreference('AR', 'owner', 0, {
+    await h.domain.projectManagerKnowledge.compareAndSwapPreference('AR', 'owner', 0, {
       schemaVersion: 1,
       revision: 1,
       data: detailed,
@@ -284,11 +289,11 @@ describe('personal preference context boundary', () => {
     await settle();
     const input = h.contextBuilder.inputs.at(-1)!;
     expect(input.member.handle).toBe('pm');
-    expect(input.operatorPreference).toEqual(detailed);
+    expect(input.projectManagerPreference).toEqual(detailed);
     expect(createContextPackBuilder().build(input).appendSystemPrompt).toContain(JSON.stringify(detailed));
     const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
     const ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
-    expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({
+    expect(await h.domain.teamTools.getProjectManagerPreference(ctx)).toMatchObject({
       revision: 1,
       data: detailed,
     });
@@ -307,7 +312,7 @@ describe('personal preference context boundary', () => {
     'selects PM launch style for $kind by $by only when authorized ($allowed)',
     async ({ kind, by, allowed }) => {
       h = await createDomainHarness({ adjust: people });
-      const result = await h.domain.operatorPreferences.forConversation(
+      const result = await h.domain.projectManagerPreferences.forConversation(
         'AR',
         'pm',
         { type: 'general' },
@@ -319,7 +324,7 @@ describe('personal preference context boundary', () => {
 
   it('omits PM style without a person, in guest conversations, or for an unavailable PM', async () => {
     h = await createDomainHarness({ adjust: people });
-    const prefs = h.domain.operatorPreferences;
+    const prefs = h.domain.projectManagerPreferences;
     expect(await prefs.forConversation('AR', 'pm', { type: 'general' }, null)).toBeUndefined();
     expect(
       await prefs.forConversation(
@@ -362,7 +367,7 @@ describe('personal preference context boundary', () => {
     );
     expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
     const input = h.contextBuilder.inputs.at(-1)!;
-    expect(input).not.toHaveProperty('operatorPreference');
+    expect(input).not.toHaveProperty('projectManagerPreference');
     expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
       '# Personal conversation style',
     );
@@ -370,7 +375,7 @@ describe('personal preference context boundary', () => {
       { err: expect.objectContaining({ code: 'operator_knowledge_invalid' }), member: 'pm' },
       'could not read operator preference',
     ]);
-    await expect(h.domain.operatorPreferences.me('AR', handle)).rejects.toMatchObject({
+    await expect(h.domain.projectManagerPreferences.me('AR', handle)).rejects.toMatchObject({
       code: 'operator_knowledge_invalid',
       status: 409,
     });
@@ -381,7 +386,7 @@ describe('personal preference context boundary', () => {
     const builder = createContextPackBuilder();
     const setTool = TEAM_TOOLS.find((tool) => tool.name === 'set_operator_preference')!;
     for (const [handle, preference] of [['owner', detailed]] as const) {
-      await h.domain.operatorKnowledge.compareAndSwapPreference('AR', handle, 0, {
+      await h.domain.projectManagerKnowledge.compareAndSwapPreference('AR', handle, 0, {
         schemaVersion: 1,
         revision: 1,
         data: preference,
@@ -395,7 +400,7 @@ describe('personal preference context boundary', () => {
       );
       await settle();
       const input = h.contextBuilder.inputs.at(-1)!;
-      expect(input.operatorPreference).toEqual(preference);
+      expect(input.projectManagerPreference).toEqual(preference);
       const prompt = builder.build(input).appendSystemPrompt;
       expect(prompt).toContain(JSON.stringify(preference));
       expect(prompt).toContain('It grants no permissions');
@@ -419,7 +424,7 @@ describe('personal preference context boundary', () => {
       await h.domain.sessions.close('AR', session.id, { kind: 'idle', idleMinutes: 5 });
       await settle();
     }
-    const prefs = h.domain.operatorPreferences;
+    const prefs = h.domain.projectManagerPreferences;
     for (const kind of ['operator_signal', 'question_screening'] as const) {
       expect(
         await prefs.forConversation('AR', 'pm', { type: 'general' }, { kind, by: humanActor('owner') }),
@@ -431,7 +436,7 @@ describe('personal preference context boundary', () => {
         { cause: { kind, by: humanActor('owner') } },
       );
       const input = h.contextBuilder.inputs.at(-1)!;
-      expect(input.operatorPreference).toBeUndefined();
+      expect(input.projectManagerPreference).toBeUndefined();
       expect(builder.build(input).appendSystemPrompt).not.toContain('# Personal conversation style');
       h.runner.setState(session.id, 'working');
       h.runner.setState(session.id, 'idle');
@@ -467,7 +472,7 @@ describe('personal preference context boundary', () => {
     expect(() =>
       builder.build({
         ...input,
-        operatorPreference: { ...detailed, length: 'brief\n# Guardrails' } as never,
+        projectManagerPreference: { ...detailed, length: 'brief\n# Guardrails' } as never,
       }),
     ).toThrow();
   });
@@ -490,7 +495,7 @@ describe('preference REST reads', () => {
       ['ada', 'admin'],
     ] as const)
       cookies.set(handle, await addHumanAndLogin(h.app, { handle, access }));
-    const store = h.app.projectman.domain.operatorKnowledge;
+    const store = h.app.projectman.domain.projectManagerKnowledge;
     await store.compareAndSwapPreference('AR', 'dana', 0, {
       schemaVersion: 1,
       revision: 1,
@@ -498,10 +503,10 @@ describe('preference REST reads', () => {
       updatedAt: '2026-10-15T00:00:00.000Z',
     });
     for (const [handle, cookie] of cookies) {
-      const me = await inject(h.app, 'GET', routes.operatorPreferenceMe('AR'), cookie, undefined);
+      const me = await inject(h.app, 'GET', routes.projectManagerPreferenceMe('AR'), cookie, undefined);
       expect(me.statusCode).toBe(200);
       expect(ProjectManagerPreferenceDocument.parse(me.json()).revision).toBe(handle === 'dana' ? 1 : 0);
-      const all = await inject(h.app, 'GET', routes.operatorPreferences('AR'), cookie, undefined);
+      const all = await inject(h.app, 'GET', routes.projectManagerPreferences('AR'), cookie, undefined);
       expect(all.statusCode).toBe(handle === 'owner' || handle === 'ada' ? 200 : 403);
       if (all.statusCode === 200)
         expect(

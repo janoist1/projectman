@@ -591,7 +591,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
       expect(decided.resolution?.ownerAnswerRelayed).toBeUndefined();
     });
 
-    const resolveAsOperator = (id: string, optionId = 'answer') =>
+    const resolveAsProjectManager = (id: string, optionId = 'answer') =>
       asIntegrator(() =>
         h.domain.inbox.resolve(
           'AR',
@@ -631,7 +631,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
       async ({ payload, options }) => {
         await boot();
         const question = ask(payload, options);
-        const resolved = await resolveAsOperator(question.id, question.options[0]!.id);
+        const resolved = await resolveAsProjectManager(question.id, question.options[0]!.id);
         expect(resolved).toMatchObject({
           state: 'resolved',
           resolution: { by: 'owner', via: 'integrator', actor: SUPER_ACTOR, superDecision: true },
@@ -672,7 +672,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         itemIds,
         at: '2026-01-01T00:00:00.000Z',
       });
-      const resolved = await resolveAsOperator(decision.id);
+      const resolved = await resolveAsProjectManager(decision.id);
       expect(resolved.resolution).toMatchObject({
         by: 'owner',
         via: 'integrator',

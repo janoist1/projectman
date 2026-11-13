@@ -4,7 +4,7 @@ import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { seedOperatorRequest } from './helpers/operator-session';
+import { seedProjectManagerRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let ctx: ToolContext;
@@ -31,14 +31,14 @@ function withOverrides(config: ProjectConfig) {
 
 async function setup() {
   h = await createDomainHarness({ adjust: withOverrides });
-  const { session } = seedOperatorRequest(h, 'AR', { member: 'pm', text: 'Show the developer role.' });
+  const { session } = seedProjectManagerRequest(h, 'AR', { member: 'pm', text: 'Show the developer role.' });
   ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
 
 describe('role configuration read tool (PM-746)', () => {
   it('reads complete stored and default bundles during an open owner request without any writes', async () => {
     await setup();
-    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    const request = h.repos.projectManagerRequests.latest('AR', 1)[0]!;
     const before = await h.domain.projects.load('AR');
     const history = await h.domain.projects.history('AR');
     for (const role of ['developer', 'qa'] as const) {
@@ -52,8 +52,8 @@ describe('role configuration read tool (PM-746)', () => {
     }
     expect((await h.domain.projects.load('AR')).version).toBe(before.version);
     expect(await h.domain.projects.history('AR')).toEqual(history);
-    expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([request]);
-    expect(h.repos.operatorRequests.steps(request.id)).toEqual([]);
+    expect(h.repos.projectManagerRequests.latest('AR', 10)).toEqual([request]);
+    expect(h.repos.projectManagerRequests.steps(request.id)).toEqual([]);
     expect(h.repos.inbox.listOpen('approval')).toEqual([]);
   });
 

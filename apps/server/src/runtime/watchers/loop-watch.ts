@@ -326,7 +326,7 @@ export class LoopWatch {
     loop = fresh.loop;
     config = fresh.config;
     task = fresh.task;
-    const pending = result.signalId ? ctx.repos.operatorSignals.get(result.signalId) : null;
+    const pending = result.signalId ? ctx.repos.projectManagerSignals.get(result.signalId) : null;
     const selected = coordinationMemberOf(config);
     const offlineDelivery =
       result.state === 'failed' &&
@@ -343,7 +343,7 @@ export class LoopWatch {
       this.escalate(config, task, loop, 'no_watcher');
       return;
     }
-    const signal = result.signalId ? ctx.repos.operatorSignals.get(result.signalId) : null;
+    const signal = result.signalId ? ctx.repos.projectManagerSignals.get(result.signalId) : null;
     const deliveredAt = signal?.deliveredTo === selected.handle ? signal.deliveredAt : null;
     const engine = this.deps.engine.read(task.projectKey, selected.handle);
     const deadline = loopTriageDeadline({
@@ -406,7 +406,7 @@ export class LoopWatch {
       if (loop.phase === 'owner')
         throw conflict('operator_signal_closed', 'the loop already awaits a person');
       const signal = loop.triage.pendingSignalId
-        ? ctx.repos.operatorSignals.get(loop.triage.pendingSignalId)
+        ? ctx.repos.projectManagerSignals.get(loop.triage.pendingSignalId)
         : null;
       if (
         !signal ||
@@ -466,16 +466,16 @@ export class LoopWatch {
   private resolveSignal(loop: TaskLoopRecord): void {
     const { ctx } = this.deps;
     const signal = loop.triage?.pendingSignalId
-      ? ctx.repos.operatorSignals.get(loop.triage.pendingSignalId)
+      ? ctx.repos.projectManagerSignals.get(loop.triage.pendingSignalId)
       : loop.triage
-        ? ctx.repos.operatorSignals.openByCase(
+        ? ctx.repos.projectManagerSignals.openByCase(
             loop.projectKey,
             `loop_suspected:${loop.id}:${loop.triage.generation}`,
           )
         : null;
     if (signal && !signal.resolvedAt) {
       const resolved = { ...signal, state: 'resolved' as const, resolvedAt: isoNow(ctx) };
-      ctx.repos.operatorSignals.save(resolved);
+      ctx.repos.projectManagerSignals.save(resolved);
       if (signal.deliveredAt)
         ctx.bus.publish({
           type: 'operator_signal',

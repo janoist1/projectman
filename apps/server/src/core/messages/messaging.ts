@@ -95,7 +95,7 @@ interface SendOptions {
   operatorRequest?: string;
   operatorSignal?: string;
   signalActionable?: boolean;
-  operatorSignals?: { id: string; actionable: boolean }[];
+  projectManagerSignals?: { id: string; actionable: boolean }[];
   /** Runs synchronously in the message transaction, before binding files or recording the message. */
   beforeRecord?: () => void;
   /**
@@ -294,12 +294,12 @@ export class Messaging {
     if (opts.places?.length)
       this.assertPlacesOffered(config, projectKey, recipients, coordinator, opts.places);
     const signals =
-      opts.operatorSignals ??
+      opts.projectManagerSignals ??
       (coordinator && opts.operatorSignal !== undefined
         ? [{ id: opts.operatorSignal, actionable: opts.signalActionable ?? false }]
         : []);
     if (
-      opts.operatorSignals !== undefined &&
+      opts.projectManagerSignals !== undefined &&
       (!coordinator ||
         opts.operatorSignal !== undefined ||
         signals.length === 0 ||
@@ -322,7 +322,7 @@ export class Messaging {
       for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id, from);
     }
     if (opts.operatorSignal !== undefined && !coordinator) {
-      const signal = this.ctx.repos.operatorSignals.get(opts.operatorSignal);
+      const signal = this.ctx.repos.projectManagerSignals.get(opts.operatorSignal);
       const presentation = signal?.messageId && this.ctx.repos.messages.get(signal.messageId);
       if (
         !ownerHandles(config).includes(from) ||
@@ -789,7 +789,7 @@ export class Messaging {
     if (asker?.kind !== 'ai') return null;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const workItem = await this.answerWorkItem(item);
-    const byOperator = resolution.rule === 'operator_answered';
+    const byProjectManager = resolution.rule === 'operator_answered';
     const todo = questionPayloadOf(item)?.screening?.todo;
     let closed: InboxItem | null = null;
     const result = await this.sendReporting(
@@ -799,11 +799,11 @@ export class Messaging {
         to: [asker.handle],
         text: resolution.integratorTodo
           ? `The integrator resolved its own task (not an owner answer, decision or approval). Result for your question "${question}":\n\n${answerText(item)}`
-          : todo && !byOperator
+          : todo && !byProjectManager
             ? `Answer to your question "${question}":\n\nWhile screening, it was turned into a task for a person: ` +
               `${todo.what} (where: ${todo.where}; expected: ${todo.expected}). The person's result:\n\n${answerText(item)}`
             : `Answer to your question "${question}":\n\n${answerText(item)}` +
-              (byOperator
+              (byProjectManager
                 ? `\n\n(This answer is from ${resolverSender(resolution)}, the screening member, not from a person. ${reaskHint(item.id)})`
                 : '') +
               (resolution.ownerAnswerRelayed

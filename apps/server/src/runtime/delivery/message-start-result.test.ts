@@ -8,7 +8,7 @@ import { formatProjectState, formatSentMessage } from '../../mcp/format';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../test/helpers/domain-harness';
 import { flush } from '../../../test/helpers/fakes';
-import { seedOperatorRequest } from '../../../test/helpers/operator-session';
+import { seedProjectManagerRequest } from '../../../test/helpers/operator-session';
 
 let h: DomainHarness;
 afterEach(() => h?.cleanup());
@@ -32,7 +32,7 @@ async function setup(adjust?: (config: ProjectConfig) => void): Promise<void> {
   });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   // The app starts no PM conversation by itself (PM-1045): its session and the owner's request are seeded.
-  pmSessionId = seedOperatorRequest(h, 'AR', { member: 'pm', text: 'Wake dev-1 up' }).session.id;
+  pmSessionId = seedProjectManagerRequest(h, 'AR', { member: 'pm', text: 'Wake dev-1 up' }).session.id;
 }
 
 const pmTool = (): ToolContext => ({

@@ -1428,10 +1428,10 @@ describe('member initiated merge', () => {
       });
       expect(row()?.retry).toBeUndefined();
       expect(events('task_merge_blocked')).toHaveLength(1);
-      await h!.domain.operatorSignals.sweep('AR');
-      await h!.domain.operatorSignals.sweep('AR');
+      await h!.domain.projectManagerSignals.sweep('AR');
+      await h!.domain.projectManagerSignals.sweep('AR');
       expect(
-        h!.repos.operatorSignals.list('AR').filter((signal) => signal.kind === 'merge_blocked'),
+        h!.repos.projectManagerSignals.list('AR').filter((signal) => signal.kind === 'merge_blocked'),
       ).toMatchObject([{ subject: 'check_infra' }]);
       const messages = h!.repos.messages.list('AR', { taskKey: 'AR-1' });
       expect(messages.filter((message) => message.body.includes('blocked (check_infra)'))).toHaveLength(1);

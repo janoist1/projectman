@@ -23,21 +23,21 @@ import type { DomainContext } from '../../core/base';
 import { forbidden, newId } from '../../kernel';
 
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
-const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;
+const PROJECT_MANAGER_REQUEST_TTL_MS = 30 * 60_000;
 /** The part of the owner's text a request quotes. */
-const OPERATOR_QUOTE_LENGTH = 280;
+const PROJECT_MANAGER_QUOTE_LENGTH = 280;
 /** How many requests the Operator's channel lists. */
-const OPERATOR_CHANNEL_REQUESTS = 50;
+const PROJECT_MANAGER_CHANNEL_REQUESTS = 50;
 
 /** The first `OPERATOR_QUOTE_LENGTH` characters of the text, its line breaks as spaces. */
-function operatorQuoteOf(text: string): string {
+function projectManagerQuoteOf(text: string): string {
   return Array.from(text.replace(/\s*[\r\n]+\s*/g, ' ').trim())
-    .slice(0, OPERATOR_QUOTE_LENGTH)
+    .slice(0, PROJECT_MANAGER_QUOTE_LENGTH)
     .join('');
 }
 
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
-export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
+export const PROJECT_MANAGER_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_guide',
   'get_role_configuration',
   'get_operator_preference',
@@ -64,7 +64,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
  * question screening and signal triage are answered on their own records.
  * Never in a guest conversation.
  */
-export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
+export const PROJECT_MANAGER_SCREENING_TOOLS: ReadonlySet<string> = new Set([
   'combine_questions',
   'screen_question',
   'dismiss_signal',
@@ -90,7 +90,7 @@ export const PM_CARD_TOOLS: readonly string[] = [
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
  * The history search reads with the guest's own view (PM-787).
  */
-export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
+export const PROJECT_MANAGER_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'get_guide',
   'get_operator_preference',
   'set_operator_preference',
@@ -109,7 +109,7 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
  * The step a refused write is logged as: the action the call would have been. A tool that is no
  * action of the Operator's (`ProjectManagerAction`) is refused with no step.
  */
-export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, ProjectManagerAction>> = {
+export const PROJECT_MANAGER_TOOL_ACTIONS: Readonly<Record<string, ProjectManagerAction>> = {
   send_message: 'message',
   create_task: 'task_create',
   update_task: 'task_update',
@@ -159,11 +159,11 @@ export class ProjectManagerRequests {
     const now = isoNow(this.ctx);
     return this.ctx.unitOfWork(() => {
       const id = input.source === 'approval' ? `opr_approval_${input.inboxItemId}` : newId('opr');
-      const previousApproval = input.source === 'approval' ? repos.operatorRequests.get(id) : null;
+      const previousApproval = input.source === 'approval' ? repos.projectManagerRequests.get(id) : null;
       // A consumed continuation, including a closed one, never opens a fresh authorization round.
       if (previousApproval) return previousApproval;
-      for (const previous of repos.operatorRequests.openOfSession(input.sessionId))
-        repos.operatorRequests.close(previous.id, now);
+      for (const previous of repos.projectManagerRequests.openOfSession(input.sessionId))
+        repos.projectManagerRequests.close(previous.id, now);
       const request = {
         id,
         projectKey: input.projectKey,
@@ -173,10 +173,10 @@ export class ProjectManagerRequests {
         inboxItemId: input.inboxItemId ?? null,
         queueItemId: input.queueItemId ?? null,
         fromHandle: input.from,
-        quote: operatorQuoteOf(input.text),
+        quote: projectManagerQuoteOf(input.text),
         openedAt: now,
       };
-      repos.operatorRequests.insert(request);
+      repos.projectManagerRequests.insert(request);
       return { ...request, closedAt: null };
     });
   }
@@ -205,7 +205,7 @@ export class ProjectManagerRequests {
       messageId: message.id,
       owner: owner?.kind === 'human' && owner.access === 'owner',
       via: message.via,
-      approvedStep: this.ctx.repos.operatorRequests
+      approvedStep: this.ctx.repos.projectManagerRequests
         .steps(payload.requestId)
         .some(
           (step) =>
@@ -220,7 +220,7 @@ export class ProjectManagerRequests {
   /** The request the session works on now: the newest one that is not closed and not past its time. */
   openFor(sessionId: string): ProjectManagerRequestRecord | null {
     let found: ProjectManagerRequestRecord | null = null;
-    for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId)) {
+    for (const request of this.ctx.repos.projectManagerRequests.openOfSession(sessionId)) {
       if (this.expire(request) || request.source === 'signal') continue;
       found ??= request;
     }
@@ -233,7 +233,7 @@ export class ProjectManagerRequests {
    * signal. It authorizes nothing: `openFor` never returns it; `CoordinationRequests.actingRequest` does.
    */
   roundFor(sessionId: string): ProjectManagerRequestRecord | null {
-    for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId))
+    for (const request of this.ctx.repos.projectManagerRequests.openOfSession(sessionId))
       if (request.source === 'signal' && !this.expire(request)) return request;
     return null;
   }
@@ -254,15 +254,15 @@ export class ProjectManagerRequests {
       quote: '',
       openedAt: isoNow(this.ctx),
     };
-    this.ctx.repos.operatorRequests.insert(request);
+    this.ctx.repos.projectManagerRequests.insert(request);
     return { ...request, closedAt: null };
   }
 
   /** The session's turn is over (idle) or the session ended: its open requests close. */
   closeForSession(sessionId: string): void {
     const now = isoNow(this.ctx);
-    for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId))
-      this.ctx.repos.operatorRequests.close(request.id, now);
+    for (const request of this.ctx.repos.projectManagerRequests.openOfSession(sessionId))
+      this.ctx.repos.projectManagerRequests.close(request.id, now);
   }
 
   /**
@@ -270,25 +270,25 @@ export class ProjectManagerRequests {
    * time are closed first. The owners' channel lists the owners' requests, a guest's their own (PM-475).
    */
   views(projectKey: string, fromHandles: string[], recipient?: string): ProjectManagerRequestView[] {
-    const { operatorRequests } = this.ctx.repos;
-    for (const request of operatorRequests.openOfProject(projectKey)) this.expire(request);
-    return operatorRequests
-      .latestFrom(projectKey, fromHandles, OPERATOR_CHANNEL_REQUESTS, recipient)
+    const { projectManagerRequests } = this.ctx.repos;
+    for (const request of projectManagerRequests.openOfProject(projectKey)) this.expire(request);
+    return projectManagerRequests
+      .latestFrom(projectKey, fromHandles, PROJECT_MANAGER_CHANNEL_REQUESTS, recipient)
       .map((request) => ({
         id: request.id,
         messageId: request.messageId,
         quote: request.quote,
         openedAt: request.openedAt,
         closedAt: request.closedAt,
-        steps: operatorRequests.steps(request.id).map(stepView),
+        steps: projectManagerRequests.steps(request.id).map(stepView),
       }));
   }
 
   /** Closes the request when its time is up, at the moment it ran out; true when it is closed. */
   private expire(request: ProjectManagerRequestRecord): boolean {
-    const until = Date.parse(request.openedAt) + OPERATOR_REQUEST_TTL_MS;
+    const until = Date.parse(request.openedAt) + PROJECT_MANAGER_REQUEST_TTL_MS;
     if (this.ctx.now().getTime() < until) return false;
-    this.ctx.repos.operatorRequests.close(request.id, new Date(until).toISOString());
+    this.ctx.repos.projectManagerRequests.close(request.id, new Date(until).toISOString());
     return true;
   }
 }
@@ -444,12 +444,12 @@ export class ProjectManagerSteps {
       systemFeedback: input.systemFeedback ?? null,
       refusal: input.refusal ?? null,
     };
-    this.ctx.repos.operatorRequests.insertStep(step);
+    this.ctx.repos.projectManagerRequests.insertStep(step);
     return step;
   }
 
   /** The steps the Operator took on a signal, the oldest first. */
   ofSignal(signalId: string): ProjectManagerStepRecord[] {
-    return this.ctx.repos.operatorRequests.stepsOfSignal(signalId);
+    return this.ctx.repos.projectManagerRequests.stepsOfSignal(signalId);
   }
 }

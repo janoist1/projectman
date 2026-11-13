@@ -506,23 +506,23 @@ describe('dismiss_signal authorization and domain errors', () => {
   it('dismisses without an owner request and hides the record-only note from the DTO', async () => {
     const card = await h.domain.tasks.create('AR', { title: 'Parked' }, { kind: 'human', handle: 'owner' });
     const { signalId } = openOverdueObligation(h, card, { at: new Date() });
-    const signal = h.repos.operatorSignals.get(signalId)!;
-    h.repos.operatorSignals.delivered([signal.id], new Date().toISOString(), 'pm');
-    expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
+    const signal = h.repos.projectManagerSignals.get(signalId)!;
+    h.repos.projectManagerSignals.delivered([signal.id], new Date().toISOString(), 'pm');
+    expect(h.repos.projectManagerRequests.latest('AR', 1)).toEqual([]);
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: signal.id, note: 'Waits intentionally.' }),
     ).resolves.toEqual({ signalId: signal.id, state: 'dismissed' });
-    expect(h.repos.operatorSignals.get(signal.id)?.decisionNote).toBe('Waits intentionally.');
-    expect(h.domain.operatorSignals.channel('AR').signals[0]).not.toHaveProperty('decisionNote');
-    expect(h.domain.operatorSignals.active('AR')).toEqual([]);
-    expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
+    expect(h.repos.projectManagerSignals.get(signal.id)?.decisionNote).toBe('Waits intentionally.');
+    expect(h.domain.projectManagerSignals.channel('AR').signals[0]).not.toHaveProperty('decisionNote');
+    expect(h.domain.projectManagerSignals.active('AR')).toEqual([]);
+    expect(h.repos.projectManagerRequests.latest('AR', 1)).toEqual([]);
   });
 
   it('maps domain refusals with the existing tool error conversion', async () => {
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: 'unknown', note: 'Note' }),
     ).rejects.toMatchObject({ code: 'invalid', message: 'unknown signal in this project' });
-    const outage = h.domain.operatorSignals.raise({
+    const outage = h.domain.projectManagerSignals.raise({
       projectKey: 'AR',
       kind: 'outage',
       caseKey: 'outage:missing',
@@ -530,7 +530,7 @@ describe('dismiss_signal authorization and domain errors', () => {
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: outage.id, note: 'Note' }),
     ).rejects.toMatchObject({ code: 'invalid', message: 'the PM may not dismiss this signal kind' });
-    const ready = h.domain.operatorSignals.raise({
+    const ready = h.domain.projectManagerSignals.raise({
       projectKey: 'AR',
       kind: 'obligation_overdue',
       caseKey: 'obligation_overdue:missing',

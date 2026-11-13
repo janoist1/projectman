@@ -28,8 +28,8 @@ export class ProjectManagerChannels {
     ctx: DomainContext;
     projects: ProjectService;
     pauses: Pick<ProjectManagerPauses, 'projectView'>;
-    operatorRequests: ProjectManagerRequests;
-    operatorSignals: ProjectManagerSignals;
+    projectManagerRequests: ProjectManagerRequests;
+    projectManagerSignals: ProjectManagerSignals;
     workQueues: Pick<WorkQueues, 'pmSummary'>;
   };
 
@@ -73,14 +73,14 @@ export class ProjectManagerChannels {
     const queue = await this.deps.workQueues.pmSummary(projectKey, viewer);
     return {
       ...channel,
-      requests: this.deps.operatorRequests.views(
+      requests: this.deps.projectManagerRequests.views(
         projectKey,
         readOnly ? [viewer.handle] : ownerRequestSenders,
         member?.handle,
       ),
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.
-      ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.operatorSignals.channel(projectKey)),
+      ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.projectManagerSignals.channel(projectKey)),
       queue,
     };
   }

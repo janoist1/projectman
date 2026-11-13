@@ -160,12 +160,12 @@ const toolOf = (session: Session): ToolContext => ({
 async function ownerAsks(member = 'pm'): Promise<{ ctx: ToolContext; requestId: string }> {
   await say('owner', undefined, member);
   const session = await ownerConversation(member);
-  const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
+  const request = await waitFor(() => h.repos.projectManagerRequests.openOfSession(session.id)[0], {
     what: `the open request of the ${member} conversation`,
   });
   return { ctx: toolOf(session), requestId: request.id };
 }
-const stepsOf = (requestId: string) => h.repos.operatorRequests.steps(requestId);
+const stepsOf = (requestId: string) => h.repos.projectManagerRequests.steps(requestId);
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 const append = (text: string) => ({ doc: 'decisions' as const, old_text: '', new_text: text });
 type Edit = { doc: ProjectDoc; old_text: string; new_text: string };
@@ -210,7 +210,7 @@ describe('project manager documents (PM-1044)', () => {
       actor: connectedActorOf('owner', { id: 'cred_connected', prefix: 'pmi_conn' }),
     });
     h.domain.messages.markRecipientDelivered(message.id, 'pm');
-    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+    const request = h.repos.projectManagerRequests.openOfSession(ctx.sessionId)[0]!;
     expect(request).toMatchObject({ source: 'message', messageId: message.id });
     const result = await write(ctx);
     expect(result).toMatchObject({ state: 'published', paths: [DECISIONS] });
@@ -280,7 +280,7 @@ describe('project manager documents (PM-1044)', () => {
     async (doc) => {
       await setup(fakeDocsMerger(), { pm: true });
       const ctx = await internal();
-      h.repos.operatorRequests.insert({
+      h.repos.projectManagerRequests.insert({
         id: 'opr_pm_approval',
         projectKey: 'AR',
         sessionId: ctx.sessionId,
@@ -335,7 +335,7 @@ describe('read_project_doc (PM-495)', () => {
   it('needs no open request, and is the project manager’s only', async () => {
     await setup();
     const { ctx, requestId } = await ownerAsks();
-    h.repos.operatorRequests.close(requestId, new Date().toISOString());
+    h.repos.projectManagerRequests.close(requestId, new Date().toISOString());
     expect(await h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' })).toMatchObject({
       exists: true,
     });
@@ -568,7 +568,7 @@ describe('write_project_docs (PM-495)', () => {
     it('refuses a call without an open request', async () => {
       const merger = (await setup())!;
       const { ctx, requestId } = await ownerAsks();
-      h.repos.operatorRequests.close(requestId, new Date().toISOString());
+      h.repos.projectManagerRequests.close(requestId, new Date().toISOString());
       expect(await refusal(write(ctx))).toMatch(/^operator_no_request:/);
       expect(merger.commitFiles).not.toHaveBeenCalled();
     });
@@ -773,7 +773,7 @@ describe('write_project_docs (PM-495)', () => {
       const merger = (await setup(fakeDocsMerger(), { persistent: true, pm: true }))!;
       const { requestId } = await ownerAsks('pm');
       const now = new Date().toISOString();
-      h.repos.operatorRequests.insertStep({
+      h.repos.projectManagerRequests.insertStep({
         id: 'ops_left',
         requestId,
         at: now,
@@ -875,7 +875,7 @@ describe('autonomous lessons (PM-1004)', () => {
   });
   async function internal() {
     const { ctx, requestId } = await ownerAsks();
-    h.repos.operatorRequests.close(requestId, new Date().toISOString());
+    h.repos.projectManagerRequests.close(requestId, new Date().toISOString());
     return ctx;
   }
   async function internalPm() {
@@ -930,7 +930,7 @@ describe('autonomous lessons (PM-1004)', () => {
     async (source) => {
       await setup();
       const ctx = await internal();
-      h.repos.operatorRequests.insert({
+      h.repos.projectManagerRequests.insert({
         id: 'opr_disallowed',
         projectKey: 'AR',
         sessionId: ctx.sessionId,

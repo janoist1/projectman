@@ -54,7 +54,7 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       expect(ended?.data).toMatchObject({ exitCode: state === 'failed' ? 1 : null });
       expect(h.repos.sessionCleanups.forSession(session.id)).toMatchObject([{ survivors: 1 }]);
       expect(
-        h.repos.operatorSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
+        h.repos.projectManagerSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
       ).toBe(true);
     },
   );
@@ -180,8 +180,8 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       cleanup: cleanup('failed', 'scp_1111111111111111'),
     });
     await flush();
-    for (const signal of h.repos.operatorSignals.list('AR'))
-      h.domain.operatorSignals.resolve('AR', signal.caseKey);
+    for (const signal of h.repos.projectManagerSignals.list('AR'))
+      h.domain.projectManagerSignals.resolve('AR', signal.caseKey);
     expect(h.repos.sessionCleanups.forSession(session.id)).toHaveLength(2);
     h.runner.emit({ type: 'scope_recovered', sessionId: session.id, cleanup: cleanup('clean') });
     expect(h.repos.sessionCleanups.forSession(session.id)).toHaveLength(1);
@@ -231,7 +231,7 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
     h.domain.sessions.releaseCleanupScope('AR', cleanup('failed').scopeId, release);
     await flush();
     expect(h.repos.sessionCleanups.forSession(session.id)).toEqual([]);
-    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
+    const signal = h.repos.projectManagerSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
     expect(signal).toBeDefined();
     expect(signal?.resolvedAt).not.toBeNull();
   });

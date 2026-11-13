@@ -410,7 +410,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       if (pm?.kind === 'ai') pm.onLeave = false;
     };
     const signals = () =>
-      h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'senior_wait' && !s.resolvedAt);
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'senior_wait' && !s.resolvedAt);
     const decide = (key: string, decision: 'wait' | 'any', member = 'pm') =>
       h.domain.teamTools.decideSeniorWait(pmContext(member), {
         taskKey: key,
@@ -446,7 +446,7 @@ describe('the heavy card: assignment, wait and the question', () => {
         expect(decision(key)).toEqual({ decision: choice, by: 'pm' });
         expect(phases(key)).toEqual(['asked', 'decided']);
         expect(waitEvents(key)[1]!.data).toMatchObject({ decision: choice, by: 'pm', reason: 'Fictional.' });
-        await h.domain.operatorSignals.sweep('AR');
+        await h.domain.projectManagerSignals.sweep('AR');
         expect(signals()).toEqual([]);
         if (choice === 'any') await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
         else {

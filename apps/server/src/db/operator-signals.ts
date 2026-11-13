@@ -17,7 +17,7 @@ const columns = `id, project_key AS projectKey, case_key AS caseKey, kind, state
 type Row = Omit<ProjectManagerSignalRecord, 'actionable'> & { actionable: number };
 const record = (row: Row): ProjectManagerSignalRecord => ({ ...row, actionable: !!row.actionable });
 
-export function createOperatorSignalRepository(db: Db) {
+export function createProjectManagerSignalRepository(db: Db) {
   const list = db.prepare(
     `SELECT ${columns} FROM operator_signals WHERE project_key = ? ORDER BY raised_at, rowid`,
   );

@@ -11,7 +11,7 @@ import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
-import { seedOperatorSession } from './helpers/operator-session';
+import { seedProjectManagerSession } from './helpers/operator-session';
 import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
 
@@ -319,11 +319,11 @@ describe('who sees the PM’s conversation with a person', () => {
 
   it('keeps the sessions of the retired Operator and any conversation with a guest owner-only (decision 66)', async () => {
     await setup();
-    const ownerChat = seedOperatorSession(h, 'AR');
-    const guestChat = seedOperatorSession(h, 'AR', { with: 'cleo' });
+    const ownerChat = seedProjectManagerSession(h, 'AR');
+    const guestChat = seedProjectManagerSession(h, 'AR', { with: 'cleo' });
     // A conversation with a guest of a member that has since left the team stays restricted too.
-    const goneManager = seedOperatorSession(h, 'AR', { member: 'gone-pm', with: 'cleo' });
-    const own = seedOperatorSession(h, 'AR', { member: 'dev-1' });
+    const goneManager = seedProjectManagerSession(h, 'AR', { member: 'gone-pm', with: 'cleo' });
+    const own = seedProjectManagerSession(h, 'AR', { member: 'dev-1' });
     for (const session of [ownerChat, guestChat, goneManager])
       expect(h.domain.sessions.isRestrictedSession(session.id), session.member).toBe(true);
     expect(h.domain.sessions.isRestrictedSession(own.id)).toBe(false);

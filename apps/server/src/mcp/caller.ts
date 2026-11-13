@@ -31,10 +31,10 @@ import { isoNow } from '../core/base';
 import { DomainError, isWithin } from '../kernel';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
-  OPERATOR_GUEST_TOOLS,
-  OPERATOR_READ_TOOLS,
-  OPERATOR_SCREENING_TOOLS,
-  OPERATOR_TOOL_ACTIONS,
+  PROJECT_MANAGER_GUEST_TOOLS,
+  PROJECT_MANAGER_READ_TOOLS,
+  PROJECT_MANAGER_SCREENING_TOOLS,
+  PROJECT_MANAGER_TOOL_ACTIONS,
   PM_CARD_TOOLS,
 } from '../services/coordination';
 import type {
@@ -168,10 +168,13 @@ export class ToolCaller {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
   private readonly tasks: Pick<TaskService, 'find' | 'get'>;
-  private readonly operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+  private readonly projectManagerRequests: Pick<
+    ProjectManagerRequests,
+    'openFor' | 'openRound' | 'approvalFor'
+  >;
   private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
-  private readonly operatorSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
-  private readonly operatorSignals: Pick<
+  private readonly projectManagerSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
+  private readonly projectManagerSignals: Pick<
     ProjectManagerSignals,
     'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
   >;
@@ -184,10 +187,10 @@ export class ToolCaller {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
     tasks: Pick<TaskService, 'find' | 'get'>;
-    operatorRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
+    projectManagerRequests: Pick<ProjectManagerRequests, 'openFor' | 'openRound' | 'approvalFor'>;
     coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
-    operatorSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
-    operatorSignals: Pick<
+    projectManagerSteps: Pick<ProjectManagerSteps, 'record' | 'ofSignal'>;
+    projectManagerSignals: Pick<
       ProjectManagerSignals,
       'presentation' | 'stepTargets' | 'currentStepTargets' | 'stepTaken'
     >;
@@ -200,10 +203,10 @@ export class ToolCaller {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
-    this.operatorRequests = deps.operatorRequests;
+    this.projectManagerRequests = deps.projectManagerRequests;
     this.coordinationRequests = deps.coordinationRequests;
-    this.operatorSteps = deps.operatorSteps;
-    this.operatorSignals = deps.operatorSignals;
+    this.projectManagerSteps = deps.projectManagerSteps;
+    this.projectManagerSignals = deps.projectManagerSignals;
     this.sessionEngine = deps.sessionEngine;
   }
   /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
@@ -219,7 +222,7 @@ export class ToolCaller {
     await this.assertNotManagerGuest(ctx, tool);
     this.assertCoordinationSession(ctx, config);
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
-    const request = this.operatorRequests.openFor(ctx.sessionId);
+    const request = this.projectManagerRequests.openFor(ctx.sessionId);
     if (
       !session ||
       session.projectKey !== ctx.projectKey ||
@@ -268,7 +271,7 @@ export class ToolCaller {
     // else the PM may do in its internal conversation.
     const managerGuest = this.managerGuestOf(ctx, config);
     if (managerGuest) {
-      if (signal || !OPERATOR_GUEST_TOOLS.has(tool))
+      if (signal || !PROJECT_MANAGER_GUEST_TOOLS.has(tool))
         throw new TeamToolError(
           'forbidden',
           `${OWNER_ONLY}: ${tool} is not for a conversation with ${managerGuest.handle}.`,
@@ -306,7 +309,7 @@ export class ToolCaller {
       if (request && !isOwner(config, request.fromHandle))
         throw new TeamToolError('forbidden', `${OWNER_ONLY}: project documents require an owner request.`);
       if (
-        !OPERATOR_READ_TOOLS.has(tool) &&
+        !PROJECT_MANAGER_READ_TOOLS.has(tool) &&
         (!request || (request.source !== 'message' && request.source !== 'answer'))
       )
         throw new TeamToolError(
@@ -317,7 +320,7 @@ export class ToolCaller {
     }
     if (tool === 'list_system_feedback' || tool === 'record_system_feedback') {
       this.assertCoordinationSession(ctx, config);
-      if (this.operatorRequests.openFor(ctx.sessionId)?.source === 'approval')
+      if (this.projectManagerRequests.openFor(ctx.sessionId)?.source === 'approval')
         throw new TeamToolError(
           'forbidden',
           'operator_no_request: system feedback is not allowed in an approval continuation.',
@@ -339,12 +342,16 @@ export class ToolCaller {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
       if (tool === 'request_structural_review') return { config, request, guest: null };
-      if (request?.source === 'approval' && tool !== 'start_member' && !OPERATOR_SCREENING_TOOLS.has(tool))
+      if (
+        request?.source === 'approval' &&
+        tool !== 'start_member' &&
+        !PROJECT_MANAGER_SCREENING_TOOLS.has(tool)
+      )
         throw new TeamToolError(
           'forbidden',
           'operator_no_request: structural approval permits only its review start.',
         );
-      if (OPERATOR_SCREENING_TOOLS.has(tool) || PM_CARD_TOOLS.includes(tool))
+      if (PROJECT_MANAGER_SCREENING_TOOLS.has(tool) || PM_CARD_TOOLS.includes(tool))
         return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
@@ -413,7 +420,7 @@ export class ToolCaller {
           'invalid_request: only the selected PM may present signals to owners.',
         );
       this.assertCoordinationSession(ctx, config);
-      for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id, ctx.member);
+      for (const id of signal.ids) this.projectManagerSignals.presentation(ctx.projectKey, id, ctx.member);
     }
     return { config, request: null, guest: null };
   }
@@ -432,9 +439,9 @@ export class ToolCaller {
     member?: string,
     refusal?: { code: ErrorCode; message: string },
   ): void {
-    const action = OPERATOR_TOOL_ACTIONS[tool];
+    const action = PROJECT_MANAGER_TOOL_ACTIONS[tool];
     if (!action || !who.request) return;
-    this.operatorSteps.record({
+    this.projectManagerSteps.record({
       requestId: who.request.id,
       action,
       taskKey: null,
@@ -482,7 +489,7 @@ export class ToolCaller {
       try {
         result = await run();
       } catch (err) {
-        this.operatorSteps.record(
+        this.projectManagerSteps.record(
           awaitsApproval?.(err)
             ? { requestId: request.id, ...target, status: 'awaiting_approval' }
             : { requestId: request.id, ...target, status: 'refused', refusal: refusalOf(err) },
@@ -490,7 +497,7 @@ export class ToolCaller {
         throw err;
       }
       const operation = step.madeOperation?.(result);
-      this.operatorSteps.record({
+      this.projectManagerSteps.record({
         requestId: request.id,
         ...target,
         ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
@@ -500,7 +507,7 @@ export class ToolCaller {
         status: operation?.awaitsOwner ? 'awaiting_approval' : 'done',
       });
       // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
-      if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);
+      if (signalId && request.source === 'signal') this.projectManagerSignals.stepTaken(signalId);
       return result;
     } finally {
       // The step is logged now (or the call failed): the signal's slot is free, the budget counts it.
@@ -603,7 +610,7 @@ export class ToolCaller {
     };
     const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
     // At `report` the shared rule refuses every kind.
-    const { signal, allowed } = await this.operatorSignals
+    const { signal, allowed } = await this.projectManagerSignals
       .stepTargets(ctx.projectKey, step.signalId)
       .catch((err: unknown) => {
         if (err instanceof DomainError) throw new TeamToolError('invalid', `${err.code}: ${err.message}`);
@@ -619,7 +626,7 @@ export class ToolCaller {
       tool: step.tool,
       target: { member: step.member, taskKey: step.taskKey },
       allowed,
-      stepsAt: this.operatorSteps
+      stepsAt: this.projectManagerSteps
         .ofSignal(signal.id)
         .filter((s) => s.status !== 'refused')
         .map((s) => s.at),
@@ -644,13 +651,16 @@ export class ToolCaller {
         'operator_signal_budget',
         'a step on this signal is still running; wait for its result before you take another.',
       );
-    const request = this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId);
+    const request = this.projectManagerRequests.openRound(ctx.projectKey, ctx.sessionId);
     this.signalStepsRunning.add(signal.id);
     const card = step.taskKey ? this.tasks.get(ctx.projectKey, step.taskKey) : null;
     const beforeRecord = () => {
       const config = this.projects.cachedConfig(ctx.projectKey)!;
       this.assertCoordinationSession(ctx, config);
-      const { signal: current, allowed } = this.operatorSignals.currentStepTargets(ctx.projectKey, signal.id);
+      const { signal: current, allowed } = this.projectManagerSignals.currentStepTargets(
+        ctx.projectKey,
+        signal.id,
+      );
       const task = card && this.tasks.get(ctx.projectKey, card.key);
       if (
         !current ||
@@ -673,7 +683,7 @@ export class ToolCaller {
         tool: step.tool,
         target: { member: step.member, taskKey: step.taskKey },
         allowed,
-        stepsAt: this.operatorSteps
+        stepsAt: this.projectManagerSteps
           .ofSignal(signal.id)
           .filter((s) => s.status !== 'refused')
           .map((s) => s.at),

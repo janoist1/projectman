@@ -25,7 +25,7 @@ const limit = () =>
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 /** The server owns the private root. Callers supply keys, never paths or access decisions. */
-export function createOperatorKnowledgeStore(opts: { rootDir: string }): ProjectManagerKnowledgeStore {
+export function createProjectManagerKnowledgeStore(opts: { rootDir: string }): ProjectManagerKnowledgeStore {
   const root = resolve(opts.rootDir);
   function target(projectKey: string, handle?: string): string {
     if (!projectKeySchema.safeParse(projectKey).success) throw invalid();

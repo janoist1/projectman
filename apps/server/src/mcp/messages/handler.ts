@@ -23,7 +23,7 @@ export class MessageTools implements MessageToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
   private readonly messaging: Messaging;
-  private readonly operatorRequests: Pick<ProjectManagerRequests, 'roundFor'>;
+  private readonly projectManagerRequests: Pick<ProjectManagerRequests, 'roundFor'>;
   private readonly messageAttachments: Pick<
     MessageAttachmentService,
     'assertCanUpload' | 'upload' | 'delete'
@@ -32,13 +32,13 @@ export class MessageTools implements MessageToolsHandler {
     calls: ToolCaller;
     ctx: DomainContext;
     messaging: Messaging;
-    operatorRequests: Pick<ProjectManagerRequests, 'roundFor'>;
+    projectManagerRequests: Pick<ProjectManagerRequests, 'roundFor'>;
     messageAttachments: Pick<MessageAttachmentService, 'assertCanUpload' | 'upload' | 'delete'>;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
     this.messaging = deps.messaging;
-    this.operatorRequests = deps.operatorRequests;
+    this.projectManagerRequests = deps.projectManagerRequests;
     this.messageAttachments = deps.messageAttachments;
   }
 
@@ -166,8 +166,8 @@ export class MessageTools implements MessageToolsHandler {
                 // The report sits under the round of the own steps on signals when no request is open (PM-545).
                 operatorRequest:
                   who.request?.id ??
-                  (coordinator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
-                operatorSignals: signal
+                  (coordinator ? this.projectManagerRequests.roundFor(ctx.sessionId)?.id : undefined),
+                projectManagerSignals: signal
                   ? ids.map((id) => ({
                       id,
                       actionable: batch ? actionable.includes(id) : (args.signalActionable ?? false),

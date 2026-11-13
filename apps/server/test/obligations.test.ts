@@ -824,7 +824,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     /** PM-1225: the next step of an open card that no other kind follows. */
     describe('next step', () => {
       const overdueSignals = () =>
-        h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
+        h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
       /** A part the analyst `ana` created and left in the first stage, with no `refine` label on it. */
       const leftPart = async (adjust: (c: ProjectConfig) => void = refinery) => {
         await harness(adjust);
@@ -1014,8 +1014,17 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         const [signal] = overdueSignals();
         expect(rows(key)[0]).toMatchObject({ pmToldAt: expect.any(String), handedOverAt: null });
         // The pm has the signal and judges the situation intermediate.
-        h.repos.operatorSignals.save({ ...signal!, deliveredAt: clock.toISOString(), deliveredTo: 'pm' });
-        h.domain.operatorSignals.dismissByOperator('AR', signal!.id, 'pm', 'The part is being refined.');
+        h.repos.projectManagerSignals.save({
+          ...signal!,
+          deliveredAt: clock.toISOString(),
+          deliveredTo: 'pm',
+        });
+        h.domain.projectManagerSignals.dismissByProjectManager(
+          'AR',
+          signal!.id,
+          'pm',
+          'The part is being refined.',
+        );
         minutes(HAND_OVER);
         await sweep();
         await sweep();
@@ -1461,9 +1470,9 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       if (pm.kind === 'ai') pm.onLeave = false;
     };
     const overdueSignals = () =>
-      h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
     const signalSweep = async () => {
-      await h.domain.operatorSignals.sweep('AR');
+      await h.domain.projectManagerSignals.sweep('AR');
       await flush();
     };
     /** A card in development whose developer's session ended without a result, past the reminder. */

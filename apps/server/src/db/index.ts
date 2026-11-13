@@ -65,8 +65,8 @@ export type {
   StoredMemberQueueItem,
 } from './member-queue';
 import { createCounterRepository, createProjectRepository } from './projects';
-import { createOperatorRequestRepository } from './operator-requests';
-import { createOperatorSignalRepository } from './operator-signals';
+import { createProjectManagerRequestRepository } from './operator-requests';
+import { createProjectManagerSignalRepository } from './operator-signals';
 export type { ProjectManagerSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectChangeEventRepository } from './project-change-events';
@@ -165,8 +165,8 @@ export function createRepositories(db: Db) {
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
     projectChanges: createProjectChangeEventRepository(db),
-    operatorRequests: createOperatorRequestRepository(db),
-    operatorSignals: createOperatorSignalRepository(db),
+    projectManagerRequests: createProjectManagerRequestRepository(db),
+    projectManagerSignals: createProjectManagerSignalRepository(db),
     obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

@@ -24,7 +24,7 @@ export function openOverdueObligation(
     dueAt: at,
   });
   h.repos.obligations.update(id, { pmToldAt: at }, at);
-  const signalId = h.domain.operatorSignals.raiseObligationOverdue({
+  const signalId = h.domain.projectManagerSignals.raiseObligationOverdue({
     projectKey: card.projectKey,
     taskKey: card.key,
     obligationId: id,

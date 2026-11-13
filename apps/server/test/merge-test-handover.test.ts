@@ -361,7 +361,7 @@ describe('selection rules', () => {
     !NOT_REPO_READERS.has(path) &&
     READS.test(source) &&
     source.split('\n').some((line) => !/fixtures|models\/|^\s*(?:\/\/|\*)/.test(line) && LOCATION.test(line));
-  const operatorTree = [
+  const projectManagerTree = [
     file('apps/server/src/services/coordination/requests.ts', 'export const r = 1;'),
     file('apps/server/test/operator-knowledge.test.ts'),
     file('apps/server/test/operator-signals.test.ts'),
@@ -370,7 +370,7 @@ describe('selection rules', () => {
     file('apps/server/src/mcp/caller.ts', 'export const c = 1;'),
     file('apps/server/src/core/unrelated.ts', 'export const u = 1;'),
   ];
-  const OPERATOR_TESTS = [
+  const PROJECT_MANAGER_TESTS = [
     'apps/server/test/operator-app-operations.test.ts',
     'apps/server/test/operator-knowledge.test.ts',
     'apps/server/test/operator-signals.test.ts',
@@ -382,16 +382,16 @@ describe('selection rules', () => {
     'apps/server/src/mcp/project-manager/tools.ts',
   ])('selects every operator test when %s changes, although nothing imports them', (changed) => {
     const tree = [
-      ...operatorTree,
+      ...projectManagerTree,
       file('apps/server/src/mcp/project-manager/tools.ts', 'export const t = 1;'),
     ];
     const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
-    expect(files).toEqual(expect.arrayContaining(OPERATOR_TESTS));
+    expect(files).toEqual(expect.arrayContaining(PROJECT_MANAGER_TESTS));
     expect(files).not.toContain('apps/server/test/other.test.ts');
   });
 
   it('selects no operator test for a change outside the rule sources', () => {
-    const files = select(operatorTree, ['apps/server/src/core/unrelated.ts']).tests.flatMap(
+    const files = select(projectManagerTree, ['apps/server/src/core/unrelated.ts']).tests.flatMap(
       (entry) => entry.files,
     );
     expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
@@ -428,7 +428,10 @@ describe('selection rules', () => {
     const operators = Array.from({ length: TARGETED_TEST_FILES_MAX + 2 }, (_, i) =>
       file(`apps/server/test/operator-t${String(i).padStart(2, '0')}.test.ts`),
     );
-    const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
+    const selection = select(
+      [...projectManagerTree.slice(0, 1), ...operators],
+      [projectManagerTree[0]!.path],
+    );
     expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX + 2);
     expect(selection.omittedByProximity.rule).toEqual([]);
   });

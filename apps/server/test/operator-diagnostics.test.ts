@@ -61,7 +61,7 @@ afterEach(async () => {
   await h?.cleanup();
 });
 const read = (limit?: number) =>
-  h.domain.teamTools.getOperatorDiagnostics(context(), { taskKey: 'AR-1', limit });
+  h.domain.teamTools.getProjectManagerDiagnostics(context(), { taskKey: 'AR-1', limit });
 
 describe('filtered Operator diagnostics', () => {
   it('preserves percentage units and the actual sample time, and survives a measurement error', async () => {
@@ -318,7 +318,7 @@ describe('filtered Operator diagnostics', () => {
       handler,
     });
     expect(handler.calls[0]).toMatchObject({
-      method: 'getOperatorDiagnostics',
+      method: 'getProjectManagerDiagnostics',
       args: { taskKey: 'AR-1', limit: 2 },
     });
     await setup();

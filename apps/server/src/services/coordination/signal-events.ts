@@ -17,29 +17,29 @@ const PROCESS_CLEANUP_SIGNAL_GRACE_MS = 2 * 60_000;
  * are idempotent per case, so a repeated alert opens no second signal.
  */
 export function createAlertPmSignals(deps: {
-  operatorSignals: Pick<ProjectManagerSignals, 'raise' | 'deliver'>;
+  projectManagerSignals: Pick<ProjectManagerSignals, 'raise' | 'deliver'>;
   background: BackgroundTasks;
   logger: DomainContext['logger'];
 }): AlertPmSignals {
-  const { operatorSignals, background, logger } = deps;
+  const { projectManagerSignals, background, logger } = deps;
   return {
     raise(projectKey, alert) {
       if (alert.alert === 'work_outage')
-        operatorSignals.raise({
+        projectManagerSignals.raise({
           projectKey,
           kind: 'outage',
           caseKey: `outage:${alert.outage.id}`,
           subject: alert.outage.id,
         });
       else
-        operatorSignals.raise({
+        projectManagerSignals.raise({
           projectKey,
           kind: 'relation_check',
           taskKey: alert.taskKey,
           ...relationCheckCase(alert.taskKey, alert.relations),
         });
       background.run(
-        () => operatorSignals.deliver(projectKey),
+        () => projectManagerSignals.deliver(projectKey),
         (err) => logger.warn({ err, projectKey }, 'operator signal delivery failed'),
       );
     },
@@ -47,26 +47,26 @@ export function createAlertPmSignals(deps: {
 }
 
 /** Register signal lifecycle listeners at their original position in domain assembly. */
-export function wireOperatorSignals(deps: {
+export function wireProjectManagerSignals(deps: {
   ctx: DomainContext;
   bus: EventBus;
   projects: Pick<ProjectService, 'cachedConfig'>;
   sessions: { find(sessionId: string): Session | null };
-  operatorSignals: Pick<ProjectManagerSignals, 'finish' | 'deliver' | 'raise' | 'resolve' | 'sweep'>;
+  projectManagerSignals: Pick<ProjectManagerSignals, 'finish' | 'deliver' | 'raise' | 'resolve' | 'sweep'>;
   background: BackgroundTasks;
 }): () => void {
-  const { ctx, bus, projects, sessions, operatorSignals, background } = deps;
+  const { ctx, bus, projects, sessions, projectManagerSignals, background } = deps;
   const { events, logger } = ctx;
-  const finishOperatorSignals = (session: Session) => {
+  const finishProjectManagerSignals = (session: Session) => {
     const config = projects.cachedConfig(session.projectKey);
     if (config && session.member === coordinationMemberOf(config)?.handle)
-      operatorSignals.finish(session.projectKey);
+      projectManagerSignals.finish(session.projectKey);
   };
-  events.on('session_idle', finishOperatorSignals);
-  events.on('session_ended', finishOperatorSignals);
-  const wakeOperatorSignals = (projectKey: string) =>
+  events.on('session_idle', finishProjectManagerSignals);
+  events.on('session_ended', finishProjectManagerSignals);
+  const wakeProjectManagerSignals = (projectKey: string) =>
     background.run(
-      () => operatorSignals.deliver(projectKey),
+      () => projectManagerSignals.deliver(projectKey),
       (err) => logger.warn({ err, projectKey }, 'operator signal delivery failed'),
     );
   events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
@@ -80,27 +80,27 @@ export function wireOperatorSignals(deps: {
       return;
     }
     const session = sessions.find(sessionId);
-    operatorSignals.raise({
+    projectManagerSignals.raise({
       projectKey,
       kind: 'process_cleanup_failed',
       caseKey: `cleanup:${scopeId}`,
       subject: scopeId,
       taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
     });
-    wakeOperatorSignals(projectKey);
+    wakeProjectManagerSignals(projectKey);
   });
   events.on('session_cleanup_recovered', ({ projectKey, scopeId }) =>
-    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
+    projectManagerSignals.resolve(projectKey, `cleanup:${scopeId}`),
   );
   events.on('session_cleanup_released', ({ projectKey, scopeId }) =>
-    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
+    projectManagerSignals.resolve(projectKey, `cleanup:${scopeId}`),
   );
   events.on('work_outage_ended', ({ projectKey, outageId }) =>
-    operatorSignals.resolve(projectKey, `outage:${outageId}`),
+    projectManagerSignals.resolve(projectKey, `outage:${outageId}`),
   );
   events.on('session_input_stalled', ({ projectKey, sessionId, inboxItemId }) => {
     const session = sessions.find(sessionId);
-    operatorSignals.raise({
+    projectManagerSignals.raise({
       projectKey,
       kind: 'stalled',
       caseKey: `stalled:${sessionId}`,
@@ -108,11 +108,11 @@ export function wireOperatorSignals(deps: {
       inboxItemId,
       taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
     });
-    wakeOperatorSignals(projectKey);
+    wakeProjectManagerSignals(projectKey);
   });
   const sessionSignalEnded = (session: Session) => {
-    operatorSignals.resolve(session.projectKey, `stalled:${session.id}`);
-    operatorSignals.resolve(session.projectKey, `silent:${session.id}`);
+    projectManagerSignals.resolve(session.projectKey, `stalled:${session.id}`);
+    projectManagerSignals.resolve(session.projectKey, `silent:${session.id}`);
   };
   events.on('session_input_released', sessionSignalEnded);
   events.on('session_ended', sessionSignalEnded);
@@ -126,18 +126,19 @@ export function wireOperatorSignals(deps: {
         session.state !== 'working' ||
         ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
       )
-        operatorSignals.resolve(event.projectKey, `silent:${id}`);
-      if (session?.state !== 'waiting_input') operatorSignals.resolve(event.projectKey, `stalled:${id}`);
+        projectManagerSignals.resolve(event.projectKey, `silent:${id}`);
+      if (session?.state !== 'waiting_input')
+        projectManagerSignals.resolve(event.projectKey, `stalled:${id}`);
     }
   });
-  const checkOperatorCards = ({ task }: { task: Task }) => {
+  const checkProjectManagerCards = ({ task }: { task: Task }) => {
     background.run(
-      () => operatorSignals.sweep(task.projectKey),
+      () => projectManagerSignals.sweep(task.projectKey),
       (err) => logger.warn({ err, taskKey: task.key }, 'operator signal card check failed'),
     );
   };
-  events.on('task_stage_changed', checkOperatorCards);
-  events.on('task_labels_changed', checkOperatorCards);
-  events.on('task_assigned', checkOperatorCards);
+  events.on('task_stage_changed', checkProjectManagerCards);
+  events.on('task_labels_changed', checkProjectManagerCards);
+  events.on('task_assigned', checkProjectManagerCards);
   return unsubscribeSignalActivity;
 }

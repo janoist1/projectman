@@ -276,7 +276,7 @@ export function createInboxRepository(db: Db) {
         .get(primaryItemId) as { n: number };
       return row.n;
     },
-    updateOperator(
+    updateProjectManagerItem(
       id: string,
       payload: Record<string, unknown>,
       options: InboxItem['options'],

@@ -14,7 +14,7 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
-import { seedOperatorSession } from './helpers/operator-session';
+import { seedProjectManagerSession } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now: Date;
@@ -50,11 +50,11 @@ async function setup(architect = true, armed = true) {
   });
   if (armed)
     for (const kind of ['structural_pattern', 'milestone_closed'] as const)
-      h.repos.operatorSignals.arm('AR', kind, '2026-10-01T00:00:00.000Z');
+      h.repos.projectManagerSignals.arm('AR', kind, '2026-10-01T00:00:00.000Z');
 }
 const config = () => h.domain.projects.cachedConfig('AR')!;
 const report = () => new StructuralPatterns(h.domain.ctx).report(config());
-const signals = () => h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'structural_pattern');
+const signals = () => h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'structural_pattern');
 const requests = () => new CoordinationRequests({ ctx: h.domain.ctx, projects: h.domain.projects });
 const card = (title = 'Evidence card') => h.domain.tasks.create('AR', { title, repo: 'web' }, OWNER_ACTOR);
 function evidence(taskKey: string, type: TimelineEvent['type'], data: Record<string, unknown>, at = now) {
@@ -84,7 +84,7 @@ async function detected() {
   const b = await card();
   failure(a.key);
   failure(b.key);
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
   const session = await waitForSession(h.domain, { member: 'pm' });
   h.runner.setState(session.id, 'idle');
@@ -110,27 +110,33 @@ describe('structured pattern evidence', () => {
     const reads = vi.spyOn(h.repos.timeline, 'structuralEvidence');
     expect(report()).toEqual({ patterns: [], milestones: [] });
     expect(reads).not.toHaveBeenCalled();
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()).toHaveLength(0);
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(0);
+    expect(
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'milestone_closed'),
+    ).toHaveLength(0);
     const armedAt = now.toISOString();
     for (const kind of ['structural_pattern', 'milestone_closed'] as const)
-      expect(h.repos.operatorSignals.armedAt('AR', kind)).toBe(armedAt);
+      expect(h.repos.projectManagerSignals.armedAt('AR', kind)).toBe(armedAt);
     now = new Date(now.getTime() + 1000);
     failure(a.key);
     expect(report().patterns).toEqual([]); // One old and one new card never form a pattern.
     failure(b.key);
     evidence(theme.key, 'task_updated', { action: 'closed', previousStatus: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()).toHaveLength(1);
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(1);
+    expect(
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'milestone_closed'),
+    ).toHaveLength(1);
     h = await restartDomainHarness(h, { now: () => now });
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()).toHaveLength(1);
-    expect(h.repos.operatorSignals.arm('AR', 'structural_pattern', now.toISOString())).toBe(armedAt);
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(1);
+    expect(h.repos.projectManagerSignals.arm('AR', 'structural_pattern', now.toISOString())).toBe(armedAt);
+    expect(
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'milestone_closed'),
+    ).toHaveLength(1);
     now = new Date(now.getTime() + 8 * 24 * 60 * 60_000);
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()[0]).toMatchObject({ state: 'resolved', resolvedAt: now.toISOString() });
   });
 
@@ -139,14 +145,14 @@ describe('structured pattern evidence', () => {
     const a = await card();
     const b = await card();
     const theme = await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
-    h.repos.operatorSignals.arm('AR', 'milestone_closed', new Date(now.getTime() - 1000).toISOString());
+    h.repos.projectManagerSignals.arm('AR', 'milestone_closed', new Date(now.getTime() - 1000).toISOString());
     failure(a.key);
     failure(b.key);
     evidence(theme.key, 'task_updated', { action: 'closed', previousStatus: 'active' });
     expect(report().patterns).toEqual([]);
     expect(report().milestones).toHaveLength(1);
     now = new Date(now.getTime() + 1000);
-    h.repos.operatorSignals.arm('AR', 'structural_pattern', now.toISOString());
+    h.repos.projectManagerSignals.arm('AR', 'structural_pattern', now.toISOString());
     expect(report().patterns).toEqual([]);
     expect(report().milestones).toHaveLength(1);
   });
@@ -215,22 +221,22 @@ describe('structured pattern evidence', () => {
     await setup();
     const { a, b, signal } = await detected();
     expect(signal.deliveredAt).toBeTruthy();
-    const facts = h.domain.operatorSignals.structuralFacts(signal);
+    const facts = h.domain.projectManagerSignals.structuralFacts(signal);
     now = new Date(now.getTime() + 60_000);
     failure(a.key);
     failure(b.key);
     failure(a.key, ['src/another.test.ts']);
     failure(b.key, ['src/another.test.ts']);
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()).toHaveLength(2);
     expect(signals().filter((s) => s.deliveredAt)).toHaveLength(1);
     h = await restartDomainHarness(h, { now: () => now });
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     expect(signals()).toHaveLength(2);
     expect(signals().filter((s) => s.deliveredAt)).toHaveLength(1);
-    expect(h.domain.operatorSignals.structuralFacts(signal)).toEqual(facts);
+    expect(h.domain.projectManagerSignals.structuralFacts(signal)).toEqual(facts);
     now = new Date(now.getTime() + 24 * 60 * 60_000);
-    await h.domain.operatorSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
     await flush();
     expect(signals().filter((s) => s.deliveredAt)).toHaveLength(2);
   });
@@ -251,9 +257,11 @@ describe('structured pattern evidence', () => {
     const final = evidence(b.key, 'task_stage_changed', { from: 'development', to: 'done' });
     expect(report().milestones).toHaveLength(2);
     expect(report().milestones).toContainEqual({ taskKey: ordinary.key, eventId: final.id });
-    await h.domain.operatorSignals.sweep('AR');
-    await h.domain.operatorSignals.sweep('AR');
-    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'milestone_closed')).toHaveLength(2);
+    await h.domain.projectManagerSignals.sweep('AR');
+    await h.domain.projectManagerSignals.sweep('AR');
+    expect(
+      h.repos.projectManagerSignals.list('AR').filter((s) => s.kind === 'milestone_closed'),
+    ).toHaveLength(2);
   });
 
   it("does not infer a milestone from today's sibling statuses or a final cancellation", async () => {
@@ -330,7 +338,7 @@ describe('owner-approved occasional review', () => {
         h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Review.' }),
       ).rejects.toThrow('operator_signal_closed');
       expect(h.domain.sessions.list('AR', { member: 'planner' })).toEqual([]);
-      expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+      expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
     },
   );
 
@@ -355,8 +363,8 @@ describe('owner-approved occasional review', () => {
     expect(
       await h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Review.' }),
     ).toMatchObject({ status: 'failed' });
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual(
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           action: 'structural_review',
@@ -369,7 +377,7 @@ describe('owner-approved occasional review', () => {
     expect(
       await h.domain.teamTools.requestStructuralReview(ctx, { signalId: signal.id, note: 'Retry.' }),
     ).toMatchObject({ status: 'started' });
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).not.toBeNull();
   });
 
   it('uses a fresh eligible duty holder after approval and holds while all holders are unavailable', async () => {
@@ -415,7 +423,7 @@ describe('owner-approved occasional review', () => {
     });
     expect(result).toMatchObject({ status: 'started', inbox_item_id: null });
     expect(h.repos.messages.get(result.message_id!)?.operatorRequest).toBe(request.id);
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toMatchObject([
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toMatchObject([
       { action: 'structural_review', requestId: request.id },
     ]);
   });
@@ -432,7 +440,7 @@ describe('owner-approved occasional review', () => {
         actionableSignalIds: [signal.id],
       }),
     ).rejects.toThrow('for you only');
-    expect(h.repos.operatorSignals.get(signal.id)?.actionable).toBe(false);
+    expect(h.repos.projectManagerSignals.get(signal.id)?.actionable).toBe(false);
     await expect(
       h.domain.messaging.sendReporting(
         'AR',
@@ -445,7 +453,7 @@ describe('owner-approved occasional review', () => {
     await expect(
       h.domain.teamTools.dismissSignal(ctx, { signalId: signal.id, note: 'No review needed.' }),
     ).resolves.toEqual({ signalId: signal.id, state: 'dismissed' });
-    expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({
+    expect(h.repos.projectManagerSignals.get(signal.id)).toMatchObject({
       state: 'dismissed',
       decisionNote: 'No review needed.',
     });
@@ -536,7 +544,7 @@ describe('owner-approved occasional review', () => {
         { handle: 'owner', access: 'owner' },
       ),
     ).rejects.toThrow('signal');
-    const other = seedOperatorSession(h, 'AR', { member: 'dev-1' });
+    const other = seedProjectManagerSession(h, 'AR', { member: 'dev-1' });
     await expect(
       h.domain.teamTools.requestStructuralReview(
         { ...ctx, sessionId: other.id, member: 'dev-1' },
@@ -558,7 +566,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
           ctx: h.domain.ctx,
           projects: h.domain.projects,
           inbox: {} as never,
-          signals: h.domain.operatorSignals,
+          signals: h.domain.projectManagerSignals,
           requests: requests(),
           steps: {} as never,
           admission: { memberLoad: () => 0 },
@@ -631,10 +639,10 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
     expect(start.mock.calls[0]![0]).toBe('planner');
     expect(start.mock.calls[0]![1]).toContain('Reason: Please review.');
     expect(start.mock.calls[0]![1]).toContain('failed_test_file');
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).not.toBeNull();
     expect(questions()).toHaveLength(asked);
     expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(sessions);
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+    expect(h.repos.projectManagerRequests.stepsOfSignal(signal.id)).toEqual([]);
   });
 
   it('keeps the signal open after a failed start, and the retry then starts', async () => {
@@ -644,9 +652,9 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
       status: 'failed',
       member: 'planner',
     });
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
     expect(await request(signal.id, startWith())).toMatchObject({ status: 'started' });
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).not.toBeNull();
   });
 
   it.each([
@@ -670,7 +678,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
       inbox_item_id: null,
     });
     expect(start).not.toHaveBeenCalled();
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
   });
 
   it('never bypasses an approval request that is waiting or was decided', async () => {
@@ -726,7 +734,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
       code: 'insufficient_access',
     });
     expect(start).not.toHaveBeenCalled();
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
   });
 
   it('checks the key again where the start begins, so a key revoked meanwhile starts nothing', async () => {
@@ -739,7 +747,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
       request(signal.id, start, { scope: scope('super', () => ++checks >= 2) }),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
     expect(start).not.toHaveBeenCalled();
-    expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).toBeNull();
+    expect(h.repos.projectManagerSignals.get(signal.id)?.resolvedAt).toBeNull();
   });
 
   it('lets one request for a signal run at a time', async () => {

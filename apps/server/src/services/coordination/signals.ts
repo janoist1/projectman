@@ -256,7 +256,7 @@ export class ProjectManagerSignals {
 
   raise(input: SignalInput): ProjectManagerSignalRecord {
     const { ctx } = this.deps;
-    const existing = ctx.repos.operatorSignals.openByCase(input.projectKey, input.caseKey);
+    const existing = ctx.repos.projectManagerSignals.openByCase(input.projectKey, input.caseKey);
     if (existing) return existing;
     const signal: ProjectManagerSignalRecord = {
       ...input,
@@ -276,12 +276,12 @@ export class ProjectManagerSignals {
       deliveredTo: null,
       followUpAt: null,
     };
-    ctx.repos.operatorSignals.insert(signal);
+    ctx.repos.projectManagerSignals.insert(signal);
     return signal;
   }
 
   resolve(projectKey: string, caseKey: string): void {
-    const signal = this.deps.ctx.repos.operatorSignals.openByCase(projectKey, caseKey);
+    const signal = this.deps.ctx.repos.projectManagerSignals.openByCase(projectKey, caseKey);
     if (!signal) return;
     const visible = signal.deliveredAt !== null;
     signal.resolvedAt = isoNow(this.deps.ctx);
@@ -310,7 +310,7 @@ export class ProjectManagerSignals {
       if (
         signalId &&
         !resolved.has(signalId) &&
-        this.deps.ctx.repos.operatorSignals.get(signalId)?.resolvedAt
+        this.deps.ctx.repos.projectManagerSignals.get(signalId)?.resolvedAt
       )
         resolved.add(signalId);
     }
@@ -349,13 +349,15 @@ export class ProjectManagerSignals {
   /** Whether the signal of the obligation was dismissed: its situation was judged and needs no person (PM-1234). */
   obligationDismissed(projectKey: string, obligationId: string): boolean {
     return (
-      this.deps.ctx.repos.operatorSignals.latestOfCase(projectKey, obligationOverdueCaseKey(obligationId))
-        ?.state === 'dismissed'
+      this.deps.ctx.repos.projectManagerSignals.latestOfCase(
+        projectKey,
+        obligationOverdueCaseKey(obligationId),
+      )?.state === 'dismissed'
     );
   }
 
   presentation(projectKey: string, id: string, by?: string): ProjectManagerSignalRecord {
-    const signal = this.deps.ctx.repos.operatorSignals.get(id);
+    const signal = this.deps.ctx.repos.projectManagerSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
     if (signal.kind === 'loop_suspected')
@@ -390,8 +392,8 @@ export class ProjectManagerSignals {
     });
   }
 
-  dismissByOperator(projectKey: string, id: string, by: string, note: string): ProjectManagerSignal {
-    const signal = this.deps.ctx.repos.operatorSignals.get(id);
+  dismissByProjectManager(projectKey: string, id: string, by: string, note: string): ProjectManagerSignal {
+    const signal = this.deps.ctx.repos.projectManagerSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
     if (!OPERATOR_DISMISSIBLE_SIGNAL_KINDS.includes(signal.kind))
@@ -418,7 +420,7 @@ export class ProjectManagerSignals {
   }
 
   decision(projectKey: string, id: string, by: string, accepted: boolean): ProjectManagerSignal {
-    const signal = this.deps.ctx.repos.operatorSignals.get(id);
+    const signal = this.deps.ctx.repos.projectManagerSignals.get(id);
     if (
       !signal ||
       signal.projectKey !== projectKey ||
@@ -456,7 +458,7 @@ export class ProjectManagerSignals {
     signalId: string,
   ): { signal: ProjectManagerSignalRecord; allowed: ProjectManagerSignalStepTargets } {
     const { ctx, projects } = this.deps;
-    const signal = ctx.repos.operatorSignals.get(signalId);
+    const signal = ctx.repos.projectManagerSignals.get(signalId);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
     const config = projects.cachedConfig(projectKey)!;
@@ -593,12 +595,12 @@ export class ProjectManagerSignals {
   stepTaken(signalId: string): void {
     const { ctx } = this.deps;
     const at = ctx.now().getTime() + operatorSignalStepGapMs();
-    ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
+    ctx.repos.projectManagerSignals.followUp(signalId, new Date(at).toISOString());
   }
 
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
   active(projectKey: string): ProjectManagerSignal[] {
-    return this.deps.ctx.repos.operatorSignals
+    return this.deps.ctx.repos.projectManagerSignals
       .listOpen(projectKey)
       .filter(
         (s) =>
@@ -609,15 +611,15 @@ export class ProjectManagerSignals {
   }
 
   channel(projectKey: string): { signals: ProjectManagerSignal[]; openSignals: number } {
-    const { operatorSignals } = this.deps.ctx.repos;
+    const { projectManagerSignals } = this.deps.ctx.repos;
     const since = new Date(this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000).toISOString();
     // Only the last week is read; the open count comes from the open signals, however old.
     return {
-      signals: operatorSignals
+      signals: projectManagerSignals
         .listSince(projectKey, since)
         .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state !== 'pending')
         .map((s) => ProjectManagerSignal.parse(s)),
-      openSignals: operatorSignals
+      openSignals: projectManagerSignals
         .listOpen(projectKey)
         .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state === 'open').length,
     };
@@ -671,10 +673,10 @@ export class ProjectManagerSignals {
     const live = this.deps.ctx.repos.sessions.listLive(key);
     const active = new Set<string>();
     for (const kind of STRUCTURAL_KINDS)
-      this.deps.ctx.repos.operatorSignals.arm(key, kind, isoNow(this.deps.ctx));
+      this.deps.ctx.repos.projectManagerSignals.arm(key, kind, isoNow(this.deps.ctx));
     const structural = this.lazyStructuralEvaluation(config);
     const report = structural()!.report();
-    const previous = this.deps.ctx.repos.operatorSignals.list(key);
+    const previous = this.deps.ctx.repos.projectManagerSignals.list(key);
     for (const facts of report.patterns) {
       const subject = patternSubject(facts.fingerprint);
       if (
@@ -741,7 +743,7 @@ export class ProjectManagerSignals {
       this.raise(input);
     }
     const outages = this.deps.activeOutageIds(key);
-    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
+    for (const signal of this.deps.ctx.repos.projectManagerSignals.listOpen(key)) {
       if (
         structuralKind(signal.kind) &&
         !signal.resolvedAt &&
@@ -808,7 +810,7 @@ export class ProjectManagerSignals {
   recheckRecipients(projectKey: string): void {
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
-    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(projectKey))
+    for (const signal of this.deps.ctx.repos.projectManagerSignals.listOpen(projectKey))
       if (
         !signal.resolvedAt &&
         !signal.messageId &&
@@ -821,7 +823,7 @@ export class ProjectManagerSignals {
 
   /** The coordinator finished its turn, or startup recovered a turn that ended before being recorded. */
   finish(projectKey: string): void {
-    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(projectKey))
+    for (const signal of this.deps.ctx.repos.projectManagerSignals.listOpen(projectKey))
       if (signal.state === 'pending' && signal.deliveredAt) this.save({ ...signal, state: 'open' });
   }
 
@@ -869,7 +871,7 @@ export class ProjectManagerSignals {
    * not yet shown to it (a follow-up: shown again once its time came).
    */
   owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean {
-    const signal = this.deps.ctx.repos.operatorSignals.get(signalId);
+    const signal = this.deps.ctx.repos.projectManagerSignals.get(signalId);
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
     if (!signal || signal.resolvedAt || recipient !== member) return false;
@@ -897,7 +899,7 @@ export class ProjectManagerSignals {
     const held = new Map<string, SignalHold>(signalIds.map((id) => [id, 'interval']));
     const wakes = this.wakeLine(projectKey);
     // Only the asked signals whose own line is due are read further; the other open signals cost nothing.
-    const candidates = this.deps.ctx.repos.operatorSignals
+    const candidates = this.deps.ctx.repos.projectManagerSignals
       .listOpen(projectKey)
       .filter((s) => held.has(s.id) && wakes(s));
     if (!candidates.length) return held;
@@ -914,7 +916,7 @@ export class ProjectManagerSignals {
     if (!config) return '';
     const structural = this.lazyStructuralEvaluation(config);
     const signals = signalIds.flatMap((id) => {
-      const signal = ctx.repos.operatorSignals.get(id);
+      const signal = ctx.repos.projectManagerSignals.get(id);
       return signal ? [signal] : [];
     });
     const level = operatorWatchOf(config);
@@ -923,7 +925,7 @@ export class ProjectManagerSignals {
       `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
       signals
         .map((s) => {
-          const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
+          const steps = ctx.repos.projectManagerRequests.stepsOfSignal(s.id);
           const budget =
             s.kind === 'loop_suspected'
               ? { left: 0, nextAt: null }
@@ -963,7 +965,7 @@ export class ProjectManagerSignals {
             steps: steps.map((step) => ({
               at: step.at,
               by:
-                ctx.repos.sessions.get(ctx.repos.operatorRequests.get(step.requestId)?.sessionId ?? '')
+                ctx.repos.sessions.get(ctx.repos.projectManagerRequests.get(step.requestId)?.sessionId ?? '')
                   ?.member ?? null,
               member: step.member,
               task_key: step.taskKey,
@@ -992,12 +994,13 @@ export class ProjectManagerSignals {
     const { ctx, projects, sessions } = this.deps;
     const config = projects.cachedConfig(projectKey);
     if (!config || coordinationMemberOf(config)?.handle !== member) return;
-    const current = ctx.repos.operatorSignals.get(signalId);
+    const current = ctx.repos.projectManagerSignals.get(signalId);
     if (!current) return;
     const at = isoNow(ctx);
     if (followUpAt === null || followUpAt.startsWith(REBOUND_PREFIX))
-      ctx.repos.operatorSignals.delivered([signalId], at, member);
-    else if (current.followUpAt === followUpAt) ctx.repos.operatorSignals.redelivered([signalId], at, member);
+      ctx.repos.projectManagerSignals.delivered([signalId], at, member);
+    else if (current.followUpAt === followUpAt)
+      ctx.repos.projectManagerSignals.redelivered([signalId], at, member);
     // The turn ended before the receipt was written (the session is gone): nothing will close the signal later.
     if (!sessions.findRunning(projectKey, member, { type: 'general' })) this.finish(projectKey);
   }
@@ -1010,7 +1013,7 @@ export class ProjectManagerSignals {
     projectKey: string,
     structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
     {
-      open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey),
+      open = this.deps.ctx.repos.projectManagerSignals.listOpen(projectKey),
       resolve = true,
       board: known,
     }: { open?: ProjectManagerSignalRecord[]; resolve?: boolean; board?: BoardRead } = {},
@@ -1250,7 +1253,7 @@ export class ProjectManagerSignals {
   private mutedAnswerStall(projectKey: string, taskKey: string, member: string, caseKey: string): boolean {
     const { ctx } = this.deps;
     const since = ctx.now().getTime() - OPERATOR_ANSWER_STALL_MUTE_MINUTES * 60_000;
-    const earlier = ctx.repos.operatorSignals
+    const earlier = ctx.repos.projectManagerSignals
       .list(projectKey)
       .filter(
         (s) =>
@@ -1259,7 +1262,7 @@ export class ProjectManagerSignals {
     if (earlier.some((s) => s.caseKey === caseKey && !s.resolvedAt)) return false;
     let sameCaseSteps = 0;
     for (const s of earlier) {
-      const steps = ctx.repos.operatorRequests
+      const steps = ctx.repos.projectManagerRequests
         .stepsOfSignal(s.id)
         .filter((step) => step.status !== 'refused');
       if (s.caseKey === caseKey) sameCaseSteps += steps.length;
@@ -1327,7 +1330,7 @@ export class ProjectManagerSignals {
    * structural signal also waits while one was delivered in the last day. Read once, asked per signal.
    */
   private wakeLine(projectKey: string): (signal: ProjectManagerSignalRecord) => boolean {
-    const signals = this.deps.ctx.repos.operatorSignals;
+    const signals = this.deps.ctx.repos.projectManagerSignals;
     const now = this.deps.ctx.now().getTime();
     const due = (last: string | null, wait: number) => last === null || now - Date.parse(last) >= wait;
     const dueFast = due(
@@ -1353,7 +1356,7 @@ export class ProjectManagerSignals {
       );
   }
   private save(signal: ProjectManagerSignalRecord, publish = true): void {
-    this.deps.ctx.repos.operatorSignals.save(signal);
+    this.deps.ctx.repos.projectManagerSignals.save(signal);
     if (publish && signal.deliveredAt && signal.state !== 'pending')
       this.deps.ctx.bus.publish({
         type: 'operator_signal',

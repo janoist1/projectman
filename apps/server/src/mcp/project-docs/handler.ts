@@ -31,7 +31,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: Pick<DomainContext, 'repos'>;
   private readonly projects: Pick<ProjectService, 'config'>;
-  private readonly operatorSteps: Pick<ProjectManagerSteps, 'record'>;
+  private readonly projectManagerSteps: Pick<ProjectManagerSteps, 'record'>;
   private readonly docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
@@ -39,14 +39,14 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     calls: ToolCaller;
     ctx: Pick<DomainContext, 'repos'>;
     projects: Pick<ProjectService, 'config'>;
-    operatorSteps: Pick<ProjectManagerSteps, 'record'>;
+    projectManagerSteps: Pick<ProjectManagerSteps, 'record'>;
     docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
     decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
-    this.operatorSteps = deps.operatorSteps;
+    this.projectManagerSteps = deps.projectManagerSteps;
     this.docWrites = deps.docWrites;
     this.decisionCandidates = deps.decisionCandidates;
   }
@@ -102,7 +102,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     } catch (err) {
       // A write that was never queued has no step of its own: the refusal is the step.
       if (request)
-        this.operatorSteps.record({
+        this.projectManagerSteps.record({
           requestId: request.id,
           action: 'docs_write',
           taskKey: null,

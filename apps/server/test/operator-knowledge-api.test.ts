@@ -1,4 +1,4 @@
-import { seedOperatorRequest } from './helpers/operator-session';
+import { seedProjectManagerRequest } from './helpers/operator-session';
 import { afterEach, expect, it } from 'vitest';
 import { ProjectManagerKnowledgeDocument, routes } from '@projectman/shared';
 import type { HumanAccess, ProjectManagerKnowledgeChange } from '@projectman/shared';
@@ -36,7 +36,7 @@ it.each(['agreement', 'principle'] as const)(
       { onLeave: false },
       { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
     );
-    const { session } = seedOperatorRequest(h.app.projectman, 'AR', {
+    const { session } = seedProjectManagerRequest(h.app.projectman, 'AR', {
       text: 'Propose shared knowledge',
       member: 'pm',
     });
@@ -59,7 +59,7 @@ it.each(['agreement', 'principle'] as const)(
               effect: 'PRIVATE_EFFECT',
             },
           };
-    const proposal = await domain.teamTools.proposeOperatorKnowledge(
+    const proposal = await domain.teamTools.proposeProjectManagerKnowledge(
       { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
       {
         expected_revision: 0,
@@ -155,7 +155,7 @@ it('exposes shared knowledge only to owner/admin own logins and has no REST writ
   ] as const)
     cookies.set(handle, await addHumanAndLogin(h.app, { handle, access }));
   for (const [handle, cookie] of cookies) {
-    const response = await inject(h.app, 'GET', routes.operatorKnowledge('AR'), cookie, undefined);
+    const response = await inject(h.app, 'GET', routes.projectManagerKnowledge('AR'), cookie, undefined);
     expect(response.statusCode).toBe(['owner', 'ada'].includes(handle) ? 200 : 403);
     if (response.statusCode === 200)
       expect(ProjectManagerKnowledgeDocument.parse(response.json()).revision).toBe(0);
@@ -164,9 +164,9 @@ it('exposes shared knowledge only to owner/admin own logins and has no REST writ
   const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });
   const response = await h.app.inject({
     method: 'GET',
-    url: routes.operatorKnowledge('AR'),
+    url: routes.projectManagerKnowledge('AR'),
     headers: { authorization: `Bearer ${key.json().secret}` },
   });
   expect(response.statusCode).toBe(200);
-  expect((await inject(h.app, 'PUT', routes.operatorKnowledge('AR'), owner, {})).statusCode).toBe(404);
+  expect((await inject(h.app, 'PUT', routes.projectManagerKnowledge('AR'), owner, {})).statusCode).toBe(404);
 });

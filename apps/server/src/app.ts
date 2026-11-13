@@ -25,7 +25,7 @@ import {
   createConfigStore,
   createCustomizationRepo,
   createDocumentStore,
-  createOperatorKnowledgeStore,
+  createProjectManagerKnowledgeStore,
 } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
@@ -149,7 +149,7 @@ export interface AppModules {
   githubActions?: GithubActionsClient;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
-  operatorKnowledge?: ProjectManagerKnowledgeStore;
+  projectManagerKnowledge?: ProjectManagerKnowledgeStore;
   worktrees?: WorktreeManager;
   /** Member workspaces, used when `memberWorkspaces` is on (default: the git-backed manager). */
   memberWorkspaces?: MemberWorkspaceManager;
@@ -628,8 +628,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           }),
       contextBuilder,
       memory,
-      operatorKnowledge:
-        modules.operatorKnowledge ?? createOperatorKnowledgeStore({ rootDir: join(home, 'operator-data') }),
+      projectManagerKnowledge:
+        modules.projectManagerKnowledge ??
+        createProjectManagerKnowledgeStore({ rootDir: join(home, 'operator-data') }),
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       feedbackDir,

@@ -34,7 +34,7 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
     const sessions = h.domain.sessions.list('AR', { member: 'pm' });
     expect(sessions).toHaveLength(1);
     expect(
-      h.repos.operatorRequests.openOfSession(sessions[0]!.id).map((request) => request.messageId),
+      h.repos.projectManagerRequests.openOfSession(sessions[0]!.id).map((request) => request.messageId),
     ).toEqual([sent.message.id]);
   });
   ctx = {
@@ -45,7 +45,8 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
   };
 }
 const start = () => h.domain.teamTools.startMember(ctx, { member: 'devops', text: 'Check the engine.' });
-const steps = () => h.repos.operatorRequests.steps(h.repos.operatorRequests.latest('AR', 1)[0]!.id);
+const steps = () =>
+  h.repos.projectManagerRequests.steps(h.repos.projectManagerRequests.latest('AR', 1)[0]!.id);
 
 describe('Operator member starts without a card (PM-546)', () => {
   it('starts a general conversation with the task and logs one unapproved start step', async () => {

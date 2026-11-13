@@ -14,7 +14,7 @@ import { MEMBER_TOOL_GROUP } from './members';
 import { MERGE_TOOL_GROUP } from './merges';
 import { MESSAGE_TOOL_GROUP } from './messages';
 import { PROJECT_DOC_TOOL_GROUP } from './project-docs';
-import { OPERATOR_TOOL_GROUP } from './project-manager';
+import { PROJECT_MANAGER_TOOL_GROUP } from './project-manager';
 import { RELEASE_TOOL_GROUP } from './releases';
 import { SESSION_TOOL_GROUP } from './sessions';
 import { SYSTEM_FEEDBACK_TOOL_GROUP } from './system-feedback';
@@ -46,8 +46,8 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   MEMBER_TOOL_GROUP,
   MERGE_TOOL_GROUP,
   MESSAGE_TOOL_GROUP,
-  OPERATOR_TOOL_GROUP,
   PROJECT_DOC_TOOL_GROUP,
+  PROJECT_MANAGER_TOOL_GROUP,
   RELEASE_TOOL_GROUP,
   SCREENSHOT_TOOL_GROUP,
   SESSION_TOOL_GROUP,

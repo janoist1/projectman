@@ -24,11 +24,11 @@ const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
 const sweep = async () => {
-  await h.domain.operatorSignals.sweep('AR');
+  await h.domain.projectManagerSignals.sweep('AR');
   await flush();
 };
 const signals = (state: 'open' | 'all' = 'open') =>
-  h.repos.operatorSignals
+  h.repos.projectManagerSignals
     .list('AR')
     .filter((s) => s.kind === 'start_blocked' && (state === 'all' || !s.resolvedAt));
 const twoRepos = (config: ProjectConfig): void => {
@@ -39,7 +39,7 @@ let problem: { code: StartBlockedReason; branch: string } | null = null;
 
 /** The question the project manager asks about a delivered signal. */
 async function askAbout(signalId: string): Promise<string> {
-  h.repos.operatorSignals.delivered([signalId], now.toISOString(), 'pm');
+  h.repos.projectManagerSignals.delivered([signalId], now.toISOString(), 'pm');
   const pm: ToolContext = {
     projectKey: 'AR',
     member: 'pm',
@@ -96,7 +96,7 @@ async function blocked(reason: StartBlockedReason, level?: ProjectManagerWatch):
 
 /** The facts and the step the project manager reads on the signal, as its notice carries them. */
 function noticeOf(signalId: string): { facts: unknown; step: unknown } {
-  const text = h.domain.operatorSignals.noticeText('AR', [signalId]);
+  const text = h.domain.projectManagerSignals.noticeText('AR', [signalId]);
   return JSON.parse(text.split('\n').at(-1)!);
 }
 
@@ -117,7 +117,7 @@ describe('start_blocked signal', () => {
     const key = await blocked('repo_required');
     await sweep();
     const [signal] = signals();
-    h.repos.operatorSignals.delivered([signal!.id], now.toISOString(), 'pm');
+    h.repos.projectManagerSignals.delivered([signal!.id], now.toISOString(), 'pm');
     const pm: ToolContext = {
       projectKey: 'AR',
       member: 'pm',
@@ -299,7 +299,7 @@ describe('start_blocked signal', () => {
       await blocked('repo_required');
       await sweep();
       const [signal] = signals();
-      h.repos.operatorSignals.delivered([signal!.id], now.toISOString(), 'pm');
+      h.repos.projectManagerSignals.delivered([signal!.id], now.toISOString(), 'pm');
       const other = await h.domain.tasks.create('AR', { title: 'Other', repo: 'web' }, OWNER_ACTOR);
       const session = await h.domain.sessions.ensureSession('AR', 'dev-2', {
         type: 'task',
@@ -323,8 +323,8 @@ describe('start_blocked signal', () => {
       async (kind) => {
         await blocked('repo_required');
         await sweep();
-        const signal = h.domain.operatorSignals.raise({ projectKey: 'AR', kind, caseKey: `${kind}:x` });
-        h.repos.operatorSignals.delivered([signal!.id], now.toISOString(), 'pm');
+        const signal = h.domain.projectManagerSignals.raise({ projectKey: 'AR', kind, caseKey: `${kind}:x` });
+        h.repos.projectManagerSignals.delivered([signal!.id], now.toISOString(), 'pm');
         const pm: ToolContext = {
           projectKey: 'AR',
           member: 'pm',

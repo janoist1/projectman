@@ -137,7 +137,7 @@ import {
   ReviewFollowUps,
   StructuralReviews,
   createAlertPmSignals,
-  wireOperatorSignals,
+  wireProjectManagerSignals,
 } from './services/coordination';
 import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels, WorkQueues } from './services/coordination';
@@ -260,7 +260,7 @@ export interface DomainOptions {
   githubActions?: GithubActionsClient;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
-  operatorKnowledge: ProjectManagerKnowledgeStore;
+  projectManagerKnowledge: ProjectManagerKnowledgeStore;
   worktrees: WorktreeManager;
   /**
    * The machines the sessions run on (PM-311). Absent: the one this server runs on, `local`, built from
@@ -377,7 +377,7 @@ export interface DomainOptions {
   screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
-  operatorSignalMs?: number;
+  projectManagerSignalMs?: number;
   /** How often the questions the Operator screens are looked at for the fallback (default 30 s, PM-558). */
   questionScreeningMs?: number;
   /**
@@ -654,22 +654,22 @@ export function createDomain(opts: DomainOptions) {
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const startQueue = new StartQueue({ ctx, projects, queue: memberQueue });
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts, startQueue);
-  const operatorRequests = new ProjectManagerRequests({ ctx });
+  const projectManagerRequests = new ProjectManagerRequests({ ctx });
   const coordinationRequests = new CoordinationRequests({ ctx, projects });
-  const operatorPreferences = new ProjectManagerPreferences({
+  const projectManagerPreferences = new ProjectManagerPreferences({
     ctx,
     projects,
-    requests: operatorRequests,
-    store: opts.operatorKnowledge,
+    requests: projectManagerRequests,
+    store: opts.projectManagerKnowledge,
   });
-  const operatorSteps = new ProjectManagerSteps({ ctx });
+  const projectManagerSteps = new ProjectManagerSteps({ ctx });
   const messages = new MessageService({ ctx, timeline, projects, coordinationRequests });
-  const sharedOperatorKnowledge = new ProjectManagerKnowledge({
+  const sharedProjectManagerKnowledge = new ProjectManagerKnowledge({
     ctx,
     projects,
-    store: opts.operatorKnowledge,
-    requests: operatorRequests,
-    steps: operatorSteps,
+    store: opts.projectManagerKnowledge,
+    requests: projectManagerRequests,
+    steps: projectManagerSteps,
     inbox,
     timeline,
   });
@@ -709,7 +709,7 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    knowledge: opts.operatorKnowledge,
+    knowledge: opts.projectManagerKnowledge,
     engineHolds: checklistEngineHolds(opts.engineRegistry),
   });
   const attachments = new AttachmentService({
@@ -785,8 +785,8 @@ export function createDomain(opts: DomainOptions) {
     hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
     cardQuestions,
     memory: opts.memory,
-    operatorPreferences,
-    operatorKnowledge: sharedOperatorKnowledge,
+    projectManagerPreferences,
+    projectManagerKnowledge: sharedProjectManagerKnowledge,
     engines,
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
@@ -855,8 +855,8 @@ export function createDomain(opts: DomainOptions) {
   });
   // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
   // the owner's next message opens a new request after this one closed, not before.
-  events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
-  events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
+  events.on('session_idle', (session) => projectManagerRequests.closeForSession(session.id));
+  events.on('session_ended', (session) => projectManagerRequests.closeForSession(session.id));
   events.on('session_idle', (session) => coordinationRequests.closeForSession(session.id));
   events.on('session_ended', (session) => coordinationRequests.closeForSession(session.id));
   // The messages typed into a turn are processed when it ends; a state change shows on the open ones (PM-1290).
@@ -1431,7 +1431,7 @@ export function createDomain(opts: DomainOptions) {
       obligations.open({ ...input, kind: 'start' });
     },
   });
-  const operatorSignals = new ProjectManagerSignals({
+  const projectManagerSignals = new ProjectManagerSignals({
     ctx,
     projects,
     sessions,
@@ -1447,25 +1447,28 @@ export function createDomain(opts: DomainOptions) {
   });
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({
-    raise: (input) => operatorSignals.raiseObligationOverdue(input),
-    raiseSeniorWait: (input) => operatorSignals.raiseSeniorWait(input),
-    deliver: (projectKey) => operatorSignals.deliver(projectKey),
-    dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
+    raise: (input) => projectManagerSignals.raiseObligationOverdue(input),
+    raiseSeniorWait: (input) => projectManagerSignals.raiseSeniorWait(input),
+    deliver: (projectKey) => projectManagerSignals.deliver(projectKey),
+    dismissed: (projectKey, obligationId) =>
+      projectManagerSignals.obligationDismissed(projectKey, obligationId),
   });
-  messaging.registerSignals(operatorSignals);
+  messaging.registerSignals(projectManagerSignals);
   // The alerts the route rule sends to the project manager become signals (PM-1250).
-  inbox.registerAlertPmSignals(createAlertPmSignals({ operatorSignals, background, logger: ctx.logger }));
+  inbox.registerAlertPmSignals(
+    createAlertPmSignals({ projectManagerSignals, background, logger: ctx.logger }),
+  );
   // The non-blocking remarks a closed card still holds go to the project manager (PM-1362).
-  const reviewFollowUps = new ReviewFollowUps({ ctx, signals: operatorSignals });
+  const reviewFollowUps = new ReviewFollowUps({ ctx, signals: projectManagerSignals });
   events.on('task_stage_changed', ({ task }) => reviewFollowUps.cardClosed(task));
   events.on('task_cancelled', (task) => reviewFollowUps.cardClosed(task));
   const structuralReviews = new StructuralReviews({
     ctx,
     projects,
     inbox,
-    signals: operatorSignals,
+    signals: projectManagerSignals,
     requests: coordinationRequests,
-    steps: operatorSteps,
+    steps: projectManagerSteps,
     admission,
   });
   inbox.registerDecider('operator_structural_review', (item, by, option) =>
@@ -1474,12 +1477,12 @@ export function createDomain(opts: DomainOptions) {
   const loopTriages = new LoopTriages({
     ctx,
     projects,
-    signals: operatorSignals,
+    signals: projectManagerSignals,
     actions: {
       assess: (input) => loopWatch.assess(input),
     },
   });
-  events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
+  events.on('config_changed', ({ projectKey }) => projectManagerSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
@@ -1508,24 +1511,24 @@ export function createDomain(opts: DomainOptions) {
   });
   // The project manager's lanes (PM-885): the questions it screens and the system signals it is given.
   memberQueueDriver.register(screeningLane({ screening: questionScreening }));
-  memberQueueDriver.register(signalLane({ signals: operatorSignals }));
-  const unsubscribeSignalActivity = wireOperatorSignals({
+  memberQueueDriver.register(signalLane({ signals: projectManagerSignals }));
+  const unsubscribeSignalActivity = wireProjectManagerSignals({
     ctx,
     bus,
     projects,
     sessions,
-    operatorSignals,
+    projectManagerSignals,
     background,
   });
   projects.useAgreementVersion(
-    async (key) => (await opts.operatorKnowledge.readKnowledge(key)).agreement?.version ?? null,
+    async (key) => (await opts.projectManagerKnowledge.readKnowledge(key)).agreement?.version ?? null,
   );
   inbox.registerDecider('operator_knowledge', (item, by, optionId, note) =>
-    sharedOperatorKnowledge.apply(item, by, optionId, note),
+    sharedProjectManagerKnowledge.apply(item, by, optionId, note),
   );
   events.on('config_changed', ({ projectKey }) => {
     background.run(
-      () => sharedOperatorKnowledge.recheck(projectKey),
+      () => sharedProjectManagerKnowledge.recheck(projectKey),
       (err) => opts.logger.warn({ err, projectKey }, 'operator knowledge recheck failed'),
     );
   });
@@ -1537,8 +1540,8 @@ export function createDomain(opts: DomainOptions) {
     pauses,
     deferred: deferredStarts,
     taskWaits,
-    operatorSignals,
-    requests: operatorRequests,
+    projectManagerSignals,
+    requests: projectManagerRequests,
     workQueues,
     diagnostics: {
       checks(projectKey, taskKey) {
@@ -1607,9 +1610,9 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    operatorRequests,
-    operatorSteps,
-    operatorSignals,
+    projectManagerRequests,
+    projectManagerSteps,
+    projectManagerSignals,
     sessionEngine,
     coordinationRequests,
   });
@@ -1650,7 +1653,7 @@ export function createDomain(opts: DomainOptions) {
         calls: toolCaller,
         ctx,
         projects,
-        operatorSteps,
+        projectManagerSteps,
         docWrites,
         decisionCandidates,
       }),
@@ -1661,8 +1664,8 @@ export function createDomain(opts: DomainOptions) {
         involvements,
         systemFeedback,
         structuralReviews,
-        operatorPreferences,
-        operatorKnowledge: sharedOperatorKnowledge,
+        projectManagerPreferences,
+        projectManagerKnowledge: sharedProjectManagerKnowledge,
         calls: toolCaller,
         ctx,
         projects,
@@ -1673,7 +1676,7 @@ export function createDomain(opts: DomainOptions) {
         projectState,
         taskStarts,
         seniorDecisions,
-        operatorSignals,
+        projectManagerSignals,
         loopTriages,
         checklist,
         superPath: () => {
@@ -1714,7 +1717,13 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       inbox: new InboxTools({ calls: toolCaller, ctx, inbox, humanQuestions }),
-      messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
+      messages: new MessageTools({
+        calls: toolCaller,
+        ctx,
+        messaging,
+        projectManagerRequests,
+        messageAttachments,
+      }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
@@ -1855,7 +1864,7 @@ export function createDomain(opts: DomainOptions) {
     handoffs,
     rebuildLoopNotice: (spec) => loopWatch.rebuild(spec),
     memberQueueDriver,
-    operatorSignals,
+    projectManagerSignals,
     questionScreening,
     background,
     logger: opts.logger,
@@ -2330,9 +2339,9 @@ export function createDomain(opts: DomainOptions) {
     superExecution,
     superHandoffs,
     superOperations,
-    operatorKnowledge: opts.operatorKnowledge,
-    operatorPreferences,
-    sharedOperatorKnowledge,
+    projectManagerKnowledge: opts.projectManagerKnowledge,
+    projectManagerPreferences,
+    sharedProjectManagerKnowledge,
     projectState,
     structure: createStructureService({
       projects,
@@ -2348,8 +2357,8 @@ export function createDomain(opts: DomainOptions) {
       ctx,
       projects,
       pauses,
-      operatorRequests,
-      operatorSignals,
+      projectManagerRequests,
+      projectManagerSignals,
       workQueues,
     }),
     workQueues,
@@ -2370,7 +2379,7 @@ export function createDomain(opts: DomainOptions) {
     sessionMessages,
     messageRouter,
     sessionCloser,
-    operatorSignals,
+    projectManagerSignals,
     tasks,
     attachments,
     documents,
@@ -2436,9 +2445,9 @@ export function createDomain(opts: DomainOptions) {
       await projects.settleSuperAudit().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the super-mode audit failed');
       });
-      await sharedOperatorKnowledge.recover();
+      await sharedProjectManagerKnowledge.recover();
       await sessions.reconcileAfterRestart();
-      for (const project of projects.summaries()) operatorSignals.finish(project.key);
+      for (const project of projects.summaries()) projectManagerSignals.finish(project.key);
       members.reconcileAfterRestart();
       for (const project of projects.summaries()) refinement.reconcile(project.key);
       inbox.expireOpenPermissions();
@@ -2575,8 +2584,8 @@ export function createDomain(opts: DomainOptions) {
           },
           {
             name: 'operator-signals',
-            everyMs: opts.operatorSignalMs ?? 60_000,
-            run: () => operatorSignals.sweep(),
+            everyMs: opts.projectManagerSignalMs ?? 60_000,
+            run: () => projectManagerSignals.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
           },
           // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
@@ -2715,7 +2724,7 @@ export function createDomain(opts: DomainOptions) {
         superOperations,
         inbox,
         history,
-        operatorKnowledge: opts.operatorKnowledge,
+        projectManagerKnowledge: opts.projectManagerKnowledge,
         hostRequests,
         computeJobs,
         releasePublications,

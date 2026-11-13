@@ -4,7 +4,7 @@ import type { ToolContext, UpdateChecklistInput } from '../src/contracts';
 import { TEAM_TOOLS } from '../src/mcp/tools';
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { seedOperatorRequest } from './helpers/operator-session';
+import { seedProjectManagerRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let ctx: ToolContext;
@@ -18,7 +18,7 @@ async function setup() {
       (config.team.members.find((m) => m.handle === 'pm') as AiMemberConfig).onLeave = false;
     },
   });
-  const { session } = seedOperatorRequest(h, 'AR', { member: 'pm', text: 'Set up the checklist' });
+  const { session } = seedProjectManagerRequest(h, 'AR', { member: 'pm', text: 'Set up the checklist' });
   ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
 

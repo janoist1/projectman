@@ -16,7 +16,7 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
-import { seedOperatorRequest } from './helpers/operator-session';
+import { seedProjectManagerRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let ctx: ToolContext;
@@ -74,11 +74,11 @@ async function setup(persistent = false) {
       if (pm.kind === 'ai') pm.onLeave = false;
     },
   });
-  const { session } = seedOperatorRequest(h, 'AR', { text: 'Propose an agreement', member: 'pm' });
+  const { session } = seedProjectManagerRequest(h, 'AR', { text: 'Propose an agreement', member: 'pm' });
   ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
 function propose(change = agreement, operations: ProjectManagerOperation[] = [], revision = 0) {
-  return h.domain.teamTools.proposeOperatorKnowledge(ctx, {
+  return h.domain.teamTools.proposeProjectManagerKnowledge(ctx, {
     expected_revision: revision,
     title: 'Proposed knowledge',
     change,
@@ -87,23 +87,25 @@ function propose(change = agreement, operations: ProjectManagerOperation[] = [],
 }
 const resolve = (id: string, optionId = 'approve', by = owner) =>
   h.domain.inbox.resolve('AR', id, { optionId }, by);
-const document = () => h.domain.operatorKnowledge.readKnowledge('AR');
+const document = () => h.domain.projectManagerKnowledge.readKnowledge('AR');
 const payload = (id: string) => operatorKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
 describe('owner-approved Operator knowledge', () => {
   it('does not load or lock projects without pending knowledge approvals during recovery', async () => {
     await setup();
     const lock = vi.spyOn(h.domain.projects, 'withConfigurationLock');
-    await h.domain.sharedOperatorKnowledge.recover();
+    await h.domain.sharedProjectManagerKnowledge.recover();
     expect(lock).not.toHaveBeenCalled();
   });
 
   it('recovers a committed approval even when another project cannot load its configuration', async () => {
     await setup();
     const proposal = await propose();
-    const apply = h.domain.operatorKnowledge.compareAndSwapKnowledge.bind(h.domain.operatorKnowledge);
+    const apply = h.domain.projectManagerKnowledge.compareAndSwapKnowledge.bind(
+      h.domain.projectManagerKnowledge,
+    );
     const crash = vi
-      .spyOn(h.domain.operatorKnowledge, 'compareAndSwapKnowledge')
+      .spyOn(h.domain.projectManagerKnowledge, 'compareAndSwapKnowledge')
       .mockImplementationOnce(async (...args) => {
         await apply(...args);
         throw new Error('crash after file write');
@@ -126,7 +128,7 @@ describe('owner-approved Operator knowledge', () => {
       return lock(key, work);
     });
 
-    await h.domain.sharedOperatorKnowledge.recover();
+    await h.domain.sharedProjectManagerKnowledge.recover();
     expect(h.domain.inbox.get('AR', proposal.inbox_item_id)).toMatchObject({
       state: 'resolved',
       resolution: { by: 'owner', optionId: 'approve' },
@@ -210,7 +212,7 @@ describe('owner-approved Operator knowledge', () => {
     expect((await document()).revision).toBe(0);
     await resolve(proposal.inbox_item_id, 'reject');
     expect((await document()).revision).toBe(0);
-    expect(h.repos.operatorRequests.steps(payload(proposal.inbox_item_id).requestId)).toContainEqual(
+    expect(h.repos.projectManagerRequests.steps(payload(proposal.inbox_item_id).requestId)).toContainEqual(
       expect.objectContaining({ action: 'knowledge_change', status: 'rejected' }),
     );
   });
@@ -255,7 +257,7 @@ describe('owner-approved Operator knowledge', () => {
     );
     data = await document();
     expect(data).toMatchObject({ revision: 3, agreement: { version: 1 }, principles: [] });
-    const next = await h.domain.sharedOperatorKnowledge.forConversation(
+    const next = await h.domain.sharedProjectManagerKnowledge.forConversation(
       'AR',
       'pm',
       { type: 'general' },
@@ -272,9 +274,11 @@ describe('owner-approved Operator knowledge', () => {
     async (phase) => {
       await setup(true);
       const proposal = await propose();
-      const apply = h.domain.operatorKnowledge.compareAndSwapKnowledge.bind(h.domain.operatorKnowledge);
+      const apply = h.domain.projectManagerKnowledge.compareAndSwapKnowledge.bind(
+        h.domain.projectManagerKnowledge,
+      );
       const spy = vi
-        .spyOn(h.domain.operatorKnowledge, 'compareAndSwapKnowledge')
+        .spyOn(h.domain.projectManagerKnowledge, 'compareAndSwapKnowledge')
         .mockImplementationOnce(async (...args) => {
           expect(payload(proposal.inbox_item_id).applying).toMatchObject({
             by: 'owner',
@@ -291,7 +295,7 @@ describe('owner-approved Operator knowledge', () => {
       if (phase === 'after') {
         expect(item).toMatchObject({ state: 'resolved', resolution: { by: 'owner', optionId: 'approve' } });
         expect((await document()).revision).toBe(1);
-        await h.domain.sharedOperatorKnowledge.recover();
+        await h.domain.sharedProjectManagerKnowledge.recover();
         expect((await document()).revision).toBe(1);
         expect(
           h.domain.timeline
@@ -305,7 +309,7 @@ describe('owner-approved Operator knowledge', () => {
         await resolve(item.id);
         expect((await document()).revision).toBe(1);
       }
-      expect(h.repos.operatorRequests.steps(payload(item.id).requestId)).toContainEqual(
+      expect(h.repos.projectManagerRequests.steps(payload(item.id).requestId)).toContainEqual(
         expect.objectContaining({ status: 'approved', action: 'knowledge_change' }),
       );
     },
@@ -360,12 +364,12 @@ describe('owner-approved Operator knowledge', () => {
     await setup();
     const proposal = await propose();
     const data = await document();
-    await h.domain.operatorKnowledge.compareAndSwapKnowledge('AR', 0, {
+    await h.domain.projectManagerKnowledge.compareAndSwapKnowledge('AR', 0, {
       ...data,
       revision: 1,
       appliedProposalIds: [payload(proposal.inbox_item_id).id],
     });
-    await h.domain.sharedOperatorKnowledge.recover();
+    await h.domain.sharedProjectManagerKnowledge.recover();
     expect(h.domain.inbox.get('AR', proposal.inbox_item_id)).toMatchObject({
       state: 'open',
       resolution: null,
@@ -400,7 +404,7 @@ describe('shared knowledge session boundaries', () => {
     );
     expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
     const input = h.contextBuilder.inputs.at(-1)!;
-    expect(input).not.toHaveProperty('operatorKnowledge');
+    expect(input).not.toHaveProperty('projectManagerKnowledge');
     expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
       '# Approved shared Operator knowledge',
     );
@@ -446,7 +450,7 @@ describe('shared knowledge session boundaries', () => {
     const session = await waitForSession(h.domain, { member: 'pm' });
     const pm: ToolContext = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
     const proposeAs = (operations: ProjectManagerOperation[]) =>
-      h.domain.teamTools.proposeOperatorKnowledge(pm, {
+      h.domain.teamTools.proposeProjectManagerKnowledge(pm, {
         expected_revision: 0,
         title: 'PM proposal',
         change: agreement,
@@ -473,20 +477,20 @@ describe('shared knowledge session boundaries', () => {
     h.repos.sessions.insert(session);
     const caller = { ...ctx, member: 'dev-1', sessionId: session.id };
     await expect(
-      h.domain.teamTools.proposeOperatorKnowledge(caller, {
+      h.domain.teamTools.proposeProjectManagerKnowledge(caller, {
         expected_revision: 0,
         title: 'Wrong caller',
         change: agreement,
         operations: [],
       }),
     ).rejects.toThrow('operator_only');
-    await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
-    expect(await h.domain.teamTools.getOperatorKnowledge(ctx)).toMatchObject({ revision: 0 });
+    await expect(h.domain.teamTools.getProjectManagerKnowledge(caller)).rejects.toThrow();
+    expect(await h.domain.teamTools.getProjectManagerKnowledge(ctx)).toMatchObject({ revision: 0 });
     requests.closeForSession(ctx.sessionId);
     await expect(propose()).rejects.toThrow('operator_no_request');
     const round = requests.openRound('AR', ctx.sessionId);
     await expect(propose()).rejects.toThrow('operator_no_request');
-    h.repos.operatorRequests.close(round.id, new Date().toISOString());
+    h.repos.projectManagerRequests.close(round.id, new Date().toISOString());
     expect((await document()).revision).toBe(0);
   });
 
@@ -498,7 +502,7 @@ describe('shared knowledge session boundaries', () => {
     const builder = createContextPackBuilder();
     for (const handle of ['pm']) {
       expect(
-        await h.domain.sharedOperatorKnowledge.forConversation(
+        await h.domain.sharedProjectManagerKnowledge.forConversation(
           'AR',
           handle,
           { type: 'general' },
@@ -513,11 +517,15 @@ describe('shared knowledge session boundaries', () => {
       );
       const input = h.contextBuilder.inputs.at(-1)!;
       expect(input.member.handle).toBe(handle);
-      expect(input.operatorKnowledge).toMatchObject({
+      expect(input.projectManagerKnowledge).toMatchObject({
         revision: 1,
         agreement: { data: agreement.agreement },
       });
-      expect(Object.keys(input.operatorKnowledge!).sort()).toEqual(['agreement', 'principles', 'revision']);
+      expect(Object.keys(input.projectManagerKnowledge!).sort()).toEqual([
+        'agreement',
+        'principles',
+        'revision',
+      ]);
       const prompt = builder.build(input).appendSystemPrompt;
       expect(prompt).toContain('PRIVATE_AGREEMENT');
       expect(prompt).not.toContain('appliedProposalIds');
@@ -527,7 +535,7 @@ describe('shared knowledge session boundaries', () => {
       );
       const guest = { type: 'general' as const, with: 'ada' };
       expect(
-        await h.domain.sharedOperatorKnowledge.forConversation('AR', handle, guest, null),
+        await h.domain.sharedProjectManagerKnowledge.forConversation('AR', handle, guest, null),
       ).toBeUndefined();
       expect(builder.build({ ...input, workItem: guest }).appendSystemPrompt).not.toContain(
         'PRIVATE_AGREEMENT',
@@ -541,11 +549,11 @@ describe('shared knowledge session boundaries', () => {
     );
     const guestInput = h.contextBuilder.inputs.at(-1)!;
     expect(guestInput.workItem).toMatchObject({ type: 'general', with: 'cleo' });
-    expect(guestInput.operatorKnowledge).toBeUndefined();
+    expect(guestInput.projectManagerKnowledge).toBeUndefined();
     expect(builder.build(guestInput).appendSystemPrompt).not.toContain('PRIVATE_AGREEMENT');
     for (const handle of ['pm']) {
       expect(
-        await h.domain.sharedOperatorKnowledge.forConversation(
+        await h.domain.sharedProjectManagerKnowledge.forConversation(
           'AR',
           handle,
           { type: 'general' },
@@ -553,7 +561,7 @@ describe('shared knowledge session boundaries', () => {
         ),
       ).toBeUndefined();
       expect(
-        await h.domain.sharedOperatorKnowledge.forConversation(
+        await h.domain.sharedProjectManagerKnowledge.forConversation(
           'AR',
           handle,
           { type: 'general' },
@@ -561,7 +569,7 @@ describe('shared knowledge session boundaries', () => {
         ),
       ).toBeUndefined();
       expect(
-        await h.domain.sharedOperatorKnowledge.forConversation(
+        await h.domain.sharedProjectManagerKnowledge.forConversation(
           'AR',
           handle,
           { type: 'general' },

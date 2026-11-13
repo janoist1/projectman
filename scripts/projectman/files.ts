@@ -71,7 +71,9 @@ export function readCredentialFile(file: string, options: CredentialFileOptions 
     link = fs.lstatSync(file);
   } catch (error) {
     if (options.allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    return fail('credential_file_missing', `the file ${file} does not exist`);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return fail('credential_file_missing', `the file ${file} does not exist`);
+    return fail('credential_file_unreadable', `the file ${file} cannot be inspected`);
   }
   if (link.isSymbolicLink()) fail('credential_symlink', `the file ${file} is a symbolic link`);
   if (!link.isFile()) fail('credential_file_invalid', `${file} is not a regular file`);

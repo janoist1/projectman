@@ -5,6 +5,7 @@ import { ClientAccessHeaders, ClientConfig, ClientKeyText } from '@projectman/sh
 import { ClientConfigError, loadCredentials, parseBaseUrl } from '../../../scripts/projectman/config';
 import {
   ClientFileError,
+  readCredentialFile,
   readInputFile,
   readPrivateFile,
   writeFileAtomic,
@@ -116,6 +117,25 @@ describe('projectman client configuration (PM-765)', () => {
     fs.rmSync(fx.keyFile, { recursive: true });
     expect(codeOf(load)).toBe('credential_file_missing');
   });
+
+  it.skipIf(process.getuid?.() === 0)(
+    'tells a file that cannot be inspected from a missing one, also when a missing file is allowed',
+    () => {
+      const dir = path.join(fx.home, 'locked');
+      fs.mkdirSync(dir, { mode: 0o700 });
+      const file = path.join(dir, 'integrator-key');
+      expect(readCredentialFile(file, { allowMissing: true })).toBeNull();
+      fs.chmodSync(dir, 0o000);
+      try {
+        expect(codeOf(() => readCredentialFile(file, { allowMissing: true }))).toBe(
+          'credential_file_unreadable',
+        );
+        expect(codeOf(() => readCredentialFile(file))).toBe('credential_file_unreadable');
+      } finally {
+        fs.chmodSync(dir, 0o700);
+      }
+    },
+  );
 
   it('validates the key text, the configuration shape and the Access file', () => {
     fs.writeFileSync(fx.keyFile, 'not-a-key\n');

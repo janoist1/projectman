@@ -1957,7 +1957,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
   and writes images to local output storage. For a Codex member, whose sandbox cannot start
-  Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
+  Chromium, the server runs the repository's `screenshots.command` (the PM repository's is `npm run shots --`;
+  the hub names it in `ScreenshotRunSpec.command`, so a remote engine runs the command the hub sends and
+  the hub and the engine must be at the same commit; PM-1353) itself (`take_screenshots`, `get_screenshot_run`,
   PM-351): `services/full-tests/{screenshot-runs,screenshot-core}.ts`, `full-test/{screenshots,run-sandboxed,run-sandboxed-core}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are

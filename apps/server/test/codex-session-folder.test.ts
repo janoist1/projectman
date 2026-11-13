@@ -49,6 +49,8 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     heavyLockDir?: string;
     screenshots?: ScreenshotExecutor;
     persistent?: boolean;
+    /** The repository has no screenshot command (it has one by default). */
+    noScreenshotCommand?: boolean;
     adjust?: (config: ProjectConfig) => void;
   }) => {
     h = await createDomainHarness({
@@ -66,6 +68,8 @@ describe('the session folder and the temporary directory of a Codex session (PM-
           dev.provider = 'codex';
           if (options.mode) dev.permissionMode = options.mode as typeof dev.permissionMode;
         }
+        const web = config.project.repos.find((repo) => repo.name === 'web');
+        if (web && !options.noScreenshotCommand) web.screenshots = { command: 'npm run shots --' };
         options.adjust?.(config);
       },
     });
@@ -195,6 +199,16 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(seen).toEqual([true]);
     expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
     expect(existsSync(folder)).toBe(false);
+  });
+
+  it('names the repository screenshot command in the scope (PM-1353)', async () => {
+    const { session } = await start({ mode: 'acceptEdits' });
+    expect(h!.domain.sessions.screenshotScope(session.id)).toMatchObject({ command: 'npm run shots --' });
+  });
+
+  it('gives no screenshot scope to a session whose repository has no screenshot command (PM-1353)', async () => {
+    const { session } = await start({ mode: 'acceptEdits', noScreenshotCommand: true });
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
   });
 
   it('gives a session whose sandbox only reads the folder a scope that writes only the folder (PM-1202)', async () => {

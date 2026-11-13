@@ -406,8 +406,23 @@ export const HeavyChecks = z.object({
 });
 export type HeavyChecks = z.infer<typeof HeavyChecks>;
 
+/**
+ * How a repository takes screenshots for the members whose own sandbox cannot start a browser (PM-1353).
+ * Absent: the repository has none, and the screenshot tools are not offered.
+ */
+export const ScreenshotsConfig = z.object({
+  /**
+   * Shell command prefix the server runs at the root of the member's checkout; it appends the arguments
+   * (`<scenario> --widths …`, `--full-page`, `--scale`, `--timeout`, `--seed`), each shell-quoted.
+   */
+  command: z.string().trim().min(1).max(500),
+});
+export type ScreenshotsConfig = z.infer<typeof ScreenshotsConfig>;
+
 export const RepoConfig = z.object({
   heavyChecks: HeavyChecks.optional(),
+  /** The screenshot command of the repository (PM-1353); absent: the repository takes none. */
+  screenshots: ScreenshotsConfig.optional(),
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** Path relative to the workspace root ("." for the root itself). */

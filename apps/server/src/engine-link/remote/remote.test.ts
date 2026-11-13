@@ -52,6 +52,7 @@ const screenshotSpec = (runId: string): ScreenshotRunSpec => ({
   runId,
   cwd: '/fictional/work',
   sessionDir: '/fictional/folders/s1',
+  command: 'npm run shots --',
   args: [],
   sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] },
   label: 'shots',
@@ -1657,6 +1658,7 @@ describe('cloud mode remote parts', () => {
         cwd: '/fictional/work',
         sessionDir: '/fictional/folders/s1',
         browsersDir: '/fictional/browsers',
+        command: 'npm run shots --',
         sandbox: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [] },
       };
       const scenario = '/fictional/work/shots/login.mjs';

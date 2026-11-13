@@ -1,0 +1,123 @@
+{
+  "developer": {
+    "narrow_tools": [],
+    "fields": {
+      "send_message": [
+        "despite_workers",
+        "to",
+        "kind",
+        "text",
+        "task_key",
+        "attachments"
+      ],
+      "ask_human": [
+        "question",
+        "options",
+        "recommended",
+        "recommendation_reason",
+        "details",
+        "task_key",
+        "to",
+        "attachments",
+        "reask_of",
+        "reask_reason",
+        "recipient",
+        "response_purpose",
+        "owner_topic"
+      ],
+      "update_task": [
+        "task_key",
+        "complexity",
+        "complexity_reason",
+        "stage_id",
+        "add_labels",
+        "remove_labels",
+        "note",
+        "follow_ups",
+        "reply_to",
+        "title",
+        "description",
+        "repo",
+        "add_relations",
+        "remove_relations",
+        "theme_key",
+        "archived",
+        "priority",
+        "acceptance"
+      ]
+    }
+  },
+  "project_manager": {
+    "narrow_tools": [
+      "list_merge_checks"
+    ],
+    "fields": {
+      "send_message": [
+        "despite_workers",
+        "to",
+        "kind",
+        "text",
+        "task_key",
+        "signal_id",
+        "signal_actionable",
+        "signal_ids",
+        "actionable_signal_ids",
+        "attachments",
+        "places"
+      ],
+      "ask_human": [
+        "question",
+        "options",
+        "recommended",
+        "recommendation_reason",
+        "details",
+        "task_key",
+        "to",
+        "attachments",
+        "reask_of",
+        "reask_reason",
+        "signal_id",
+        "recipient",
+        "response_purpose",
+        "owner_topic"
+      ],
+      "update_task": [
+        "task_key",
+        "complexity",
+        "complexity_reason",
+        "stage_id",
+        "add_labels",
+        "remove_labels",
+        "note",
+        "follow_ups",
+        "reply_to",
+        "title",
+        "description",
+        "repo",
+        "add_relations",
+        "remove_relations",
+        "theme_key",
+        "archived",
+        "priority",
+        "despite_prerequisites",
+        "acceptance"
+      ]
+    }
+  },
+  "merger": {
+    "narrow_tools": [
+      "list_merge_checks"
+    ]
+  },
+  "code_review": {
+    "narrow_tools": [
+      "decide_fix_limit"
+    ]
+  },
+  "screenshots": {
+    "narrow_tools": [
+      "take_screenshots",
+      "get_screenshot_run"
+    ]
+  }
+}

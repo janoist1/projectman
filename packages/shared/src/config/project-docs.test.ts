@@ -59,6 +59,41 @@ describe('repoHeavyChecks patch', () => {
   });
 });
 
+describe('repoScreenshots patch', () => {
+  it('sets and removes the repository screenshot command while preserving other repositories', () => {
+    const original = config([
+      { name: 'web', path: '.' },
+      { name: 'other', path: 'other' },
+    ]);
+    const screenshots = { command: 'npm run shots --' };
+    const patch = PatchConfigRequest.parse({
+      baseVersion: 'v1',
+      repoScreenshots: [{ repo: 'web', screenshots }],
+    });
+    const next = applyConfigPatch(original, patch);
+    expect(next.project.repos[0]!.screenshots).toEqual(screenshots);
+    expect(next.project.repos[1]).toEqual(original.project.repos[1]);
+    expect(unknownPatchRepo(original, patch)).toBeNull();
+    expect(
+      unknownPatchRepo(original, { ...patch, repoScreenshots: [{ repo: 'ghost', screenshots: null }] }),
+    ).toBe('ghost');
+    const cleared = applyConfigPatch(next, {
+      baseVersion: 'v2',
+      repoScreenshots: [{ repo: 'web', screenshots: null }],
+    });
+    expect(cleared).toEqual(original);
+  });
+
+  it('refuses an empty command', () => {
+    expect(
+      PatchConfigRequest.safeParse({
+        baseVersion: 'v1',
+        repoScreenshots: [{ repo: 'web', screenshots: { command: '  ' } }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe('isRepoFilePath', () => {
   it('accepts relative POSIX paths inside the repository', () => {
     for (const ok of [

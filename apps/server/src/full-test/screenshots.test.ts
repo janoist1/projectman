@@ -22,6 +22,7 @@ const spec: ScreenshotRunSpec = {
   cwd: '/work/PM-1-checkout',
   sessionDir: '/sessions/ses_1.0123456789abcdef',
   browsersDir: '/app/browsers',
+  command: 'npm run shots --',
   args: ['/work/PM-1-checkout/shots/login.mjs', '--widths', '390,1280'],
   sandbox: {
     allowWrite: ['/sessions/ses_1.0123456789abcdef', '/work/PM-1-checkout'],
@@ -93,9 +94,13 @@ describe('screenshotEnv', () => {
 describe('screenshotCommand', () => {
   it('quotes every argument as one word', () => {
     expect(quoteShellWord("it's")).toBe(`'it'\\''s'`);
-    expect(screenshotCommand(['/w/a b.mjs', '--widths', '390', `x'; rm -rf /`])).toBe(
+    expect(screenshotCommand('npm run shots --', ['/w/a b.mjs', '--widths', '390', `x'; rm -rf /`])).toBe(
       `npm run shots -- '/w/a b.mjs' '--widths' '390' 'x'\\''; rm -rf /'`,
     );
+  });
+
+  it('starts with the repository command it is given, not a fixed one', () => {
+    expect(screenshotCommand('node tools/shoot.mjs', ['a.mjs'])).toBe(`node tools/shoot.mjs 'a.mjs'`);
   });
 });
 

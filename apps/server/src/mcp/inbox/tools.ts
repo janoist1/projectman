@@ -10,7 +10,7 @@ import {
 } from '@projectman/shared';
 import { formatQuestionAsked } from '../format';
 import { z } from 'zod';
-import { defineTool, type TeamToolGroup, unique } from '../kit';
+import { defineTool, PM_ONLY, type TeamToolGroup, unique } from '../kit';
 const MAX_QUESTION_CHARS = 4_000;
 
 const MAX_OPTION_CHARS = 200;
@@ -161,6 +161,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
               'it falls under (role guide); refused without one (owner_topic_required).',
           ),
       },
+      fieldAudience: { signal_id: PM_ONLY },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
           issue('reask_of', 'reask_of and reask_reason go together: give both or neither.');

@@ -26,6 +26,7 @@ export function memberAudience(
     email: emailChannelOn(config) && emailSenderOf(config, handle) !== null,
     machineAccess: hasMachineAccess(config, handle),
     hostRequests: hostRequestRefusal(config, handle, instance.hostOwnerEmail) === null,
+    screenshots: config.project.repos.some((repo) => repo.screenshots !== undefined),
     duties: new Set(
       DUTY_IDS.filter((duty) => dutyMembers(config, duty).some((holder) => holder.handle === handle)),
     ),

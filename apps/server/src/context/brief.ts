@@ -264,7 +264,7 @@ function attachmentsSection(
 
 /**
  * The parent card's files: the count, the first few by name, and the task_key that reads them. When the
- * card's description names some of them by file name ("PM-92: 06-rad-var-asztali.jpg"), those come first
+ * card's description names some of them by file name ("AR-7: checkout-mobile.png"), those come first
  * and marked, and the rest are only counted: opening an image costs tokens that stay in the context.
  */
 function parentAttachmentLines(

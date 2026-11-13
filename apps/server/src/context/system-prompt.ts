@@ -314,7 +314,10 @@ function claudeToolLoading(
     : duty === 'implementation'
       ? ['set_current_work', 'link_pull_request']
       : duty === 'testing_acceptance' || duty === 'ux_design'
-        ? ['take_screenshots', 'read_attachment']
+        ? [
+            ...(project.project.repos.some((repo) => repo.screenshots) ? ['take_screenshots'] : []),
+            'read_attachment',
+          ]
         : duty === 'code_review' || duty === 'security_review'
           ? ['read_attachment', 'search_history']
           : ['create_task', 'write_document'];
@@ -530,20 +533,23 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
  * directory of a writing Codex CLI sandbox. A Codex CLI sandbox that does not write only reads the
  * folder. A Claude member's folder is told with its sandbox (`describeSandbox`).
  */
-function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInput): string {
+function sessionFolderSection({ project, task, member, sandbox, sessionPolicy }: ContextPackInput): string {
   const folder = sessionPolicy?.filesystem.sessionFolder ?? sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
   if (!folder) return '';
+  // The server takes screenshots only with the screenshot command of the session's repository (PM-1353).
+  const canShoot =
+    (sessionPolicy === undefined || screenshotPlacement(sessionPolicy.access)) &&
+    repoOf(project, effectiveRepo(project, task))?.screenshots !== undefined;
   if (isGemini(member)) return ['# Your session folder', describeSessionFolder(folder, 'gemini')].join('\n');
   if (!isCodex(member)) return '';
   if (sessionPolicy?.permissions.sandbox === 'read-only')
-    return [
-      '# Your session folder',
-      describeReadOnlySessionFolder(folder, { screenshots: screenshotPlacement(sessionPolicy.access) }),
-    ].join('\n');
+    return ['# Your session folder', describeReadOnlySessionFolder(folder, { screenshots: canShoot })].join(
+      '\n',
+    );
   const tmpDir = sandbox?.portable?.tmpDir;
   return [
     '# Your session folder',
-    describeSessionFolder(folder, 'codex'),
+    describeSessionFolder(folder, 'codex', { screenshots: canShoot }),
     ...(tmpDir ? [describeSessionTmpDir(tmpDir)] : []),
   ].join('\n');
 }
@@ -820,7 +826,7 @@ const SUB_CARD_DUTIES: readonly DutyId[] = [
  * all the following steps, so the card must stand on its own and point at the files it needs.
  */
 const SUB_CARD_RULE =
-  'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "PM-92: 06-rad-var-asztali.jpg" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
+  'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "AR-7: checkout-mobile.png" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
 
 const COMPLEXITY_RULE =
   'You may give a card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason (create_task, update_task) when that helps; a card above 13 must be split.';
@@ -1091,7 +1097,7 @@ function projectManagerGuide(
     '## Naming an assignee',
     "Name an assignee in start_task only when you must: the system's own choice keeps the member's complexity limit and specialty, and list_members shows each developer's limit and model. Score a hard card first, or ask the member who scores.",
     '## A person’s message on a card',
-    "A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer; PM-488), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.",
+    "A person's message on a card's conversation comes to you when nobody else is on the card (no one works on it, no assignee, no stage owner but the writer), so it may not be meant for you: get it to the member whose work it is with send_message (kind action, the person's words quoted), or, when nobody has to act now, record it on the card with update_task (note) for whoever works on it next. Then tell the person where it went, as in your report.",
     ...(projectDocsOf(project) ? ['## Project documents', ...DOCS_RULES] : []),
     ...(projectDocsOf(project)?.lessons ? [LESSONS_RULE] : []),
     ...(projectDocsOf(project)?.roadmap

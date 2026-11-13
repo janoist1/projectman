@@ -5,6 +5,8 @@ export const WATCHER_TOOL_GROUP: TeamToolGroup = {
   module: 'runtime/watchers',
   tools: [
     defineTool({
+      // Who the fix limit asks to decide (decision 69): the code review lead, or the technical direction holder.
+      audience: { duties: ['code_review', 'technical_direction'] },
       name: 'decide_fix_limit',
       title: 'Decide how a card at its fix round limit goes on',
       readOnly: false,

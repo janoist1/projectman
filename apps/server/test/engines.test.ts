@@ -897,6 +897,8 @@ describe("the places of the session's engine", () => {
           dev.provider = 'codex';
           dev.permissionMode = 'acceptEdits';
         }
+        const web = config.project.repos.find((repo) => repo.name === 'web');
+        if (web) web.screenshots = { command: 'npm run shots --' };
       },
     });
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);

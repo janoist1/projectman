@@ -57,6 +57,13 @@ const builder = createContextPackBuilder();
 // PM-1340 adds one Claude-only batch of eight fully qualified tool names.
 const CLAUDE_TOOL_BATCH_BYTES = 400;
 
+/** A copy of the project whose repositories have a screenshot command (PM-1353). */
+const withScreenshotCommand = (config: ProjectConfig): ProjectConfig => {
+  const copy = structuredClone(config);
+  for (const repo of copy.project.repos) repo.screenshots = { command: 'npm run shots --' };
+  return copy;
+};
+
 describe('repository prompt conventions (PM-1112)', () => {
   const heavyChecks = {
     commands: ['npm test', 'npm run typecheck', 'npm run shots', 'npm run heavy'],
@@ -1081,7 +1088,11 @@ describe('Claude team tool loading', () => {
     const source = input({ project, handle: 'fe-1' });
     source.stage!.duty = 'testing_acceptance';
     let teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
+    expect(teamwork).not.toContain('mcp__team__take_screenshots');
+    source.project = withScreenshotCommand(project);
+    teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
     expect(teamwork).toContain('mcp__team__take_screenshots');
+    source.project = project;
     source.stage!.duty = 'implementation';
     teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
     expect(teamwork).toContain('mcp__team__link_pull_request');
@@ -4044,11 +4055,32 @@ describe("the CLI's own sandbox (PM-167)", () => {
     }
   });
 
-  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+  it('leaves the screenshot tools out of a Codex developer prompt when no repository has the command (PM-1353)', () => {
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const policy = withSessionFolders(
+      buildSessionPolicy({
+        config: project,
+        role: 'developer',
+        task,
+        permissionMode: 'acceptEdits',
+        placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+      }),
+      { own: folder, root: '/tmp/projectman-sessions/abc123' },
+    );
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('take_screenshots');
+    expect(prompt).not.toContain('npm run shots');
+  });
+
+  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+    const shotProject = withScreenshotCommand(project);
+    const member: AiMemberConfig = { ...aiMember(shotProject, 'fe-1'), provider: 'codex' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
     const worktreePolicy = buildSessionPolicy({
-      config: project,
+      config: shotProject,
       role: 'developer',
       task,
       permissionMode: 'default',
@@ -4060,11 +4092,12 @@ describe("the CLI's own sandbox (PM-167)", () => {
     });
     expect(policy.permissions.sandbox).toBe('read-only');
     const prompt = builder.build(
-      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+      input({ project: shotProject, member, handle: 'fe-1', task, sessionPolicy: policy }),
     ).appendSystemPrompt;
     const text = section(prompt, '# Your session folder');
     expect(text).toContain('`take_screenshots` tool');
     expect(text).not.toContain('you make no screenshots');
+    expect(text).not.toContain('npm run shots');
   });
 
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
@@ -4095,9 +4128,10 @@ describe("the CLI's own sandbox (PM-167)", () => {
   });
 
   it('tells a Codex developer its session folder and its own TMPDIR (PM-339)', () => {
-    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const shotProject = withScreenshotCommand(project);
+    const member: AiMemberConfig = { ...aiMember(shotProject, 'fe-1'), provider: 'codex' };
     const developerPolicy = buildSessionPolicy({
-      config: project,
+      config: shotProject,
       role: 'developer',
       task,
       permissionMode: 'acceptEdits',
@@ -4108,7 +4142,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
     const prompt = builder.build(
       input({
-        project,
+        project: shotProject,
         member,
         handle: 'fe-1',
         task,

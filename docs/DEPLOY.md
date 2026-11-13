@@ -3,7 +3,7 @@
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
 and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and the connected Claude's access.
 
-## Operations moved from the working rules (PM-1342)
+## Live instance update and full check (PM-1342)
 
 The owner's live instance uses a cloud hub and a Mac engine. The manual update is
 `npm run cloud -- deploy --ref <commit>`, followed by rebuilding and reinstalling the
@@ -25,9 +25,7 @@ on the card's engine or GitHub Actions as configured
 ([services/merges](modules/services-merges.md)). Shared code/configuration changes get
 their full suite at merge.
 
-Development uses `npm run dev`, `~/.projectman-dev` (unless `PROJECTMAN_HOME` is set)
-and `http://127.0.0.1:5173`. Never run a development build against `~/.projectman`:
-newer migrations cause older builds to refuse the database.
+Development data and the dev server are described in the [README](../README.md).
 
 ## A database from before the baseline (PM-1381)
 

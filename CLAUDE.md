@@ -93,9 +93,6 @@ need no entry. Add web feature/top-level folders to YAML (`structure-map.test.ts
   - Real git, filesystem, processes, ports or browsers only when that boundary is the risk;
     unit-test logic once, without duplicating in integration tests.
   - Test only new/changed behavior, with one regression test per bug fix; prefer existing files.
-  - **Review.** Require fixes for substantial variant duplication, verbatim wording tests,
-    copied helpers or logic in `assembly.ts` (wiring only; capped by
-    `test/architecture/assembly-wiring.test.ts`).
 
 ## Commands
 
@@ -118,9 +115,6 @@ need no entry. Add web feature/top-level folders to YAML (`structure-map.test.ts
   Never finish while it runs; follow provider context instructions.
 - Exit 78 / sandbox refusal means not run: record command/reason on the card and hand over.
   Never bypass or ask for outside execution; merge covers it (PM-346, PM-656).
-- Merger (`team.merger`; lead): `merge_task` runs server `npm run merge-test` before main moves
-  (engine/GitHub Actions; `docs/modules/services-merges.md`). On a locally runnable check's
-  failure, name it in send-back; propose wider handover selection if missing and send PM the lesson.
 - `npm run dev`: server 4700, web `http://127.0.0.1:5173`, data `~/.projectman-dev`
   (or `PROJECTMAN_HOME`). Never develop against `~/.projectman`: newer migrations block older builds.
   Live: `docs/DEPLOY.md`; team AI members never update it.

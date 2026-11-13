@@ -45,7 +45,10 @@ export function runNpm(
       },
     );
     const kept = new OutputTail();
-    const active = new Map<string, { file: string; timer: ReturnType<typeof setTimeout> }>();
+    const active = new Map<
+      string,
+      { file: string; startedAt: number; timer: ReturnType<typeof setTimeout> }
+    >();
     let pending = '';
     let timedOut = false;
     const cleanup = () => {
@@ -67,14 +70,25 @@ export function runNpm(
       active.delete(event.id);
       if (event.phase !== 'start') return;
       const file = event.file;
-      active.set(event.id, {
+      const id = event.id;
+      active.set(id, {
         file,
+        startedAt: Date.now(),
         timer: setTimeout(() => {
           timedOut = true;
+          const now = Date.now();
+          // Only the file over its deadline failed (PM-1440): the files stopped with it are named
+          // without a FAIL line, so the failed-file markers do not blame them.
+          const stopped = [...active.entries()]
+            .filter(([other]) => other !== id)
+            .map(
+              ([, entry]) =>
+                `Stopped with it, not failed: ${entry.file} (running ${now - entry.startedAt} ms)\n`,
+            );
           const output =
             // A file timeout must not become green through the flaky-file rerun rule.
-            `\n⎯⎯⎯ Unhandled Errors ⎯⎯⎯\nFile deadline exceeded (${fileTimeoutMs} ms): ${file}\n` +
-            [...active.values()].map((entry) => ` FAIL  ${entry.file}\n`).join('');
+            `\n⎯⎯⎯ Unhandled Errors ⎯⎯⎯\nFile deadline exceeded (${fileTimeoutMs} ms): ${file}\n FAIL  ${file}\n` +
+            stopped.join('');
           if (forwardOutput) process.stderr.write(output);
           kept.push(output);
           cleanup();

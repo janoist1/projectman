@@ -21,9 +21,10 @@ import {
   OWNER,
   OWNER_ACTOR,
   restartDomainHarness,
+  snapshotDomainHarness,
   waitForSession,
 } from '../../../../test/helpers/domain-harness';
-import type { DomainHarness } from '../../../../test/helpers/domain-harness';
+import type { DomainHarness, HarnessSnapshot } from '../../../../test/helpers/domain-harness';
 import { flush, pullRequest } from '../../../../test/helpers/fakes';
 import { makeLocalOnly } from '../../../../test/helpers/test-template';
 import { aiActor, humanActor } from '../../../kernel';
@@ -91,6 +92,36 @@ function fakeExecutor(result: FullTestResult = passed): FullTestExecutor {
   return { available: vi.fn(async () => ({ ok: true as const })), run: vi.fn(async () => result) };
 }
 
+/** A member merges, without the merge and release stages unless the whole pipeline is kept. */
+function mergeConfig(config: ProjectConfig, fullPipeline: boolean) {
+  config.project.repos[0]!.requireMerge = true;
+  config.team.merger = { kind: 'member', handle: 'dev-1' };
+  if (fullPipeline) makeLocalOnly(config);
+  else {
+    config.pipeline.stages = config.pipeline.stages.filter(
+      (stage) => stage.id !== 'merge' && stage.id !== 'release',
+    );
+    config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
+      conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+    };
+  }
+}
+
+// Creating and configuring the project commits to the customization repository: it took most of
+// this file's time, so each configuration is made once and every test starts from it (PM-1440).
+const snapshots = new Map<boolean, Promise<HarnessSnapshot>>();
+function configured(fullPipeline: boolean): Promise<HarnessSnapshot> {
+  let snapshot = snapshots.get(fullPipeline);
+  if (!snapshot) {
+    snapshot = createDomainHarness({
+      merger: fakeMerger(),
+      adjust: (config) => mergeConfig(config, fullPipeline),
+    }).then(snapshotDomainHarness);
+    snapshots.set(fullPipeline, snapshot);
+  }
+  return snapshot;
+}
+
 describe('member initiated merge', () => {
   let h: DomainHarness | undefined;
   let merger: ReturnType<typeof fakeMerger>;
@@ -113,29 +144,33 @@ describe('member initiated merge', () => {
     } = {},
   ) {
     merger = fakeMerger(opts.remote);
-    const getEngine = vi.spyOn(LocalEngineDirectory.prototype, 'get');
-    h = await createDomainHarness({
+    const fullPipeline = opts.fullPipeline ?? false;
+    const services = {
       merger: opts.unavailable ? null : merger,
       fullTestExecutor: opts.executor,
-      persistent: opts.persistent,
       now: opts.now,
-      adjust(config) {
-        config.project.repos[0]!.requireMerge = true;
-        config.team.merger = { kind: 'member', handle: 'dev-1' };
-        if (opts.fullPipeline) makeLocalOnly(config);
-        else {
-          config.pipeline.stages = config.pipeline.stages.filter(
-            (stage) => stage.id !== 'merge' && stage.id !== 'release',
-          );
-          config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
-            conditions: [{ type: 'has_label', label: 'code-review-ok' }],
-          };
-        }
-        opts.adjust?.(config);
-      },
-    });
+    };
+    // A restart needs the harness's own files, so a persistent harness makes its project itself.
+    const snapshot = opts.persistent ? undefined : await configured(fullPipeline);
+    const getEngine = vi.spyOn(LocalEngineDirectory.prototype, 'get');
+    h = snapshot
+      ? await createDomainHarness({ ...services, snapshot })
+      : await createDomainHarness({
+          ...services,
+          persistent: true,
+          adjust(config) {
+            mergeConfig(config, fullPipeline);
+            opts.adjust?.(config);
+          },
+        });
     engines = getEngine.mock.contexts[0] as EngineDirectory;
     getEngine.mockRestore();
+    if (snapshot && opts.adjust) {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+        opts.adjust!(draft);
+        return 'Adjust test configuration';
+      });
+    }
     vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     await card('AR-1', 'web', 'dev-1');
   }

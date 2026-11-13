@@ -146,7 +146,13 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
     reason:
       'the session launch (workspace and session-folder setup) is reached through the domain harness, not by import: the workspace and Codex session-folder tests exercise it (PM-1407)',
     sources: ['apps/server/src/runtime/sessions/launch.ts'],
-    tests: ['apps/server/test/member-workspaces.test.ts', 'apps/server/test/codex-session-folder.test.ts'],
+    tests: [
+      'apps/server/test/member-workspaces.test.ts',
+      'apps/server/test/member-workspaces-review.test.ts',
+      'apps/server/test/member-workspaces-restart.test.ts',
+      'apps/server/test/member-workspaces-lifecycle.test.ts',
+      'apps/server/test/codex-session-folder.test.ts',
+    ],
   },
   {
     reason:

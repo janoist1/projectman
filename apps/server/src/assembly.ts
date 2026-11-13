@@ -1291,6 +1291,9 @@ export function createDomain(opts: DomainOptions) {
     engines,
     github: opts.github,
     engineId: (projectKey) => engines.projectEngine(projectKey) ?? LOCAL_ENGINE_ID,
+    // The release commit's engine app build: the compute job defined below (PM-1424).
+    startAppBuild: (projectKey, actor, { repo, commit }) =>
+      computeJobs.startAppBuild(actor, { projectKey, repo, commit }),
   });
   const releaseStatus = () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []);
   const computeJobs = new ComputeJobService({ ctx, projects, tasks, timeline, engines });

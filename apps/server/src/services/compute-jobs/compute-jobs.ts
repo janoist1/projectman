@@ -14,6 +14,7 @@ import type {
 } from '@projectman/shared';
 import { isEngineLinkLost } from '../../contracts';
 import type {
+  AppBuildResult,
   EngineDirectory,
   EngineHost,
   FullTestResult,
@@ -30,6 +31,7 @@ import {
   assertReleaseAuthority,
   conflict,
   delegatesOwnerAuthority,
+  DomainError,
   forbidden,
   invalid,
   newId,
@@ -45,6 +47,9 @@ const OUTPUT_TAIL_MAX = 4000;
 const RUN_SLACK_MINUTES = 30;
 const LIST_LIMIT_DEFAULT = 20;
 const LIST_LIMIT_MAX = 100;
+/** The dedicated workflow that builds the engine app of a release (PM-1198), and the job id used when none is registered. */
+const ENGINE_RELEASE_WORKFLOW = 'projectman-engine-release.yml';
+const ENGINE_RELEASE_JOB = 'engine-release';
 
 export interface StartComputeJobInput {
   projectKey: string;
@@ -157,6 +162,46 @@ export class ComputeJobService {
     const row = records.get(created.id);
     if (!row) throw notFound('compute job run', created.id);
     return row;
+  }
+
+  /**
+   * The engine app build of a released commit (PM-1424): starts the repository's job that runs the engine-release
+   * workflow, if it registers one. It never throws: a refused start is `failed` in the answer, so the release
+   * that asks for it stays published. A live run of the same commit is reused (never `force`).
+   */
+  async startAppBuild(
+    actor: Actor,
+    input: { projectKey: string; repo: string; commit: string },
+  ): Promise<AppBuildResult> {
+    let job = ENGINE_RELEASE_JOB;
+    try {
+      const config = await this.deps.projects.config(input.projectKey);
+      const repo = config.project.repos.find((entry) => entry.name === input.repo);
+      const def = (repo?.computeJobs ?? []).find((entry) => entry.workflow === ENGINE_RELEASE_WORKFLOW);
+      if (!def) return { state: 'not_configured' };
+      job = def.id;
+      const before = this.deps.ctx.repos.computeJobRuns.latestFor({
+        projectKey: input.projectKey,
+        repo: input.repo,
+        job,
+        commit: input.commit,
+      });
+      const run = await this.start(actor, {
+        projectKey: input.projectKey,
+        repo: input.repo,
+        job,
+        commit: input.commit,
+      });
+      return {
+        state: before?.id === run.id ? 'reused' : 'started',
+        job,
+        runId: run.id,
+        url: run.externalUrl,
+      };
+    } catch (err) {
+      const code = err instanceof DomainError ? err.code : 'app_build_failed';
+      return { state: 'failed', job, code, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   get(projectKey: string, id: string): ComputeJobRunView {

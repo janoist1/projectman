@@ -391,6 +391,16 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
+/**
+ * The engine app build `publish_release` starts for the release commit (PM-1424): `started` a new run, `reused`
+ * a live run of the same commit, `failed` the start was refused (the release stays published), `not_configured`
+ * the repository registers no engine-release job.
+ */
+export type AppBuildResult =
+  | { state: 'started' | 'reused'; job: string; runId: string; url: string | null }
+  | { state: 'failed'; job: string; code: string; message: string }
+  | { state: 'not_configured' };
+
 /** What publish_release answers (PM-968): the tag and the GitHub release of a merged commit. */
 export interface PublishedRelease {
   repo: string;
@@ -401,6 +411,8 @@ export interface PublishedRelease {
   /** The GitHub release page; null in a preview. */
   url: string | null;
   tasks: { key: string; title: string }[];
+  /** The engine app build of the release commit (PM-1424); null in a preview. */
+  appBuild: AppBuildResult | null;
 }
 
 /** What publish_release takes (PM-968). */

@@ -174,6 +174,12 @@ Entries in the order they appear below (search for the bold name).
   refuse replacement. A complete manifest-backed release is verified without rebuilding.
   This runs on the release Mac with its owner's `gh` login; remote engines only download
   the result, with no server/engine boundary change (PM-1126).
+  **PM-1424:** `publish_release` starts the repository's `projectman-engine-release.yml` compute job on the
+  release commit by itself (`services/releases/publications.ts` port `startAppBuild`, bound in `assembly.ts`
+  to `ComputeJobService.startAppBuild`), so each release gets `projectman-motor.{zip,dmg,json}` (the manifest
+  carries the SHA-256 and size of the zip and DMG) on the public release URL. It runs on the hub (MCP and GitHub
+  Actions); no engine-link crossing is new. A friend's remote engine only reads the public URL (the app's
+  updater needs a logged-in `gh` 2.49+ for the attestation check).
   The CLI takes the machine's heavy-run queue. All scratch/cache files, tool temporary files
   and diagnostics stay under `--out`; existing nonempty output is refused.
   **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,
@@ -2760,6 +2766,8 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
+  PM-1424: the `engine-release` compute job is also started by `publish_release` through the same
+  `ComputeJobService.start` path (same actor, no `force`); it needs no new engine request.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
   **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the

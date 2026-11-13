@@ -18,8 +18,8 @@ Code identifiers retain their names; see [ARCHITECTURE.md](ARCHITECTURE.md), “
 Entries in the order they appear below (search for the bold name).
 
 - **Engine and its host:** Shared repository git settings · Engine menu bar app · Engine app package · Engine app
-  release build · Interrupted card continuation · Keep awake while working · Link-headers file and the
-  working-folder check · Member queue driver · Startup sweep of crash leftovers · One-shot external commands · Local
+  release build · Engine app install script · Interrupted card continuation · Keep awake while working ·
+  Link-headers file and the working-folder check · Member queue driver · Startup sweep of crash leftovers · One-shot external commands · Local
   history embeddings · Web push sender · ntfy phone channel
 - **Connected Claude and knowledge:** Connected Claude operations and owner approval ·
   Project change journal · Project and instance knowledge
@@ -201,6 +201,24 @@ fetch --commit <sha> --out <new dir> [--open]` (`scripts/engine-app/fetch.ts`) d
   (identical asset skipped, different one `app_asset_conflict`, manifest last). **Remote engine:** the build and
   the upload run on GitHub; the engine only dispatches the run, and every engine downloads the same release assets.
   **Module:** `scripts`, `deploy`.
+
+- **Engine app install script (PM-1425)** — `deploy/mac/install-engine-app.sh` (POSIX `sh`, test
+  `apps/server/test/engine-app-install-script.test.ts`). A friend's AI downloads it from the release tag
+  (`raw.githubusercontent.com/janoist1/projectman/<tag>/...`), reads it and runs it with
+  `sh install-engine-app.sh --tag <tag>` (or with `--zip <file> --manifest <file>` for a pair downloaded by hand). It downloads the tag's
+  `projectman-motor.{json,zip}` with `curl` into a new `mktemp -d` folder, checks the manifest, the zip's size and
+  SHA-256, the GitHub attestation of both files (the same `gh attestation verify` arguments as the app's updater),
+  unpacks with `ditto`, checks `codesign --verify --deep --strict` with the identifier `com.projectman.engine-app`,
+  `CFBundleVersion` and the bundled `engine-package.json` commit, copies the app into `~/Applications` under a
+  temporary name and only then removes `com.apple.quarantine` (`xattr -dr`) when the copy carries it, and renames
+  it. **Machine assumptions:** macOS 13+ on arm64; Apple's own tools from `/usr/bin` (the script resets its PATH,
+  because a Homebrew `xattr` of the same name has no `-r`); the user's `gh` 2.49+ logged in (found on the caller's
+  PATH or in `/opt/homebrew/bin`, `/usr/local/bin`); network to github.com; write access only to `$HOME/Applications`
+  and `$TMPDIR`, no `sudo`. The ad-hoc app is otherwise stopped by Gatekeeper when a browser, AirDrop or a sandboxed
+  AI host left the quarantine on it. **Remote engine:** runs only on the friend's Mac, before any engine exists;
+  nothing crosses the server/engine boundary. The installed app then follows **Engine menu bar app** and
+  **Engine app package**. With a Developer ID release the quarantine step becomes unnecessary (an owner decision,
+  not taken). **Module:** `deploy`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`

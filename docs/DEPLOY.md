@@ -530,6 +530,40 @@ Test the Swift core with
 `swift test --package-path deploy/mac/menubar`; the Node fixture guard checks the CLI contract. Native
 screenshots, Login Items approval and VoiceOver checks require the logged-in Mac desktop.
 
+### Installing a release on another Mac (PM-1425)
+
+The release app is signed ad hoc. A copy that a browser, AirDrop or a sandboxed AI host marked with
+`com.apple.quarantine` does not open (Gatekeeper); `curl`, `gh` and `ditto` downloads are not marked. The checked
+install path is `deploy/mac/install-engine-app.sh`, taken from the release tag and read before it runs (never
+`curl | sh`):
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/janoist1/projectman/<tag>/deploy/mac/install-engine-app.sh
+sh install-engine-app.sh --tag <tag>
+# or, for a manifest and zip downloaded by hand from the release page:
+sh install-engine-app.sh --tag <tag> --zip ~/Downloads/projectman-motor.zip --manifest ~/Downloads/projectman-motor.json
+```
+
+It needs Apple Silicon, macOS 13+ and the user's `gh` 2.49+ logged in (`gh auth login`, once, by the user). In
+order, every failure printing `REFUSED [code]` and installing nothing: the machine (`unsupported_os`,
+`unsupported_arch`, `gh_missing`, `gh_outdated`, `gh_not_logged_in`); the download into a new temporary folder
+(`download_failed`); the manifest: schemaVersion 1, the requested tag, arm64 (`manifest_invalid`); the zip's size
+and SHA-256 against the manifest (`size_mismatch`, `sha256_mismatch`); `gh attestation verify` of the zip and the
+manifest with the updater's arguments (`--repo janoist1/projectman --signer-workflow
+janoist1/projectman/.github/workflows/projectman-engine-release.yml --source-ref refs/heads/main
+--deny-self-hosted-runners`, `attestation_invalid`); `ditto -x -k` into a new folder holding exactly the app
+(`unpack_failed`, `unpack_invalid`); `codesign --verify --deep --strict` with the identifier
+`com.projectman.engine-app` (`signature_invalid`), `CFBundleVersion` and the bundled engine's commit
+(`version_mismatch`). Only then is the app copied to `~/Applications` under a temporary name, the quarantine
+removed from the copy if it has one (`xattr -dr com.apple.quarantine`, printed), and the copy renamed to
+`projectman motor.app` (an earlier copy there is replaced). The trust anchor is the attestation; the SHA-256 only
+ties the zip to the manifest. No `sudo`; nothing is written outside the home and the temporary folder.
+
+The last lines say how to start the app (`open ~/Applications/projectman\ motor.app`, or a double-click in Finder
+when the caller may not run `open`) and what the user clicks on first launch (the command line tools, the
+background item in Login Items); the app then continues as in "First launch" above. With a Developer ID release
+(an owner decision, yearly fee) the quarantine step becomes unnecessary and the updater moves to `team` trust.
+
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,

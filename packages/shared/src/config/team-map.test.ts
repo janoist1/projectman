@@ -38,6 +38,7 @@ describe('teamMap', () => {
     expect(map.stages[1]!.owners.length).toBeGreaterThan(0);
     expect(map.stages.map((entry) => entry.humanDecides)).toEqual([false, false, true, true, false]);
     expect(map.stages.map((entry) => entry.nextStageId)).toEqual(['dev', 'check', 'release', 'done', null]);
+    expect(map.stages.map((entry) => entry.smallCards)).toEqual([null, null, null, null, null]);
     expect(map.stages[2]!.approvals).toEqual(['approved']);
     expect(map.refinement).toBeNull();
   });

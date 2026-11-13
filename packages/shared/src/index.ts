@@ -51,6 +51,7 @@ export * from './config/schema';
 export * from './config/senior';
 export * from './config/session-policy';
 export * from './config/shell-publishing';
+export * from './config/small-cards-warnings';
 export * from './config/stage-owner-pick';
 export * from './config/start-block';
 export * from './config/super-command';

@@ -1248,3 +1248,37 @@ describe('the timeline in English (PM-1180)', () => {
     expect(row(30)).toContain('30 minutes');
   });
 });
+
+describe('the owner pick of a stage move (PM-1378)', () => {
+  const moved = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'task_stage_changed',
+    data: { from: 'dev', to: 'qa', ...data },
+  });
+
+  it('adds a second line with the owners and the reason', () => {
+    const described = describeEvent(
+      moved({ ownerPick: { small: true, reason: { code: 'small', points: 2 }, owners: ['kata'] } }),
+      context,
+    );
+    expect(described.aside).toContain(t('task.ownerPick.small', { points: 2 }));
+  });
+
+  it('adds no line to an event recorded before the rule, or with a reason this build does not know', () => {
+    expect(describeEvent(moved({}), context).aside).toBeUndefined();
+    const unknown = { small: true, reason: { code: 'from_the_future' }, owners: ['kata'] };
+    expect(describeEvent(moved({ ownerPick: unknown }), context).aside).toBeUndefined();
+  });
+
+  it('tells that a new commit gave the card back to the stage’s own owners', () => {
+    const described = describeEvent(
+      {
+        ...creation,
+        type: 'task_updated',
+        data: { stageOwnerPick: { reason: { code: 'no_points' }, owners: ['kata'] } },
+      },
+      context,
+    );
+    expect(described.text).toContain(t('task.ownerPick.no_points'));
+  });
+});

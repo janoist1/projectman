@@ -3384,6 +3384,18 @@ export const hu = {
     repoNone: 'nincs repó kiválasztva',
     workspaceRoot: 'munkaterület gyökere',
     next: 'Következik',
+    /** Why the stage gave the card to those who carry it (PM-1378): a line under the state of the card, and in the timeline. */
+    ownerPick: {
+      small: 'Kis kártya: {points} pont, nem érint központi fájlt.',
+      no_points: 'Nincs pontszáma, ezért nem számít kis kártyának.',
+      over_limit: '{points} pontos, a kis kártyák határa {maxPoints} pont.',
+      central_files: 'Központi fájlt érint:',
+      central_more: '(és még {count})',
+      no_branch: 'Nincs átadott ága, ezért nem dönthető el, érint-e központi fájlt.',
+      unreadable: 'A módosított fájlok nem olvashatók, ezért a lépés gazdái kapták.',
+      small_owner_is_author: 'A kis kártyák gazdája a kártya fejlesztője, ezért a lépés gazdái kapták.',
+      small_owners_on_leave: 'A kis kártyák gazdái szabadságon vannak, ezért a lépés gazdái kapták.',
+    },
     nextStageNoOwner: '{stage}',
     lastStage: 'Ez az utolsó lépés.',
     notFound: 'Nincs ilyen kártya: {key}',
@@ -3472,6 +3484,7 @@ export const hu = {
       loop: 'Javítandó: a munka visszamegy a fejlesztőhöz ({stage}) · határ: {limit} kör',
       noOwner: 'nincs gazdája',
       ownersMore: '{names} és még {count}',
+      smallCards: 'kis kártyák ({points} pontig): {names}',
       ownerCount: '{count} tag',
       refine: 'Kidolgozás itt:',
       refineOneAtATime: '· egyszerre egy tag',
@@ -6093,6 +6106,8 @@ export const hu = {
       },
       merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
+      owner_pick: '{names} kapta. {reason}',
+      owner_repick: 'Új commit után a lépés gazdáihoz került: {names}. {reason}',
       task_stage_changed_parts_closed:
         'Lezárta: {from} → {to}, kapuk nélkül, mert minden alkártyája lezárult ({parts})',
       task_stage_changed_parts_closed_by:
@@ -7603,6 +7618,41 @@ export const hu = {
         releaseRule:
           'Élesítés előtt mindig emberi jóváhagyás kell: a kapuba olyan címke kerül, amelyet csak a „Kiadás jóváhagyása” feladatkör tagjai tehetnek fel, minden kártyán.',
         details: 'Részletek',
+        smallRule: {
+          toggle: 'A kis kártyáknak külön gazdája van',
+          intro:
+            'A kis kártyákat, amelyek nem érintenek központi fájlt, más gazda kapja. A többi a fenti gazdáknál marad.',
+          group: 'Kis kártya',
+          pointsBefore: 'Kis kártya: legfeljebb',
+          pointsAfter: 'pontos',
+          owners: 'Gazdája',
+          paths: 'Központi fájlok',
+          pathsHelp:
+            'Soronként egy minta, a tároló gyökeréhez képest (a ** bármilyen mélyen). Ha a kártya ága ezek közül akár egyet is módosít, a fenti gazdák kapják.',
+          summarySmall: '{points} pontig, központi fájl nélkül → {names}',
+          summaryNobody: '{points} pontig, központi fájl nélkül → még nincs gazda',
+          summaryOthers: 'Minden más kártya → {names}',
+          whenTitle: 'Mikor kapják mégis a fenti gazdák?',
+          whenPoints: 'Nincs pontszáma, vagy több, mint a határ.',
+          whenFiles:
+            'Az ága központi fájlt módosít, még nincs átadott ága, vagy a módosított fájlok nem olvashatók.',
+          whenAuthor: 'A kis kártyák minden gazdája a kártya fejlesztője, vagy szabadságon van.',
+          whenEntry:
+            'A pontszámot és a fájlokat a szabály akkor nézi meg, amikor a kártya belép ebbe a lépésbe; a határ és a minták módosítása az ezután belépő kártyákra vonatkozik. A kis kártyák gazdáinak cseréje viszont a lépésben már álló kis kártyákra is hat, a kikapcsolás pedig azokat is visszaadja a fenti gazdáknak.',
+          errors: {
+            noOwner: 'Válassz gazdát a kis kártyáknak.',
+            unknownOwner: '{handle} nem tagja a csapatnak.',
+            invalidPath:
+              'A {line}. sor nem érvényes minta: „{pattern}”. A tároló gyökeréhez képest add meg, perjel nélkül az elején, ‹.› és ‹..› nélkül.',
+            tooManyPaths: 'Legfeljebb 50 minta adható meg.',
+          },
+          warnings: {
+            cannotSetLabel:
+              '{name} nem teheti fel a(z) {label} címkét, így nem tudná továbbengedni a kártyát.',
+            labelSetters: 'Címke beállítói',
+            onLeave: '{name} szabadságon van: a kis kártyák a fenti gazdákhoz mennek, amíg vissza nem tér.',
+          },
+        },
       },
     },
     team: {

@@ -63,7 +63,7 @@ export class CardQuestions {
 }
 
 /**
- * Waits for an answer: still with a person or the Operator, or passed on to a member by the Operator
+ * Waits for an answer: still with a person or the project manager, or passed on to a member by the project manager
  * (PM-558), whose answer comes as a message, not on the question.
  */
 function stillOpen(item: InboxItem): boolean {

@@ -22,8 +22,8 @@ interface ToolResult {
   isError?: boolean;
 }
 
-/** The Operator tools the super mode got on the bearer endpoint (PM-784). */
-describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
+/** The tools the connected Claude's super mode got on the bearer endpoint (PM-784). */
+describe('the bearer MCP endpoint: the super-mode tools of the connected Claude (PM-784)', () => {
   let h: AppHarness;
   let cookie: string;
   let now: Date;

@@ -37,7 +37,7 @@ export interface ProjectManagerDiagnosticSources {
   machine(session: Session | undefined): Promise<ProjectManagerDiagnostics['machine']>;
 }
 
-/** The sessions the Operator looks at, stops and wakes (SessionOrchestrator). */
+/** The sessions the project manager looks at, stops and wakes (SessionOrchestrator). */
 export interface ProjectManagerSessions {
   find(sessionId: string): Session | null;
   get(projectKey: string, sessionId: string): Session;
@@ -74,13 +74,13 @@ export interface WaitingStarts {
   /** The member queue's wake-ups that wait for a code a start can wait for (PM-925). */
   queueWaits(): readonly { projectKey: string; taskKey: string | null; waiting: TaskStartWaiting }[];
 }
-/** Who pauses or resumes a project through the Operator: a person's approval in the app. */
+/** Who pauses or resumes a project through the project manager: a person's approval in the app. */
 export interface ProjectManagerPauseRequester {
   check?: () => void;
   userId: string | null;
   source: 'app';
 }
-/** Pauses (PauseService in runtime/sessions); the Operator pauses and resumes one project. */
+/** Pauses (PauseService in runtime/sessions); the project manager pauses and resumes one project. */
 export interface ProjectManagerPauses {
   projectView(projectKey: string): ProjectPauseView;
   pause(

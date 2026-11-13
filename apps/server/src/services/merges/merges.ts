@@ -414,7 +414,7 @@ export class Merges {
 
   /**
    * Puts the card's queued merge at the front of its repository's queue (PM-576). The card's merger, an owner and
-   * the Operator may decide it; the running merge is not interrupted. The merge gets `prioritized_at` (the queue
+   * the project manager may decide it; the running merge is not interrupted. The merge gets `prioritized_at` (the queue
    * orders by it first, the latest decision first), which is cleared when the merge starts running. Without a
    * queued merge nothing can move; when it is first already, nothing changes (`moved` false, no event).
    * While a slot holder is still durably queued, retry with `merge_queue_conflict`; the same revision
@@ -694,7 +694,7 @@ export class Merges {
     this.queue = this.makeQueue();
   }
 
-  /** The Operator's document writes share the repository's slot (PM-495): a merge waits while one runs, and it goes first when the slot frees. */
+  /** The project manager's document writes share the repository's slot (PM-495): a merge waits while one runs, and it goes first when the slot frees. */
   registerSlotPeer(peer: MergeSlotPeer): void {
     this.peer = peer;
   }

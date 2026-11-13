@@ -25,14 +25,14 @@ import type { SuperOperations } from './facade';
 import type { SuperExecution } from './index';
 
 /**
- * The in-app Operator on the shared super-operation path (decision 55, PM-888). It acts as the project's
- * Operator with the owner's rights, through the same checks, audit and executors as a super-mode key, but no
- * stored key stands behind it: its credential is the Operator session itself (`operator-app`, the session's id),
+ * The in-app project manager on the shared super-operation path (decision 55, PM-888). It acts as the project's
+ * project manager with the owner's rights, through the same checks, audit and executors as a super-mode key, but no
+ * stored key stands behind it: its credential is the project manager session itself (`operator-app`, the session's id),
  * and it is valid only while that session answers an owner's open request.
  */
 
 /**
- * The request id of an operation the Operator starts: the same `requestKey` in the same Operator request is the
+ * The request id of an operation the project manager starts: the same `requestKey` in the same project manager request is the
  * same operation. A UUID v8 (RFC 9562) made of the first 16 bytes of the SHA-256 of both.
  */
 export function appRequestId(operatorRequestId: string, requestKey: string): string {
@@ -43,7 +43,7 @@ export function appRequestId(operatorRequestId: string, requestKey: string): str
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Whether an operation was started by the in-app Operator: its audit entries carry the `operator-app` prefix. */
+/** Whether an operation was started by the in-app project manager: its audit entries carry the `operator-app` prefix. */
 export function isAppOperation(ctx: DomainContext, operation: SuperOperation): boolean {
   return ctx.repos.superAudit
     .ofRequest(operation.projectKey, operation.requestId)
@@ -51,7 +51,7 @@ export function isAppOperation(ctx: DomainContext, operation: SuperOperation): b
 }
 
 /**
- * The live check of an app principal: the session runs, it is the project's Operator in its own general
+ * The live check of an app principal: the session runs, it is the project's project manager in its own general
  * conversation (not a guest's), and it has a request to act on: an owner request is open, or (PM-1287) the PM
  * acts on its own authority.
  */
@@ -83,7 +83,7 @@ export function createProjectManagerAppSessions(deps: {
 interface ProjectManagerAppCredentials {
   /** What every consumer of the shared path asks: keys go to the stored-key authority, app principals to the sessions. */
   authority: IntegratorCredentialAuthority;
-  /** The principal of a live Operator session; null when the project has no owner with an account. */
+  /** The principal of a live project manager session; null when the project has no owner with an account. */
   issue(config: ProjectConfig, sessionId: string, member: string): IntegratorPrincipal | null;
   /**
    * The principal that continues an operation after the owner's yes: it needs no live session, because the
@@ -145,7 +145,10 @@ export function createProjectManagerAppCredentials(deps: {
       assertActive(principal) {
         if (principal.source === 'app') {
           if (!live.has(principal) || (!approved.has(principal) && !deps.sessions.active(principal)))
-            throw forbidden('insufficient_access', 'the Operator has no open owner request to act for');
+            throw forbidden(
+              'insufficient_access',
+              'the project manager has no open owner request to act for',
+            );
           return;
         }
         if (!deps.base) throw forbidden('insufficient_access', 'credential verification is unavailable');
@@ -180,7 +183,7 @@ export function createProjectManagerAppCredentials(deps: {
   };
 }
 
-/** What the Operator starts, as the shared path takes it. */
+/** What the project manager starts, as the shared path takes it. */
 interface AppOperationInput {
   requestId: string;
   taskKey?: string | undefined;
@@ -188,7 +191,7 @@ interface AppOperationInput {
 }
 
 /**
- * Runs the Operator's commands on the shared path, as the project's Operator with the owner's rights: the
+ * Runs the project manager's commands on the shared path, as the project's project manager with the owner's rights: the
  * principal is bound to the owner's access now, the execution is audited like a key's, and `operate` does the
  * rest (K3 effects wait for the owner's yes).
  */
@@ -228,7 +231,7 @@ export function createProjectManagerAppOperations(deps: {
     );
   };
   return {
-    /** Starts a command for the Operator session's open request. */
+    /** Starts a command for the project manager session's open request. */
     async execute(projectKey: string, sessionId: string, input: AppOperationInput): Promise<SuperOperation> {
       const config = await deps.projects.config(projectKey);
       const session = deps.ctx.repos.sessions.get(sessionId);

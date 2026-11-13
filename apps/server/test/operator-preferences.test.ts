@@ -46,7 +46,7 @@ function people(config: ProjectConfig) {
   config.team.contacts = ['pm'];
 }
 
-describe('personal Operator preference authorization', () => {
+describe('personal project manager preference authorization', () => {
   let h: DomainHarness;
   beforeEach(async () => {
     h = await createDomainHarness({ adjust: people });

@@ -378,10 +378,10 @@ export interface DomainOptions {
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
   projectManagerSignalMs?: number;
-  /** How often the questions the Operator screens are looked at for the fallback (default 30 s, PM-558). */
+  /** How often the questions the project manager screens are looked at for the fallback (default 30 s, PM-558). */
   questionScreeningMs?: number;
   /**
-   * Whether the Operator screens AI members' questions first (default true, PM-558). False sends every
+   * Whether the project manager screens AI members' questions first (default true, PM-558). False sends every
    * question to the people at once; for tests that are not about screening.
    */
   screenQuestions?: boolean;
@@ -853,7 +853,7 @@ export function createDomain(opts: DomainOptions) {
     engines,
     retryDebounceMs: opts.retryDebounceMs,
   });
-  // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
+  // The project manager's request ends with its turn. Registered before the delivery's idle listener below, so
   // the owner's next message opens a new request after this one closed, not before.
   events.on('session_idle', (session) => projectManagerRequests.closeForSession(session.id));
   events.on('session_ended', (session) => projectManagerRequests.closeForSession(session.id));
@@ -1247,7 +1247,7 @@ export function createDomain(opts: DomainOptions) {
           external: {
             // A queued bearer-MCP write goes on under a fresh scope of its own key (PM-784); every check
             // below runs again at the worker's start and before the push, so a revoked key or a changed
-            // owner or Operator ends the write as failed (authorization_revoked).
+            // owner or connected Claude ends the write as failed (authorization_revoked).
             run: async (projectKey, origin, action) => {
               const credentials = opts.integratorCredentials!;
               const credential = connectedOriginOf(externalOriginActor(origin))!.credential;
@@ -1271,7 +1271,7 @@ export function createDomain(opts: DomainOptions) {
                   );
                 const bound = await superExecution.access(context, owner, 'write');
                 if (bound.superActor?.handle !== origin.actor.handle)
-                  throw forbidden('integrator_not_allowed', 'the project’s Operator changed');
+                  throw forbidden('integrator_not_allowed', 'the project’s connected Claude changed');
               };
               return superExecution.run(context, () => action(assertActive));
             },
@@ -1634,7 +1634,7 @@ export function createDomain(opts: DomainOptions) {
     questionScreening,
     openQuestionLabel,
   });
-  // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
+  // The in-app project manager's super-operation path (PM-888) is composed below, after the tools that use it.
   let superPath: { operations: ProjectManagerAppOperations; direct: SuperOperations } | null = null;
   const hostRequests = createHostRequestsService({
     ctx,
@@ -2016,7 +2016,7 @@ export function createDomain(opts: DomainOptions) {
   superPath = { operations: appOperations, direct: superOperations };
   superHandoffs.registerAppResume(appOperations.resume);
   inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
-  // The owner's yes on an in-app Operator's operation: the Operator's turn may be over, so the server goes on
+  // The owner's yes on an in-app project manager's operation: the project manager's turn may be over, so the server goes on
   // by itself, after the answer is committed (PM-888). A refusal leaves the operation as it is and is logged.
   events.on('inbox_resolved', (item) => {
     const bound = questionPayloadOf(item)?.superOperation;
@@ -2460,7 +2460,7 @@ export function createDomain(opts: DomainOptions) {
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
       await messageAttachments.recover();
-      // The member queue holds an item for every pending message and Operator todo (PM-894).
+      // The member queue holds an item for every pending message and project manager todo (PM-894).
       await memberQueue.recover();
       // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
       if (opts.standby) {
@@ -2482,7 +2482,7 @@ export function createDomain(opts: DomainOptions) {
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
       computeJobs.init();
-      // The Operator's document writes the last server left are resumed before the merges queue starts.
+      // The project manager's document writes the last server left are resumed before the merges queue starts.
       await docWrites.init();
       await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
@@ -2588,7 +2588,7 @@ export function createDomain(opts: DomainOptions) {
             run: () => projectManagerSignals.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
           },
-          // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+          // The project manager looks at the AI members' questions first; the ones it does not settle in time go to the
           // people (PM-558). A question that waited through a restart is looked at now.
           {
             name: 'question-screening',

@@ -437,7 +437,7 @@ export interface ReleaseStatus {
   }[];
 }
 
-/** What became of the Operator's start of a member on work without a card (PM-541). */
+/** What became of the project manager's start of a member on work without a card (PM-541). */
 export interface MemberStartResult {
   messageId: string;
   /** The member's line as send_message gives it, with `start` (PM-543). */
@@ -542,7 +542,7 @@ export interface AttachmentToolsHandler {
   ): Promise<LocatedAttachmentForTool>;
   /**
    * read_message_attachment: the content of a file attached to a team message, judged through the
-   * calling member's eyes (in a guest conversation of the Operator, through the guest's): a file of
+   * calling member's eyes (in a guest conversation of the project manager, through the guest's): a file of
    * a message they cannot see is not found, whoever uploaded it.
    */
   readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
@@ -567,7 +567,7 @@ export interface MergeToolsHandler {
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }>;
   /**
-   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * prioritize_merge (PM-576): the card's merger or the project manager puts the card's merge at the front of its
    * repository's queue, with the reason; `moved` is false when it was first already.
    */
   prioritizeMerge(
@@ -860,7 +860,7 @@ export interface InboxToolsHandler {
       details?: string;
       /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
       attachmentIds?: string[];
-      /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
+      /** The earlier question the project manager settled, and why a person must see this one (PM-558); only together. */
       reaskOf?: string;
       reaskReason?: string;
       /** The open system signal this question is about (PM-455); only the coordinator the signal was delivered to. */
@@ -875,12 +875,12 @@ export interface InboxToolsHandler {
     inboxItemId: string;
     approvalLabel?: string;
     attachments?: QuestionAttachment[];
-    /** An AI member's question waits for the Operator's screening before the people see it (PM-558). */
+    /** An AI member's question waits for the project manager's screening before the people see it (PM-558). */
     screening?: true;
   }>;
   /**
    * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
-   * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
+   * project manager for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
    * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
    * `question_closed` (it is not pending any more).
    */
@@ -1002,12 +1002,12 @@ export interface SystemFeedbackToolRow {
   last_seen_at: string;
 }
 
-/** The tools of services/feedback/system (PM-472, PM-479). Only the Operator calls them. */
+/** The tools of services/feedback/system (PM-472, PM-479). Only the project manager calls them. */
 export interface SystemFeedbackToolsHandler {
   /** list_system_feedback: the project's own items in any state, the latest 50. A look; needs no open request. */
   listSystemFeedback(ctx: ToolContext): Promise<{ items: SystemFeedbackToolRow[] }>;
   /**
-   * record_system_feedback: a gap in projectman the Operator worked around. `sameAs` adds an occurrence to an
+   * record_system_feedback: a gap in projectman the project manager worked around. `sameAs` adds an occurrence to an
    * item of this project instead of opening a new one.
    */
   recordSystemFeedback(
@@ -1020,7 +1020,7 @@ export interface SystemFeedbackToolsHandler {
 export interface ProjectDocToolsHandler {
   /**
    * read_project_doc (PM-495, PM-1004): decisions, roadmap or lessons on the default branch, in lines.
-   * Only the Operator; needs no open request. Lessons also allow its verified processing queue.
+   * Only the project manager; needs no open request. Lessons also allow its verified processing queue.
    */
   readProjectDoc(
     ctx: ToolContext,
@@ -1028,7 +1028,7 @@ export interface ProjectDocToolsHandler {
   ): Promise<ProjectDocRead>;
   /**
    * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
-   * branch, at most two files. Only the Operator in its internal conversation: lessons-only needs no
+   * branch, at most two files. Only the project manager in its internal conversation: lessons-only needs no
    * owner request (including its verified queue); other or mixed edits require an open owner request.
    */
   writeProjectDocs(
@@ -1041,12 +1041,12 @@ export interface ProjectDocToolsHandler {
   ): Promise<ProjectDocWrite>;
   /**
    * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
-   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   * project manager, not in guest conversations; needs no open request. Counts as a look.
    */
   listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
   /**
    * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
-   * Operator, in the owner's own conversation, during an open owner request.
+   * project manager, in the owner's own conversation, during an open owner request.
    */
   markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
 }
@@ -1087,9 +1087,9 @@ export interface ProjectManagerToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },
   ): Promise<ProjectManagerDiagnostics>;
-  /** get_checklist (PM-977): the Operator and the PM, internal general session, never a guest. */
+  /** get_checklist (PM-977): the project manager and the PM, internal general session, never a guest. */
   getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
-  /** update_checklist (PM-977): the Operator only, internal general session; needs no owner request. */
+  /** update_checklist (PM-977): the project manager only, internal general session; needs no owner request. */
   updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult>;
   getProjectManagerKnowledge(ctx: ToolContext): Promise<ProjectManagerKnowledgeDocument>;
   proposeProjectManagerKnowledge(
@@ -1122,7 +1122,7 @@ export interface ProjectManagerToolsHandler {
     deduplicated?: true;
   }>;
   /**
-   * execute_operation (PM-888): the Operator starts one command on the shared super-operation path, as itself,
+   * execute_operation (PM-888): the project manager starts one command on the shared super-operation path, as itself,
    * during an open owner request in its own general conversation. A K3 effect waits for the owner's own yes and
    * goes on by itself after it. The same `requestKey` in the same request is the same operation; `operate` and
    * `member_update` commands are `super_operation_unsupported`.
@@ -1179,10 +1179,10 @@ export interface ProjectManagerToolsHandler {
     args: { taskKey: string; reason: string },
   ): Promise<{ task_key: string; status: string }>;
   /**
-   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * screen_question (PM-558): the project manager settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
    * `decision` or a `todo` (with the todo's fields). `note` is always the reason. A decision and an owner's
-   * todo name the project's owner topic (`ownerTopic`, PM-1190). Only the Operator, not in a guest
+   * todo name the project's owner topic (`ownerTopic`, PM-1190). Only the project manager, not in a guest
    * conversation; needs no open request.
    */
   screenQuestion(
@@ -1258,7 +1258,7 @@ export interface ProjectManagerToolsHandler {
 export interface ExternalToolContext {
   principal: IntegratorPrincipal;
   projectKey: string;
-  /** The actor every change is recorded as: the Operator-bound super actor, or the owner via the key. */
+  /** The actor every change is recorded as: the super actor bound to the connected Claude, or the owner via the key. */
   actor: Actor;
   requestId: string;
 }
@@ -1323,7 +1323,7 @@ export interface ExternalToolsHandler {
     request: SuperOperateRequest,
   ): Promise<{ operation: SuperOperation }>;
   getSuperOperation(ctx: ExternalToolContext, operationId: string): Promise<SuperOperationDetail>;
-  /** run_compute_job (PM-1148): the same as the member tool, as the integrator or the Operator. */
+  /** run_compute_job (PM-1148): the same as the member tool, as the integrator or the project manager. */
   runComputeJob(ctx: ExternalToolContext, args: RunComputeJobArgs): Promise<ComputeJobRunView>;
   getComputeJob(ctx: ExternalToolContext, args: { id: string }): Promise<ComputeJobRunView>;
   listComputeJobs(ctx: ExternalToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
@@ -1357,7 +1357,7 @@ export interface ExternalToolsHandler {
     requestId: string,
     args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
-  /** The global Operator's own knowledge (PM-1046): one document for the whole instance, no project. */
+  /** The global project manager's own knowledge (PM-1046): one document for the whole instance, no project. */
   getInstanceKnowledge(
     principal: IntegratorPrincipal,
     requestId: string,
@@ -1389,12 +1389,12 @@ export interface ExternalToolsHandler {
   /** search_history for the integrator's bound access (PM-787); the same result as the member tool. */
   searchHistory(ctx: ExternalToolContext, args: HistorySearchInput): Promise<HistorySearchResult>;
   readHistorySource(ctx: ExternalToolContext, args: HistorySourceReadArgs): Promise<HistorySourceRead>;
-  /** read_project_doc (PM-784): the Operator's document read; super and read keys. */
+  /** read_project_doc (PM-784): the connected Claude's document read; super and read keys. */
   readProjectDoc(
     ctx: ExternalToolContext,
     args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
   ): Promise<ProjectDocRead>;
-  /** write_project_docs (PM-784): super keys only; the append-only document rules apply as for the Operator. */
+  /** write_project_docs (PM-784): super keys only; the append-only document rules apply as for the connected Claude. */
   writeProjectDocs(
     ctx: ExternalToolContext,
     args: {

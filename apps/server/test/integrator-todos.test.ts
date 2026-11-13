@@ -427,7 +427,7 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect(await refusal(resolve(item.id))).toBe('owner_approval_required');
   });
 
-  it('does not escalate a todo to the owners after a day: the Operator’s queue has no timeout', async () => {
+  it('does not escalate a todo to the owners after a day: the project manager’s queue has no timeout', async () => {
     const item = await opened();
     now = new Date(now.getTime() + 86_400_000);
     await resolve(item.id);

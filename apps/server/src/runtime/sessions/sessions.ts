@@ -1231,7 +1231,7 @@ export class SessionOrchestrator {
   /**
    * The audited override of an unresolved process-scope cleanup (PM-935): the record is closed and the
    * workspaces it reserves are freed although the engine could not prove that every process stopped.
-   * Who did it and why stays on the timeline; the Operator signal of the scope is closed by the event.
+   * Who did it and why stays on the timeline; the project manager signal of the scope is closed by the event.
    */
   releaseCleanupScope(projectKey: string, scopeId: string, release: { actor: Actor; reason: string }): void {
     const record = this.cleanupFailures.find(projectKey, scopeId);

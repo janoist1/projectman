@@ -111,7 +111,7 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   start_failing: 'The session starts keep failing; no more automatic tries until someone acts.',
 };
 
-/** State codes stay English; the Operator explains them in the project's language. */
+/** State codes stay English; the project manager explains them in the project's language. */
 export function formatProjectState(
   report: TaskStateReport | ProjectStateReport | MessageStateReport,
 ): string {
@@ -166,7 +166,7 @@ export function formatProjectState(
   }
   return [
     `Pause: project ${report.paused.project}; instance ${report.paused.instance}.`,
-    `Operator watch: ${report.operatorWatch}.`,
+    `Project manager watch: ${report.operatorWatch}.`,
     'Cards by stage:',
     ...report.stages.map((s) => `- ${s.stageId}: ${s.count}`),
     'Live and idle sessions:',

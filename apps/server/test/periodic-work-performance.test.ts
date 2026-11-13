@@ -105,7 +105,7 @@ function* tasks(history: number, active: boolean): Generator<Task> {
 }
 
 /**
- * PM-771: the same current 7-day evidence at every scale (the Operator signals and the structural
+ * PM-771: the same current 7-day evidence at every scale (the project manager signals and the structural
  * report read it): one family per project whose three subtasks close inside the window, with a few
  * more structural events. It does not change with the history, so any growth of the walk shows up.
  */
@@ -162,7 +162,7 @@ function currentEvidence(): { tasks: Task[]; events: TimelineEvent[] } {
 }
 
 function configure(config: ProjectConfig) {
-  // Preserve the template's fixed Operator and other required roles: twelve AI members per project.
+  // Preserve the template's fixed project manager and other required roles: twelve AI members per project.
   const defaults = config.team.members.find((m) => m.kind === 'ai')!;
   config.team.members.push(
     ...EXTRA_HANDLES.map((handle, i) => ({

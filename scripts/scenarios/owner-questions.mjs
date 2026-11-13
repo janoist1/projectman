@@ -1,5 +1,5 @@
 /**
- * Screenshots for PM-1192 (docs/SCREENSHOTS.md): the weekly question measure in the Operator panel: its entry,
+ * Screenshots for PM-1192 (docs/SCREENSHOTS.md): the weekly question measure in the project manager panel: its entry,
  * an opened week and an opened zero week, loading, empty, the failures, no access, the method, the focus after
  * going back, and the dark theme.
  *
@@ -112,7 +112,7 @@ export default async ({ open, shoot, step }) => {
   };
   const week = (page, index) => panel(page).locator('details > summary').nth(index);
 
-  await step('a. the entry in the Operator panel', async () => {
+  await step('a. the entry in the project manager panel', async () => {
     const page = await openPanel();
     await entry(page).waitFor();
     await shoot(page, 'a-entry', { widths: WIDTHS });

@@ -30,7 +30,7 @@ export class HistoryTools implements HistoryToolsHandler {
 
   /**
    * Who searches, and in which project. A native AI session is bound to its project and handle: another project
-   * is refused, even for the same handle. The Operator in a conversation with someone who is not an owner reads
+   * is refused, even for the same handle. The project manager in a conversation with someone who is not an owner reads
    * with that person's own view; a person who left the team sees nothing (the facade refuses them).
    */
   private async viewerOf(

@@ -43,7 +43,7 @@ const toEntry = (r: AuditRow): StoredSuperAudit => ({
 });
 
 /**
- * The audit of the Operator's super mode (PM-757), append-only: there is no update or delete. Entries are
+ * The audit of the connected Claude's super mode (PM-757), append-only: there is no update or delete. Entries are
  * ordered by the internal `seq`, never by time, so the order survives equal timestamps.
  */
 export function createSuperAuditRepository(db: Db) {

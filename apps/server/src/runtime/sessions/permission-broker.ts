@@ -74,7 +74,7 @@ export function createPermissionBroker(deps: {
   async function decide(request: PermissionRequestInfo, signal: AbortSignal): Promise<PermissionDecision> {
     const session = ctx.repos.sessions.get(request.sessionId);
     if (!session) return { behavior: 'deny', message: 'Unknown session.' };
-    // The Operator's conversation with someone who is not an owner has the team tools alone (PM-475):
+    // The project manager's conversation with someone who is not an owner has the team tools alone (PM-475):
     // anything else is refused at once, and never becomes an item for the owner to approve.
     if (session.workItem.type === 'general' && session.workItem.with !== undefined) {
       refused(session, {

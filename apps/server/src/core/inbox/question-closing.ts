@@ -4,7 +4,7 @@ import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
 
 /**
- * Closes a member's pending question (open, or with the Operator for screening) when nothing is left to
+ * Closes a member's pending question (open, or with the project manager for screening) when nothing is left to
  * answer (PM-556): the card is done or cancelled, or the member who asked no longer holds it. The close
  * goes through `InboxService.closeQuestion`, which records the rule, writes the timeline, takes
  * `waiting-answer` off and tells the asking member's running session. The end of a session is no reason:

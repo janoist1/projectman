@@ -90,7 +90,7 @@ const resolve = (id: string, optionId = 'approve', by = owner) =>
 const document = () => h.domain.projectManagerKnowledge.readKnowledge('AR');
 const payload = (id: string) => projectManagerKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
-describe('owner-approved Operator knowledge', () => {
+describe('owner-approved project manager knowledge', () => {
   it('does not load or lock projects without pending knowledge approvals during recovery', async () => {
     await setup();
     const lock = vi.spyOn(h.domain.projects, 'withConfigurationLock');

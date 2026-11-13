@@ -63,7 +63,7 @@ afterEach(async () => {
 const read = (limit?: number) =>
   h.domain.teamTools.getProjectManagerDiagnostics(context(), { taskKey: 'AR-1', limit });
 
-describe('filtered Operator diagnostics', () => {
+describe('filtered project manager diagnostics', () => {
   it('preserves percentage units and the actual sample time, and survives a measurement error', async () => {
     await setup({ freeDiskBytes: async () => 4096 });
     expect((await read()).machine).toBeNull();

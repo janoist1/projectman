@@ -288,28 +288,31 @@ describe('credential REST and domain access (PM-759)', () => {
   it.each([
     { source: 'dev-1', payload: { superOperation: null } },
     { source: 'dev-1', payload: { operatorApproval: null } },
-  ])('refuses an Operator decision on a protected item: $source $payload', async ({ source, payload }) => {
-    const { headers } = await credential('super');
-    const { domain } = h.app.projectman;
-    const item = domain.inbox.create({
-      projectKey: 'AR',
-      kind: 'question',
-      source,
-      assignees: ['owner'],
-      title: 'Protected question',
-      payload: { question: 'May I proceed?', responsePurpose: 'owner_decision', ...payload },
-      options: [{ id: 'answer', label: 'answer', style: 'primary' }],
-    });
-    const response = await h.app.inject({
-      method: 'POST',
-      url: routes.resolveInbox('AR', item.id),
-      headers,
-      payload: { optionId: 'answer', note: 'Proceed' },
-    });
-    expect(response.statusCode, response.body).toBe(403);
-    expect(response.json().error.code).toBe('owner_approval_required');
-    expect(domain.inbox.get('AR', item.id).state).toBe('open');
-  });
+  ])(
+    'refuses a connected Claude decision on a protected item: $source $payload',
+    async ({ source, payload }) => {
+      const { headers } = await credential('super');
+      const { domain } = h.app.projectman;
+      const item = domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source,
+        assignees: ['owner'],
+        title: 'Protected question',
+        payload: { question: 'May I proceed?', responsePurpose: 'owner_decision', ...payload },
+        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+      });
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.resolveInbox('AR', item.id),
+        headers,
+        payload: { optionId: 'answer', note: 'Proceed' },
+      });
+      expect(response.statusCode, response.body).toBe(403);
+      expect(response.json().error.code).toBe('owner_approval_required');
+      expect(domain.inbox.get('AR', item.id).state).toBe('open');
+    },
+  );
 
   it('refuses the entire group when a protected approval is among its pending members', async () => {
     const { headers } = await credential('super');
@@ -387,7 +390,7 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(domain.inbox.get('AR', item.id).state).toBe('open');
   });
 
-  it('refuses an Operator proposal for a routine project pause', async () => {
+  it('refuses a connected Claude proposal for a routine project pause', async () => {
     const { headers } = await credential('super');
     const { domain } = h.app.projectman;
     const item = domain.inbox.create({
@@ -552,7 +555,7 @@ describe('credential REST and domain access (PM-759)', () => {
   );
 
   it.each(['own', 'super', 'read'] as const)(
-    '%s applies targeted Operator role and watch configuration through the existing PATCH',
+    '%s applies targeted project manager role and watch configuration through the existing PATCH',
     async (mode) => {
       const { domain } = h.app.projectman;
       const initial = await domain.projects.load('AR');
@@ -984,7 +987,7 @@ describe('credential REST and domain access (PM-759)', () => {
       url: routes.invitation('AR', invite.json().id),
       headers,
     });
-    // Direction and revoking an invitation are the Operator's own since PM-870.
+    // Direction and revoking an invitation are the connected Claude's own since PM-870.
     expect(revoke.statusCode, revoke.body).toBe(204);
     expect(domain.invitations.list('AR')[0]?.revokedAt).not.toBeNull();
     const relocation = await h.app.inject({

@@ -258,7 +258,7 @@ export class SessionLauncher {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
-    // The Operator's or the PM's conversation with someone who is not an owner (PM-475, PM-1080) runs on the
+    // The project manager's conversation with someone who is not an owner (PM-475, PM-1080) runs on the
     // team tools alone: no file or shell tools, an empty directory of its own, and every other tool refused.
     const guestOf = guestOfConversation(config, member, workItem);
     // Only the Claude Code adapter can leave a CLI with the team tools alone (`--tools` and deny rules);

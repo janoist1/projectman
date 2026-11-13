@@ -19,9 +19,11 @@ const projectKeySchema = ProjectConfig.shape.project.shape.key;
 const invalid = () =>
   new DomainError('operator_knowledge_invalid', 'Invalid operator knowledge data or file', { status: 409 });
 const stale = () =>
-  new DomainError('operator_knowledge_stale', 'Operator knowledge revision changed', { status: 409 });
+  new DomainError('operator_knowledge_stale', 'Project manager knowledge revision changed', { status: 409 });
 const limit = () =>
-  new DomainError('operator_knowledge_limit', 'Operator proposal marker limit reached', { status: 409 });
+  new DomainError('operator_knowledge_limit', 'Project manager proposal marker limit reached', {
+    status: 409,
+  });
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 /** The server owns the private root. Callers supply keys, never paths or access decisions. */
@@ -75,9 +77,13 @@ export function createProjectManagerKnowledgeStore(opts: { rootDir: string }): P
     } catch (error) {
       if (error instanceof DomainError) throw error;
       if (['ELOOP', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw invalid();
-      throw new DomainError('operator_knowledge_unavailable', 'Operator knowledge storage unavailable', {
-        status: 503,
-      });
+      throw new DomainError(
+        'operator_knowledge_unavailable',
+        'Project manager knowledge storage unavailable',
+        {
+          status: 503,
+        },
+      );
     }
   }
   async function read<T>(file: string, schema: ZodType<T>, empty: () => T): Promise<T> {

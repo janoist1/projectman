@@ -1,7 +1,7 @@
 # Team tools MCP server (`src/mcp`)
 
 Code names used here: the connected Claude is the `integrator` (key mode `super` or `read`), the project manager's
-internals are `operator…` (`operator_requests`, `operator_steps`, `OPERATOR_GUEST_TOOLS`); see "Code names" in
+internals are `operator…` (`operator_requests`, `operator_steps`, `PROJECT_MANAGER_GUEST_TOOLS`); see "Code names" in
 [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
@@ -336,7 +336,7 @@ outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/se
   is recorded as `task_updated` with `fields: ['repo']`, `repo` and `previousRepo`.
 - The project documents tools go through `core/documents` in the caller's name (viewer
   `ai`, actor `ai:<handle>`), so they follow the page's permission rules. They are not in
-  `OPERATOR_GUEST_TOOLS`: a project manager's guest conversation is refused by the caller check. An
+  `PROJECT_MANAGER_GUEST_TOOLS`: a project manager's guest conversation is refused by the caller check. An
   unknown `slug#section` is refused with the document's headings, a stale `base_version` with the
   current one; there is no delete tool. The document list at the start of a session is in the
   context pack (`documents`), without any text.

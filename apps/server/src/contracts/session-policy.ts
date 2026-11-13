@@ -59,7 +59,7 @@ export interface SessionPolicy {
     shell: ShellToolRule[];
   };
   /**
-   * The session works through the team tools alone (the Operator's conversation with someone who is not
+   * The session works through the team tools alone (the project manager's conversation with someone who is not
    * an owner, PM-475). The adapter then offers no other built-in tool, denies the file, shell and web
    * tools, and renders no allow rule for a directory or a command.
    */

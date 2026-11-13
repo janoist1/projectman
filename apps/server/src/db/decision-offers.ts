@@ -2,7 +2,7 @@ import type { Db } from './database';
 
 type DecisionVerdict = 'recorded' | 'declined' | 'skipped';
 
-/** What the owner said about one answered question the Operator offered as a decision (PM-496). */
+/** What the owner said about one answered question the project manager offered as a decision (PM-496). */
 interface DecisionOfferRecord {
   projectKey: string;
   itemId: string;
@@ -13,7 +13,7 @@ interface DecisionOfferRecord {
   decidedAt: string;
 }
 
-/** Where the candidate search of a project starts and when the Operator last looked. */
+/** Where the candidate search of a project starts and when the project manager last looked. */
 interface DecisionCandidateState {
   /** Answers at or before this are no candidates. */
   since: string;

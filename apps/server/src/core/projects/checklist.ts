@@ -60,7 +60,7 @@ export class ChecklistService {
     this.deps.ctx.bus.publish({ type: 'project_checklist_changed', projectKey: key });
   }
 
-  /** Every write uses the same validation, including writes by the Operator. */
+  /** Every write uses the same validation, including writes by the project manager. */
   private write(key: string, input: ChecklistItem, position: number, facts: ChecklistFacts) {
     const item = ChecklistItem.parse(input);
     if (
@@ -134,7 +134,7 @@ export class ChecklistService {
     });
   }
 
-  /** Adds or replaces an item; the Operator uses this entry point too. */
+  /** Adds or replaces an item; the project manager uses this entry point too. */
   async put(key: string, input: ChecklistItem): Promise<ProjectChecklist> {
     return this.lock.run(key, async () => {
       const item = ChecklistItem.parse(input);
@@ -162,7 +162,7 @@ export class ChecklistService {
     return this.changeState(key, id, request, handle, 'owner');
   }
 
-  /** The Operator's state change: it may also settle an item as done, and opening is no reopening. */
+  /** The project manager's state change: it may also settle an item as done, and opening is no reopening. */
   async setStateByProjectManager(
     key: string,
     id: string,
@@ -212,7 +212,7 @@ export class ChecklistService {
     });
   }
 
-  /** What each template adds to a list, so the Operator can pick a base. */
+  /** What each template adds to a list, so the project manager can pick a base. */
   templateBases(): { id: string; checklist: string[] }[] {
     return templates.map((template) => {
       const { id, checklist } = summarizeTemplate(template);
@@ -220,7 +220,7 @@ export class ChecklistService {
     });
   }
 
-  /** Adds an Operator item with a server-made `custom_<n>` id. */
+  /** Adds a project manager item with a server-made `custom_<n>` id. */
   async add(
     key: string,
     input: { title: string; hint?: string | null; condition?: ChecklistCondition | null },

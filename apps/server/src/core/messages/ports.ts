@@ -26,7 +26,7 @@ interface MessageRequestInput {
   text: string;
 }
 
-/** The owner's requests to the Operator that a message or an answer opens (PM-463). */
+/** The owner's requests to the project manager that a message or an answer opens (PM-463). */
 export interface MessageRequests {
   open(input: MessageRequestInput): void;
 }

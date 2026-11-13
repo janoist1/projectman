@@ -874,7 +874,7 @@ export function buildSessionPolicy(input: {
   /** The member's provider: a NanoGPT member's commands stay off the network (PM-1172, PM-329). */
   provider?: AgentProvider;
   /**
-   * The Operator's conversation with someone who is not an owner (PM-475): the team tools only, no
+   * The project manager's conversation with someone who is not an owner (PM-475): the team tools only, no
    * file, shell or web tool, and nothing to read outside the placement.
    */
   teamToolsOnly?: boolean;

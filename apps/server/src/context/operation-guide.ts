@@ -32,7 +32,7 @@ const OPERATION_RULES = [
 ].join('\n');
 
 /**
- * The `operations` guide of the Operator: the fields of every `operate` operation and every
+ * The `operations` guide of the project manager: the fields of every `operate` operation and every
  * `execute_operation` command, generated from the schemas the server validates with, so the
  * rule lives in one place (PM-1034), and the rules of both tools.
  */

@@ -18,7 +18,7 @@ function systemFeedbackToolError(err: unknown): unknown {
 }
 
 /**
- * The Operator's tools for recording gaps in projectman (PM-472, PM-479). Only the project's Operator calls
+ * The project manager's tools for recording gaps in projectman (PM-472, PM-479). Only the project's project manager calls
  * them; they need no open owner request (a gap is recorded when it is found), but under an approval
  * continuation and in a guest conversation they stay refused (`ToolCaller.callerWithRequest`).
  */

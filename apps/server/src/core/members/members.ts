@@ -310,7 +310,7 @@ export class MemberService {
     return member;
   }
 
-  /** Mutates only the in-memory draft; shared by execution and Operator previews. */
+  /** Mutates only the in-memory draft; shared by execution and project manager previews. */
   prepareHire(
     projectKey: string,
     draft: ProjectConfig,
@@ -415,7 +415,7 @@ export class MemberService {
       throw conflict('email_mailbox_taken', `the address ${mailbox} is taken`, { mailbox });
   }
 
-  /** Mutates only the in-memory draft; shared by execution and Operator previews. */
+  /** Mutates only the in-memory draft; shared by execution and project manager previews. */
   prepareUpdate(
     draft: ProjectConfig,
     handle: string,
@@ -943,7 +943,7 @@ export class MemberProfiles {
         .withCommentEdits(projectKey, this.ctx.repos.timeline.forMember(projectKey, handle))
         .filter((event) => canSeeTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
         .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id))),
-      // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
+      // The project manager's sessions and the PM's conversations with others are the owner's and the admin's to see
       // (PM-475, PM-1080).
       sessions: this.sessions
         .list(projectKey, { member: handle })

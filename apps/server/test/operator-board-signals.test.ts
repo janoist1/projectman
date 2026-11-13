@@ -9,7 +9,7 @@ import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
 import { mergeCards, publishRelease, sha } from './helpers/unreleased-work';
 
-/** PM-547: the board kinds of the Operator's system signals, raised and closed by the sweep. */
+/** PM-547: the board kinds of the project manager's system signals, raised and closed by the sweep. */
 let h: DomainHarness;
 let now: Date;
 afterEach(async () => {

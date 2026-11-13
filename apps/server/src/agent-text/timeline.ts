@@ -238,9 +238,9 @@ export function describeEvent(
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
     case 'question_recipient_escalated':
       if (text('reason') === 'integrator_unavailable')
-        return 'handed the integrator todo to the owner: the Operator cannot process its queue';
+        return 'handed the integrator todo to the owner: the project manager cannot process its queue';
       return text('reason') === 'integrator_passed_on'
-        ? `the Operator handed the integrator todo to the owner${text('note') ? `: ${text('note')}` : ''}`
+        ? `the project manager handed the integrator todo to the owner${text('note') ? `: ${text('note')}` : ''}`
         : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'item_routed':
       return `routed ${text('kind') ?? 'an item'} ${text('itemId') ?? ''} to ${text('to') ?? '?'} (${text('reason') ?? '?'}${data.requested ? `, the asker named the ${text('requested')}` : ''})`;

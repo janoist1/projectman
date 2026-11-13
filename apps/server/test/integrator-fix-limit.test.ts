@@ -362,7 +362,7 @@ describe('integrator fix limit decision', () => {
     expect(domain().inbox.countOpenFor('AR', 'owner')).toBe(1);
   });
 
-  it('keeps the item for the integrator after 24 hours: the Operator’s queue has no escalation', async () => {
+  it('keeps the item for the integrator after 24 hours: the project manager’s queue has no escalation', async () => {
     const created = await passedOn();
     now = new Date(now.getTime() + 86_400_000);
     expect(item(created.id).payload).toMatchObject({ recipient: 'integrator' });

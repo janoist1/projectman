@@ -338,7 +338,7 @@ export interface BranchMerger {
    * The text of `path` at `commit`, or at the head of `base` after fetching its upstream (the upstream's
    * commit, else the local branch's). text null: no such file there. Rejects (invalid_input) a path that
    * fails isRepoFilePath, a file over 1 MiB or one that is not UTF-8 text; unknown_object for an unknown commit.
-   * For the Operator's documents (PM-388).
+   * For the project manager's documents (PM-388).
    */
   readFile(
     ref: MergeRepoRef,
@@ -347,7 +347,7 @@ export interface BranchMerger {
   /**
    * A commit whose parent is `onto` and whose tree is onto's with these files' text set (created when
    * absent). No ref, index or working tree is touched; the machine's git identity, like build (no_identity).
-   * changed: the paths whose content differs from onto. For the Operator's documents (PM-388).
+   * changed: the paths whose content differs from onto. For the project manager's documents (PM-388).
    */
   commitFiles(
     ref: MergeRepoRef,

@@ -67,7 +67,7 @@ interface RecordMessageInput {
   /** The e-mail reply the message carries (PM-943). */
   email?: TeamMessage['email'];
   origin?: TeamMessage['origin'];
-  /** The Operator's request this message was sent during (PM-463). */
+  /** The project manager's request this message was sent during (PM-463). */
   operatorRequest?: string;
   operatorSignal?: string;
   /** The files the message carries (PM-516), already bound to it by `MessageAttachmentService.bindForSend`. */
@@ -117,7 +117,7 @@ export class MessageService {
   }
 
   record(input: RecordMessageInput): TeamMessage {
-    // A bound origin names its actor (the Operator, the holder or the queue item issuer): a message from
+    // A bound origin names its actor (the connected Claude, the holder or the queue item issuer): a message from
     // anyone else cannot carry it (PM-757).
     if (hasBoundOrigin(input.actor) && input.actor.handle !== input.from)
       throw new Error('a super-mode message must be sent from its actor');
@@ -195,9 +195,9 @@ export class MessageService {
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
     const config = this.projects.cachedConfig(projectKey);
     const recipient = config ? memberOf(config, handle) : undefined;
-    // The Operator and the selected project manager have one conversation per person who is not an owner and one
-    // shared by the others (PM-475, PM-1080): a message lands in the one its route names. Any other project
-    // manager has one conversation: every route lands in it.
+    // The selected project manager has one conversation per person who is not an owner and one shared by the
+    // others (PM-475, PM-1080): a message lands in the one its route names. Any other project manager has one
+    // conversation: every route lands in it.
     const split = workItem.type === 'general' && !!config && hasGuestConversations(config, recipient);
     const allRoutes = workItem.type === 'general' && isProjectManager(recipient);
     // A task's session takes the messages routed to that task; any other chat takes everything not

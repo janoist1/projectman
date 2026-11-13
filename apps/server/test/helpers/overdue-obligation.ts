@@ -4,7 +4,7 @@ import type { DomainHarness } from './domain-harness';
 /**
  * PM-1152: an open obligation row of `card` that the project manager has been told about (its second rung
  * has run), and the `obligation_overdue` signal row that carries it. The signal is raised but not delivered:
- * the caller delivers it (`operatorSignals.deliver`) when the test needs the PM to have it.
+ * the caller delivers it (`projectManagerSignals.deliver`) when the test needs the PM to have it.
  */
 export function openOverdueObligation(
   h: DomainHarness,

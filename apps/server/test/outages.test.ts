@@ -90,7 +90,7 @@ describe('work outage watch', () => {
     failures.useReleased(() => retry());
     watch = new WorkOutages({
       // This watch owns different deferrals and engine names from the domain's watch. Keep its
-      // notifications isolated so an Operator wake-up cannot invoke the domain's separate watch.
+      // notifications isolated so a project manager wake-up cannot invoke the domain's separate watch.
       ctx: {
         ...h.domain.ctx,
         now: () => h.domain.ctx.now(),

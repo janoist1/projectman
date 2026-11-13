@@ -15,7 +15,7 @@ export interface SessionCleanupFailure {
 const columns = `scope_id AS scopeId, session_id AS sessionId, project_key AS projectKey,
   task_key AS taskKey, kind, survivors, failed_at AS failedAt, last_attempt_at AS lastAttemptAt, attempts`;
 
-/** Cleanup facts are independent of dismissible Operator notifications. */
+/** Cleanup facts are independent of dismissible project manager notifications. */
 export function createSessionCleanupRepository(db: Db) {
   return {
     list(): SessionCleanupFailure[] {

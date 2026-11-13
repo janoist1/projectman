@@ -113,7 +113,7 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
         access: 'write',
         modes: ['super'],
         description:
-          'Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. The server selects a live technical_direction holder with capacity and starts it as the Operator; do not create cards or refactor from this standing review. An approval request already open for the signal is never bypassed: its state is reported. Answers {status, member, message_id, inbox_item_id}.',
+          'Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. The server selects a live technical_direction holder with capacity and starts it as the project manager; do not create cards or refactor from this standing review. An approval request already open for the signal is never bypassed: its state is reported. Answers {status, member, message_id, inbox_item_id}.',
         async run({ ctx, args, handler }) {
           return {
             structured: {

@@ -152,7 +152,7 @@ function report(error: unknown, secrets: string[], io: CliIo, first: string): nu
   }
   if (error instanceof ApiError) {
     if (error.status === 403 && error.code === 'operator_grant_inactive') {
-      line('super grant is not active: ask the owner to grant it in Settings › Operator');
+      line('super grant is not active: ask the owner to grant it in Settings › Connected Claude');
       return CLIENT_EXIT.auth;
     }
     line(`${error.message} [${error.code}]`);

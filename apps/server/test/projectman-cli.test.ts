@@ -389,7 +389,7 @@ describe('projectman CLI (PM-765)', () => {
         jsonResponse({ error: { code: 'operator_grant_inactive', message: 'inactive' } }, 403),
       );
       expect(result.code).toBe(CLIENT_EXIT.auth);
-      expect(result.stderr.join('')).toContain('Settings › Operator');
+      expect(result.stderr.join('')).toContain('Settings › Connected Claude');
     });
 
     it('prints the created task key in the operation line', async () => {

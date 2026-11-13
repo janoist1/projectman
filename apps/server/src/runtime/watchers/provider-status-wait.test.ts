@@ -1,22 +1,24 @@
-import { Clock, Effect, Fiber } from 'effect';
-import { TestClock } from 'effect/testing';
-import { describe, expect, it } from 'vitest';
-import { statusWithin } from './provider-status-wait';
-
-const settled = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { waitForStatus } from './provider-status-wait';
 
 describe('Provider status wait', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('returns answers and drops rejected or synchronously thrown failures', async () => {
-    expect(await Effect.runPromise(statusWithin(() => Promise.resolve('ready'), 20))).toBe('ready');
-    expect(await Effect.runPromise(statusWithin(() => Promise.resolve(null), 20))).toBeNull();
-    expect(await Effect.runPromise(statusWithin(() => Promise.reject(new Error('failed')), 20))).toBeNull();
+    expect(await waitForStatus(() => Promise.resolve('ready'), 20)).toBe('ready');
+    expect(await waitForStatus(() => Promise.resolve(null), 20)).toBeNull();
+    expect(await waitForStatus(() => Promise.reject(new Error('failed')), 20)).toBeNull();
     expect(
-      await Effect.runPromise(
-        statusWithin(() => {
-          throw new Error('failed');
-        }, 20),
-      ),
+      await waitForStatus(() => {
+        throw new Error('failed');
+      }, 20),
     ).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('waits exactly until the deadline and drops a late answer', async () => {
@@ -25,33 +27,16 @@ describe('Provider status wait', () => {
       resolve = done;
     });
     let result: string | null | undefined;
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const clock = yield* TestClock.make();
-          yield* Effect.gen(function* () {
-            const fiber = yield* Effect.forkScoped(
-              statusWithin(() => answer, 20).pipe(
-                Effect.tap((value) =>
-                  Effect.sync(() => {
-                    result = value;
-                  }),
-                ),
-              ),
-              { startImmediately: true },
-            );
-            yield* TestClock.adjust(19);
-            yield* settled;
-            expect(result).toBeUndefined();
-            yield* TestClock.adjust(1);
-            yield* Fiber.join(fiber);
-            expect(result).toBeNull();
-            resolve('late');
-            yield* settled;
-            expect(result).toBeNull();
-          }).pipe(Effect.provideService(Clock.Clock, clock));
-        }),
-      ),
-    );
+    void waitForStatus(() => answer, 20).then((value) => {
+      result = value;
+    });
+    await vi.advanceTimersByTimeAsync(19);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result).toBeNull();
+    resolve('late');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

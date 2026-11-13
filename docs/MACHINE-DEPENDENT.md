@@ -237,6 +237,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   owner's folder before `project set`), so the hub never looks at the owner's disk and the wire method and the
   engine limit are unchanged, which keeps an older engine working. A project created that way waits with
   `engine_offline` until the engine reports it, after `project set` and a restart (`service install`).
+  PM-1427's [guided owner handoff](HYBRID.md#adding-a-further-owner-guided) supplies the new owner's
+  `engine-access-token.json`; its manifest names that file relative to the extracted directory. The friend
+  protects the received file on their own machine and passes its local path to `init --link-headers-file`.
 
 - **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
   the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
@@ -397,6 +400,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-1427 adds `owner add <id> --email <address>` (local config only) and `owner handoff <id>`
+  (`scripts/cloud/{commands,config}.ts`). The latter needs the POSIX `zip` utility and stores a mode-600
+  `owners/<id>/projectman-handoff-<id>.zip` under the cloud secrets store, containing only that owner's
+  two Access-token JSON files and a non-secret `handoff.json`. Staging is private and cleaned on failure.
+  The host sends it and the own-login invitation through an end-to-end encrypted channel, then deletes
+  the transfer archive after receipt. `edge` and any required deploy remain explicitly approved live changes.
+  **Remote engine:** preparation stays on the maintenance machine; the friend's engine reads the
+  received headers file locally. No new engine RPC or secret transfer through projectman is added.
   PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
   expiration and expired-delete-marker cleanup; the Litestream database bucket stays unversioned.
   The [hybrid recovery procedure](HYBRID.md) preserves final stopped-cloud data before

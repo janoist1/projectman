@@ -1,0 +1,31 @@
+{
+  "name": "reopen_task",
+  "title": "Reopen a cancelled task",
+  "description": "Reopen a cancelled card in its stage with no assignee; the reason is on the timeline under your name. Themes and open cards are refused; start work explicitly with start_task. Only if the project settings let the PM reopen cards (otherwise project_manager_lifecycle_refused).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "required": [
+      "task_key",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Reopen a cancelled task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -111,6 +111,7 @@ import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { applyRoute } from './apply-route';
 import type { AppliedRoute } from './apply-route';
+import { DelegationDeadlineTimer } from './delegation-deadline';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
 import { InboxMentions } from './mentions';
 import type { CloseMentionsInput, OpenMentionsInput } from './mentions';
@@ -331,6 +332,7 @@ export class InboxService {
   private readonly projects: ProjectService;
   private readonly integratorTodoAccess?: IntegratorTodoAccess;
   private readonly mentions: InboxMentions;
+  private readonly delegationTimer: DelegationDeadlineTimer;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
   private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
@@ -665,6 +667,10 @@ export class InboxService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.integratorTodoAccess = deps.integratorTodoAccess;
+    this.delegationTimer = new DelegationDeadlineTimer({
+      now: () => this.ctx.now().getTime(),
+      sweep: () => this.sweepDelegations(),
+    });
     this.mentions = new InboxMentions({
       ctx: this.ctx,
       create: (input) => this.create(input),
@@ -1362,12 +1368,32 @@ export class InboxService {
       const delegation = permissionDelegationOf(item);
       if (delegation?.state !== 'pending_lead') continue;
       try {
-        this.refreshDelegation(item, await this.projects.config(item.projectKey));
+        this.noteDelegation(this.refreshDelegation(item, await this.projects.config(item.projectKey)));
       } catch {
         // The next sweep retries; one unavailable project never holds up another's deadline.
         this.ctx.logger.warn({ itemId: item.id }, 'permission delegation refresh failed');
+        this.delegationTimer.retrySoon();
       }
     }
+  }
+
+  /**
+   * Starts the deadline timer (PM-1374): one sweep now, then one at each earliest deadline, in place of a sweep
+   * every second. A change of the configuration also sweeps (`sweepDelegations`).
+   */
+  startDelegationTimer(): void {
+    this.delegationTimer.start();
+  }
+
+  stopDelegationTimer(): void {
+    this.delegationTimer.stop();
+  }
+
+  /** Tells the timer when the delegation of an open item runs out. */
+  private noteDelegation(item: InboxItem): void {
+    const delegation =
+      item.state === 'open' && item.kind === 'permission' ? permissionDelegationOf(item) : null;
+    if (delegation?.state === 'pending_lead') this.delegationTimer.note(Date.parse(delegation.leadDeadline));
   }
 
   /** The item after a due delegation was handed to a person (unchanged when it is not due). */
@@ -2452,6 +2478,7 @@ export class InboxService {
   }
 
   private publish(item: InboxItem): void {
+    this.noteDelegation(item);
     this.ctx.bus.publish({
       type: 'inbox_upserted',
       projectKey: item.projectKey,

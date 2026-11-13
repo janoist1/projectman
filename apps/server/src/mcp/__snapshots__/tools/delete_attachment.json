@@ -1,0 +1,32 @@
+{
+  "name": "delete_attachment",
+  "title": "Delete an attachment",
+  "description": "Delete an attachment you attached yourself (for example one attached by mistake). Attachments of others are refused; ask an owner or admin about those.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "attachment_id": {
+        "type": "string",
+        "pattern": "^att_[a-z0-9]{10,32}$",
+        "description": "Attachment id, e.g. \"att_…\"."
+      }
+    },
+    "required": [
+      "task_key",
+      "attachment_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Delete an attachment",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "openWorldHint": false
+  }
+}

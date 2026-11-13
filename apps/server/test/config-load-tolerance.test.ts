@@ -116,7 +116,7 @@ describe('projects whose stored configuration predates a rule', () => {
   it('takes the approval of a release away from everyone but the release approval duty when the project loads', async () => {
     await addHumanAndLogin(h.app, { handle: 'kata', name: 'Kata', access: 'client' });
     const before = await config();
-    const task = { assignee: null, links: [] };
+    const task = { assignee: null, links: [], stageId: 'release' };
     const kata = { kind: 'human', handle: 'kata' } as const;
     expect(labelRefusal(before, labelDefinition(before, 'release-ok'), kata, task)).toBe('not_holder');
 

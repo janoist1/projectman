@@ -1,0 +1,38 @@
+{
+  "name": "link_feedback",
+  "title": "Link a feedback mark to a card",
+  "description": "Decide a feedback mark by tying it to a card that already exists (the same matter). The reply (optional) goes into the mark's thread for the marker. Only for members who process feedback; a mark that waits for the owner is refused.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "mark_id": {
+        "type": "string",
+        "pattern": "^fbm_[a-z0-9]{10,32}$",
+        "description": "The mark, e.g. \"fbm_…\"."
+      },
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "reply": {
+        "description": "Your answer to the marker.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    },
+    "required": [
+      "mark_id",
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Link a feedback mark to a card",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

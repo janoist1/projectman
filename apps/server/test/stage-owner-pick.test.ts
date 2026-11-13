@@ -170,4 +170,82 @@ describe('the owners a small card has in a review step (smallCards)', () => {
     expect(card().stageOwnerPick ?? null).toBeNull();
     expect(stageChange()).not.toHaveProperty('ownerPick');
   });
+
+  const advanceHead = () => {
+    h.worktrees.heads.set(h.worktrees.existing.get('AR/AR-1/web')!.path, { ...head, commit: 'c2' });
+  };
+
+  it.each(['central', 'unreadable'] as const)(
+    'escalates a repinned %s branch, stops the small owner and starts the main owner',
+    async (cause) => {
+      await setup();
+      const read = files(['src/web/login.ts']);
+      await toReview();
+      await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'dev-2')).toBe(true));
+      const small = h.domain.sessions.list('AR', { taskKey: 'AR-1' }).find((s) => s.member === 'dev-2')!;
+      advanceHead();
+      if (cause === 'central') read.mockResolvedValue({ paths: ['src/core/moves.ts'], truncated: false });
+      else read.mockRejectedValue(new Error('unreadable branch'));
+      const round = vi.spyOn(h.domain.sessions, 'requestReviewRound');
+
+      await h.domain.messaging.send(
+        'AR',
+        'dev-1',
+        { to: ['dev-2'], text: 'Fixes committed.', taskKey: 'AR-1' },
+        { kind: 'action', awaitWake: true },
+      );
+
+      expect(card().stageOwnerPick).toMatchObject({
+        small: false,
+        reason: { code: cause === 'central' ? 'central_files' : 'unreadable' },
+      });
+      expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toContainEqual(
+        expect.objectContaining({
+          type: 'task_updated',
+          data: expect.objectContaining({
+            fields: ['stageOwnerPick'],
+            ownerPick: expect.objectContaining({ small: false, owners: ['cr'] }),
+          }),
+        }),
+      );
+      expect(
+        h.domain.sessions.list('AR', { taskKey: 'AR-1' }).find((s) => s.id === small.id)?.lastStop,
+      ).toMatchObject({ kind: 'sent_back' });
+      expect(round).not.toHaveBeenCalledWith('AR', 'AR-1', 'dev-2');
+      await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'cr')).toBe(true));
+      await flush();
+      expect(h.domain.sessions.findRunning('AR', 'dev-2', { type: 'task', taskKey: 'AR-1' })).toBeNull();
+      expect(h.runner.started.filter((s) => s.member === 'dev-2')).toHaveLength(1);
+    },
+  );
+
+  it('keeps a small pick when a repinned branch changes no central file', async () => {
+    await setup();
+    const read = files(['src/web/login.ts']);
+    await toReview();
+    const before = card().stageOwnerPick;
+    // Entry eligibility is not decided again during review.
+    await h.domain.tasks.update(
+      'AR',
+      'AR-1',
+      { complexity: { points: 5, reason: 'Re-estimated.' } },
+      OWNER_ACTOR,
+    );
+    advanceHead();
+    await h.domain.tasks.repinReview('AR', 'AR-1', 'dev-1');
+    expect(read).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 'c2');
+    expect(card().stageOwnerPick).toEqual(before);
+  });
+
+  it('never narrows a main-owner pick on repin and reads no files', async () => {
+    await setup();
+    const read = files(['src/core/moves.ts']);
+    await toReview();
+    const before = card().stageOwnerPick;
+    read.mockClear().mockResolvedValue({ paths: ['src/web/login.ts'], truncated: false });
+    advanceHead();
+    await h.domain.tasks.repinReview('AR', 'AR-1', 'dev-1');
+    expect(read).not.toHaveBeenCalled();
+    expect(card().stageOwnerPick).toEqual(before);
+  });
 });

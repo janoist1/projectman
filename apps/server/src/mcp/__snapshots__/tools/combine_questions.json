@@ -1,0 +1,42 @@
+{
+  "name": "combine_questions",
+  "title": "Combine equivalent owner questions",
+  "description": "Combine 2–10 screened questions that ask the owners for the same decision; explain the equivalence in note. Never combine approvals, permissions, releases or todos. The oldest represents the group: the owner answers once and every live asker gets the answer. Rules: role guide.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_ids": {
+        "minItems": 2,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "question": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "item_ids",
+      "question",
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Combine equivalent owner questions",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

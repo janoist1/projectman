@@ -236,6 +236,25 @@ describe('member initiated merge', () => {
     expect(task().merged?.resolution?.note).toBe('Resolve adjacent imports in a.ts');
     await vi.waitFor(() => expect(h!.worktrees.fixes.size).toBe(0));
   });
+  it.each([
+    ['notify', 'could not notify a merged card'],
+    ['afterMerge', 'could not advance a merged card'],
+  ] as const)('logs a failing %s after the merge was recorded and keeps the merge', async (call, message) => {
+    await setup();
+    if (call === 'notify')
+      vi.spyOn(h!.repos.messages, 'hasEventNote').mockImplementation((_project, _task, note) => {
+        if (note.body.includes('completed at')) throw new Error('boom');
+        return false;
+      });
+    else vi.mocked(h!.domain.autoAdvance.check).mockRejectedValue(new Error('boom'));
+    await start();
+    await merged();
+    await vi.waitFor(() =>
+      expect(h!.log.warnings.some((args) => JSON.stringify(args).includes(message))).toBe(true),
+    );
+    expect(task().merged).toBeDefined();
+    expect(events('task_merged')).toHaveLength(1);
+  });
   it('refuses a fix when the merger runs on another engine', async () => {
     await conflictFailure();
     vi.spyOn(h!.domain.sessions, 'cardEngineId').mockReturnValue('another');

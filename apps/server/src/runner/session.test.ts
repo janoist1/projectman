@@ -949,6 +949,49 @@ describe('AgentSession', () => {
     expect(pty.typed().enters).toBe(2);
   });
 
+  describe('a typed message whose submission was lost (PM-1364)', () => {
+    /** Sends a message and watches how its delivery ends; the Enter is lost, no UserPromptSubmit follows. */
+    async function sendLost() {
+      const started = await ready();
+      const result = { outcome: 'pending' as 'pending' | 'taken' | 'refused' };
+      started.session.send('hello').then(
+        () => (result.outcome = 'taken'),
+        () => (result.outcome = 'refused'),
+      );
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      return { ...started, result };
+    }
+    const { submitTimeoutMs, lateSubmitMs, enterRetryMs } = CLAUDE_TIMING;
+    const SUBAGENT_BASH = {
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_use_id: 'sub-1',
+      agent_id: 'agent-1',
+    };
+
+    it('is not taken as delivered by a subagent hook, in the submit window or after it', async () => {
+      const { hook, result } = await sendLost();
+      await hook({ hook_event_name: 'PreToolUse', ...SUBAGENT_BASH });
+      await vi.advanceTimersByTimeAsync(submitTimeoutMs + enterRetryMs);
+      expect(result.outcome).toBe('pending'); // waits late rather than taken unconfirmed
+      await hook({ hook_event_name: 'PostToolUse', ...SUBAGENT_BASH });
+      await hook({ hook_event_name: 'Stop', agent_id: 'agent-1' });
+      expect(result.outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(lateSubmitMs + enterRetryMs);
+      expect(result.outcome).toBe('refused');
+    });
+
+    it('is not taken as delivered by the Stop of an earlier turn arriving while the session is idle', async () => {
+      const { hook, session, result } = await sendLost();
+      expect(session.state.state).toBe('idle');
+      await hook({ hook_event_name: 'Stop' });
+      await vi.advanceTimersByTimeAsync(submitTimeoutMs + enterRetryMs);
+      expect(result.outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(lateSubmitMs + enterRetryMs);
+      expect(result.outcome).toBe('refused');
+    });
+  });
+
   it('describes a resumed session stalled after a completed turn with bounded screen and hook metadata', async () => {
     const logger = silentLogger();
     const warn = vi.spyOn(logger, 'warn');

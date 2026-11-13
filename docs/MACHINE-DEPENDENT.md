@@ -2526,6 +2526,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   remains serialized because capacity and workspace availability count running processes, not reservations.
   Slow lock rounds report their full duration and phase timings with the holder and member; slow queue
   sweeps report their five slowest members. No new server/engine message is introduced.
+  PM-1374: the monitor probes on demand, on the server: an account a live session uses every minute, the
+  others every quarter of an hour, none while the project is paused or its AI is off, with a longer wait
+  after a probe that gave no answer. The same `usage.plan` call runs on the engine, only less often.
+  The review watch calls `SessionOrchestrator.sourceHead` for the pins of tasks whose assignee has a live
+  session, once more when that session stops, and for every pin once in ten minutes; no new engine event.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key

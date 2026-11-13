@@ -1,6 +1,7 @@
 import {
   isBusySession,
   isOnLeave,
+  LIVE_SESSION_STATES,
   isRefinementStage,
   memberOf,
   stageIndex,
@@ -72,6 +73,38 @@ export class StageHandOver {
   /** Stage change listener (also the retry of a refused hand-over). */
   async handOff(change: StageChange): Promise<void> {
     await this.admission.attempt(this.startFor(change));
+  }
+
+  /** A stricter review pick stops the former owners before handing the same stage to its main owners. */
+  async escalateOwners(change: {
+    projectKey: string;
+    taskKey: string;
+    stageId: string;
+    from: string[];
+  }): Promise<void> {
+    const { projectKey, taskKey, stageId, from } = change;
+    const task = this.tasks.get(projectKey, taskKey);
+    if (task.stageId !== stageId || task.status !== 'active' || task.stageOwnerPick?.small) return;
+    const config = await this.projects.config(projectKey);
+    const stage = stageOf(config, stageId);
+    if (!stage) return;
+    const owners = cardStageOwners(config, stage, task);
+    for (const session of this.sessions.list(projectKey, { taskKey })) {
+      if (
+        session.workItem.type !== 'task' ||
+        !from.includes(session.member) ||
+        owners.includes(session.member)
+      )
+        continue;
+      if (LIVE_SESSION_STATES.includes(session.state) || this.sessions.isRunning(session.id))
+        await this.sessions.stop(projectKey, session.id, { kind: 'sent_back', taskKey, stageId });
+    }
+    await this.handOff({
+      task: this.tasks.get(projectKey, taskKey),
+      from: stageId,
+      to: stageId,
+      actor: SYSTEM_ACTOR,
+    });
   }
 
   /**

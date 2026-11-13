@@ -1,0 +1,33 @@
+{
+  "name": "reply_feedback",
+  "title": "Reply to a feedback mark",
+  "description": "Answer in a feedback mark's thread, in your name; the marker reads it in the app. It does not decide the mark: use it for a question to the marker or a status. Only for members who process feedback. Write in the marker language.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "mark_id": {
+        "type": "string",
+        "pattern": "^fbm_[a-z0-9]{10,32}$",
+        "description": "The mark, e.g. \"fbm_…\"."
+      },
+      "body": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "Your answer."
+      }
+    },
+    "required": [
+      "mark_id",
+      "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Reply to a feedback mark",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

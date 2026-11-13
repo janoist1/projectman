@@ -1,0 +1,27 @@
+{
+  "name": "save_memory",
+  "title": "Save to memory",
+  "description": "Save a durable learning to your own memory; it is included in all your future sessions. Use it for lasting knowledge about the project, codebase, conventions, pitfalls, where things are or people, not for task progress or temporary state (record those with update_task).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "The learning: one or two self-contained sentences."
+      }
+    },
+    "required": [
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Save to memory",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

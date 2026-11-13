@@ -1,0 +1,33 @@
+{
+  "name": "attach_file",
+  "title": "Attach a file",
+  "description": "Attach a file from your working directory or your session folder to a task, in your name, for example a screenshot or a report. Only a regular file inside one of them (at most 25 MB) can be attached. Do not attach secrets.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "description": "The file: relative to your working directory, or an absolute path inside it or inside your session folder."
+      }
+    },
+    "required": [
+      "task_key",
+      "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Attach a file",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

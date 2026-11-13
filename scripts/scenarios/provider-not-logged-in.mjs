@@ -12,7 +12,7 @@
 // The fake CLIs the instance starts: `claude auth status` reports a missing login.
 export const fakeEnv = { FAKE_CLAUDE_LOGGED_OUT: '1' };
 
-// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu.ts, taskStatus and providers).
+// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu/, taskStatus and providers).
 const TEXT = {
   waiting: 'Indulásra vár: a Claude nincs bejelentkezve',
   command: 'claude auth login',

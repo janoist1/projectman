@@ -13,7 +13,7 @@
 // The fake CLIs the instance starts: `claude auth status` reports a missing login.
 export const fakeEnv = { FAKE_CLAUDE_LOGGED_OUT: '1' };
 
-// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu.ts).
+// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu/).
 const TEXT = {
   heading: 'A Claude nincs bejelentkezve',
   engineHeading: 'A(z) Mac mini motor nem csatlakozik',

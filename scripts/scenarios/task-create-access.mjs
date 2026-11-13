@@ -20,7 +20,7 @@ export default async ({ instance, open, shoot, step }) => {
       body: { baseVersion: version, taskCreateAccess },
     });
   };
-  // Load the actual locale through Vite; UI wording stays in hu.ts.
+  // Load the actual locale through Vite; UI wording stays in the hu locale.
   const first = await open({});
   const ui = await first.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const copy = ui.settings.team.taskCreate;

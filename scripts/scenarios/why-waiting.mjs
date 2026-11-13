@@ -12,7 +12,7 @@
  *   npm run shots -- scripts/scenarios/why-waiting.mjs [--widths 1512,390]
  */
 
-// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu.ts: task.whyBox, inbox.handOn).
+// The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu/: task.whyBox, inbox.handOn).
 const TEXT = {
   box: 'Miért áll?',
   move: /^Tovább: /,

@@ -4,7 +4,7 @@
  * for the owner account, its machines, the project's machines and the server version (`latestReleaseTag`) are faked
  * (`context.route`, as `owner-onboarding.mjs` and `settings-machines.mjs` do); everything else is the real UI. The
  * machine key in the pictures is a visible demo value, never a real key. The texts of the mode switch and the tabs
- * come from `apps/web/src/i18n/hu.ts`, loaded through Vite.
+ * come from `apps/web/src/i18n/hu/`, loaded through Vite.
  *
  *   a. new machine guide, "Magam csinálom", motor app mode, a release is published
  *   b. the same without a published release          c. the same in checkout mode
@@ -20,7 +20,7 @@ const WIDTHS = [1512, 390];
 const DEMO_KEY = 'pme_DEMO_not_a_real_key';
 const NOW = () => new Date().toISOString();
 
-// The texts of the Hungarian UI that are not in the mode switch or the tabs (apps/web/src/i18n/hu.ts).
+// The texts of the Hungarian UI that are not in the mode switch or the tabs (apps/web/src/i18n/hu/).
 const TEXT = {
   nameLabel: 'A gép neve',
   createKey: 'Kulcs létrehozása',

@@ -6,7 +6,7 @@ import {
   releaseTagName,
 } from '@projectman/shared';
 import type { Actor, EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
-import { MergeError } from '../../contracts';
+import { ENGINE_RELEASE_JOB, MergeError } from '../../contracts';
 import type {
   AppBuildResult,
   BranchMerger,
@@ -57,7 +57,7 @@ type Deps = {
   startAppBuild: (
     projectKey: string,
     actor: Actor,
-    input: { repo: string; commit: string; taskKey: null },
+    input: { repo: string; commit: string },
   ) => Promise<AppBuildResult>;
 };
 
@@ -297,11 +297,11 @@ export class ReleasePublishService {
     commit: string,
   ): Promise<AppBuildResult> {
     try {
-      return await this.deps.startAppBuild(projectKey, actor, { repo, commit, taskKey: null });
+      return await this.deps.startAppBuild(projectKey, actor, { repo, commit });
     } catch (err) {
       return {
         state: 'failed',
-        job: 'engine-release',
+        job: ENGINE_RELEASE_JOB,
         code: 'app_build_failed',
         message: err instanceof Error ? err.message : String(err),
       };

@@ -522,9 +522,13 @@ describe('dismiss_signal authorization and domain errors', () => {
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: 'unknown', note: 'Note' }),
     ).rejects.toMatchObject({ code: 'invalid', message: 'unknown signal in this project' });
-    const idle = h.domain.operatorSignals.raise({ projectKey: 'AR', kind: 'idle', caseKey: 'idle:missing' });
+    const outage = h.domain.operatorSignals.raise({
+      projectKey: 'AR',
+      kind: 'outage',
+      caseKey: 'outage:missing',
+    });
     await expect(
-      h.domain.teamTools.dismissSignal(operator, { signalId: idle.id, note: 'Note' }),
+      h.domain.teamTools.dismissSignal(operator, { signalId: outage.id, note: 'Note' }),
     ).rejects.toMatchObject({ code: 'invalid', message: 'the PM may not dismiss this signal kind' });
     const ready = h.domain.operatorSignals.raise({
       projectKey: 'AR',

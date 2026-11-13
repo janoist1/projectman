@@ -38,6 +38,21 @@ describe('TranscriptTailer facade timers', () => {
     expect(poll).toHaveBeenCalledTimes(2);
   });
 
+  it('polls at least every millisecond for a zero interval', async () => {
+    const tailer = new TranscriptTailer({
+      path: path.join(await dirs.make(), 'missing.jsonl'),
+      from: 'start',
+      onLines: () => undefined,
+      pollIntervalMs: 0,
+    });
+    tailers.push(tailer);
+    const poll = vi.spyOn(tailer, 'poll');
+    await tailer.start();
+    expect(poll).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
   it('leaves no timer or poll when stopped while start awaits the file size', async () => {
     const file = path.join(await dirs.make(), 'existing.jsonl');
     await writeFile(file, '{"old":1}\n');

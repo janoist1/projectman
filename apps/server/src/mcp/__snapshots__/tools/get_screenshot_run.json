@@ -1,0 +1,27 @@
+{
+  "name": "get_screenshot_run",
+  "title": "Get a screenshot run",
+  "description": "The state of a screenshot run you started with take_screenshots: while it is not over it waits up to 40 seconds for its end, then answers its state. The answer lists the images it wrote and the end of its output.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "The run id, e.g. \"shr_…\"."
+      }
+    },
+    "required": [
+      "run_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Get a screenshot run",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

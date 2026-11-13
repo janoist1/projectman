@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, migrations, schemaVersion } from '../src/db';
+import { createRepositories, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
 
 const at = '2026-10-17T12:00:00.000Z';
@@ -24,7 +24,7 @@ function row(taskKey: string, extra: Partial<MergeRecord> = {}): MergeRecord {
 }
 
 describe('repository merge queue compare-and-swap', () => {
-  it('keeps retry queue rank and priority while ordinary requeues go to the tail', () => {
+  it('keeps queue rank and priority for retries and system requeues; a person-driven requeue goes to the tail', () => {
     const db = new Database(':memory:');
     try {
       migrate(db);
@@ -46,6 +46,10 @@ describe('repository merge queue compare-and-swap', () => {
       expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-2', 'AR-1']);
       expect(queue.get(retrying.id)).toMatchObject({ retry, prioritizedAt: at, queueRank: 0 });
       queue.save({ ...retrying, state: 'running' });
+      queue.save({ ...retrying, state: 'queued' });
+      // A system requeue of a running merge keeps its place.
+      expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-2', 'AR-1']);
+      queue.save({ ...retrying, state: 'failed' });
       queue.save({ ...retrying, state: 'queued' });
       expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-1', 'AR-2']);
     } finally {
@@ -75,28 +79,6 @@ describe('repository merge queue compare-and-swap', () => {
       }
     },
   );
-
-  it.each([79, 80, 81])('preserves old queue order and starts revision at zero from schema %i', (version) => {
-    const db = new Database(':memory:');
-    try {
-      for (const migration of migrations.filter((m) => m.version <= version)) db.exec(migration.sql);
-      db.pragma(`user_version = ${version}`);
-      db.prepare(
-        `INSERT INTO task_merges (id, project_key, task_key, repo, base, from_stage_id, to_stage_id,
-        merger, requested_at, state, landed, created_at, updated_at) VALUES ('old', 'AR', 'AR-1', 'web',
-        'main', 'review', 'done', 'owner', ?, 'queued', 'nowhere', ?, ?)`,
-      ).run(at, at, at);
-      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      const repos = createRepositories(db);
-      expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual({ revision: 0, taskKeys: ['AR-1'] });
-      expect(repos.taskMerges.get('old')).not.toHaveProperty('queueRank');
-      migrate(db);
-      expect(repos.taskMerges.queueOrder('AR', 'web').revision).toBe(0);
-    } finally {
-      db.close();
-    }
-  });
 
   it('announces queue changes through merge records and rolls the journal back with the queue', () => {
     const db = new Database(':memory:');

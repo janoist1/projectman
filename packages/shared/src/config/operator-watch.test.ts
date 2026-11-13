@@ -4,6 +4,7 @@ import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
   OWNER_SILENT_SIGNAL_KINDS,
+  isCoordinatorOnlySignal,
   operatorSignalBudget,
   ownerQuestionSignalRefusal,
   ownerQuestionSignalRefusalMessage,
@@ -20,7 +21,12 @@ const mergeAllowed: OperatorSignalStepTargets = { startTask: null, members: ['cl
 
 describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   it('lists the kinds the owners get no question about', () => {
-    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual(['unreleased', 'structural_pattern', 'milestone_closed']);
+    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual([
+      'unreleased',
+      'structural_pattern',
+      'milestone_closed',
+      'review_follow_ups',
+    ]);
   });
   it.each(OperatorSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
     const silent = (OWNER_SILENT_SIGNAL_KINDS as readonly string[]).includes(kind);
@@ -29,6 +35,12 @@ describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   it('tells the coordinator what to do instead', () => {
     expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('release_due');
     expect(ownerQuestionSignalRefusalMessage('milestone_closed')).toContain('dismiss_signal');
+  });
+  it('keeps a review_follow_ups signal for the coordinator: owner-silent, dismissible, no step', () => {
+    expect(isCoordinatorOnlySignal('review_follow_ups')).toBe(true);
+    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('review_follow_ups');
+    for (const level of ['report', 'unblock', 'drive'] as const)
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('review_follow_ups');
   });
 });
 
@@ -132,15 +144,10 @@ describe('operatorSignalStepRefusal', () => {
     }
   });
 
-  it('lets the overdue obligation be dismissed and stepped on, and gives the retired stall kinds neither', () => {
+  it('lets the overdue obligation be dismissed and stepped on', () => {
     expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('obligation_overdue');
     for (const level of ['unblock', 'drive'] as const)
       expect(OPERATOR_SIGNAL_STEP_KINDS[level]).toContain('obligation_overdue');
-    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const) {
-      expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).not.toContain(kind);
-      for (const level of ['unblock', 'drive'] as const)
-        expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain(kind);
-    }
   });
 
   it('refuses a tool the signal gives no target for, and a wrong card or member', () => {

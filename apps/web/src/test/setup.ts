@@ -2,6 +2,7 @@ import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach } from 'vitest';
 import { resetCommentDrafts } from '../features/board/useCardCommentDraft';
 import { setCurrentLanguage } from '../i18n/language';
+import { FakeIntersectionObserver } from './intersection';
 import { server } from './msw/server';
 import { takeContractViolations } from './msw/contract';
 
@@ -35,6 +36,11 @@ if (!('ResizeObserver' in globalThis)) {
     disconnect() {}
   }
   Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
+}
+
+// jsdom has no layout: a test says what is on the screen with showOnScreen / hideFromScreen (test/intersection.ts).
+if (!('IntersectionObserver' in globalThis)) {
+  Object.assign(globalThis, { IntersectionObserver: FakeIntersectionObserver });
 }
 
 if (!window.matchMedia) {

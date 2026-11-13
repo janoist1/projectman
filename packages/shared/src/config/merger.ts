@@ -1,7 +1,9 @@
 import { hasAccess } from '../domain/member';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
-import { isCodeReviewStage, stageOwners } from './duties';
+import { isCodeReviewStage } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
+import type { PickTask } from './stage-owner-pick';
 import { evaluateMove, stageIndex } from './gates';
 import type { UnmetCondition, ApprovalRequirement } from './gates';
 import type { MergeCheckRunner } from '../domain/merge-test';
@@ -9,6 +11,7 @@ import { isHandleOnLeave } from './leave';
 import { memberOf } from './lookup';
 import { effectiveRepo, repoOf } from './repos';
 import type { Merger, ProjectConfig, RepoConfig } from './schema';
+import { teamSettingOf } from './team-settings';
 
 /**
  * Who merges a card's approved work into the repository's default branch, and when (PM-448,
@@ -122,11 +125,7 @@ export function mergeRepoOf(
  * - member: the handle, when it is a member of the team (a human needs `developer` access or more).
  * Leave is not skipped for developer and member: the card waits, and „Miért áll?” shows it.
  */
-export function cardMerger(
-  config: MergerConfig,
-  task: Pick<Task, 'assignee'>,
-  codeReviewer: string | null,
-): string | null {
+export function cardMerger(config: MergerConfig, task: PickTask, codeReviewer: string | null): string | null {
   const merger = mergerOf(config);
   if (merger.kind === 'developer') return task.assignee ?? null;
   if (merger.kind === 'member') {
@@ -136,10 +135,58 @@ export function cardMerger(
   }
   const stage = codeReviewStageBeforeTarget(config);
   if (!stage) return null;
-  const owners = stageOwners(config, stage);
+  const owners = cardStageOwners(config, stage, task);
   if (codeReviewer && owners.includes(codeReviewer) && !isHandleOnLeave(config, codeReviewer))
     return codeReviewer;
   return owners.find((handle) => memberOf(config, handle) && !isHandleOnLeave(config, handle)) ?? null;
+}
+
+/**
+ * Why a card's code review approval does not put its merge in the queue by itself (PM-1379, decisions 21, 71,
+ * 77 and 78); null: it does, in the merger's name. `off`: the project's `mergeAfterReview` is off (the
+ * default); `no_reviewer`: nobody is known to have approved the card; `not_merger`: the reviewer is not the
+ * card's merger, so the merger still calls `merge_task` themselves.
+ */
+export type ReviewMergeSkip = 'off' | 'no_reviewer' | 'not_merger';
+
+export function reviewMergeSkip(
+  config: Pick<ProjectConfig, 'team'>,
+  reviewer: string | null,
+  merger: string | null,
+): ReviewMergeSkip | null {
+  if (!teamSettingOf(config, 'mergeAfterReview')) return 'off';
+  if (!reviewer) return 'no_reviewer';
+  return reviewer === merger ? null : 'not_merger';
+}
+
+/**
+ * What the merger's approval (`team.mergeAfterReview`) did to the card's merge (PM-1379), for the reply of the
+ * call that approved. `waiting`: the merge could not be queued by itself; `uncommitted`, the task work is not
+ * committed; `earlier_request` or `blocked`, an earlier merge request of the card is still open and waits for
+ * `merge_task`. `not_ready`: the card does not pass the gates of the merge target; `unmet` lists them as
+ * `has_label:<label>` (missing) or `lacks_label:<label>` (blocking).
+ */
+export type ReviewMergeOutcome =
+  | { state: 'queued'; mergeId: string }
+  | { state: 'waiting'; mergeId: string; why: 'uncommitted' | 'earlier_request' | 'blocked' }
+  | { state: 'not_ready'; reason: 'gate'; unmet: string[] };
+
+/** The labels the gate of the merge target asks for (`has_label`): the approval that makes a card ready to merge. */
+export function mergeGateLabels(config: Pick<ProjectConfig, 'pipeline'>): string[] {
+  return (mergeTargetOf(config)?.gate?.conditions ?? []).flatMap((c) =>
+    c.type === 'has_label' ? [c.label] : [],
+  );
+}
+
+/** The gate conditions and approvals a move into the merge target waits for besides the merge (see `ReviewMergeOutcome`). */
+export function mergeGateUnmet(config: ProjectConfig, task: GateTask & Pick<Task, 'stageId'>): string[] {
+  const target = mergeTargetOf(config);
+  if (!target) return [];
+  const { unmet, approvals } = gatesBeforeMerge(config, task, task.stageId, target);
+  return [
+    ...unmet.map((u) => `${u.condition.type}:${u.condition.label}`),
+    ...approvals.map((a) => `has_label:${a.label}`),
+  ];
 }
 
 export type MergeReadiness =

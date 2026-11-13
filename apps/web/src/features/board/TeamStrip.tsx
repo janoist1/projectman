@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router';
-import type { MemberView, Task } from '@projectman/shared';
+import type { BoardCard, MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
@@ -16,12 +16,12 @@ interface TeamStripProps {
   /** Task titles by key of the cards on the board; a chip names only these. */
   titles: ReadonlyMap<string, string>;
   /** The cards on the board: those that wait for a member's place put that member in the strip too (PM-297). */
-  tasks?: readonly Task[];
+  tasks?: readonly BoardCard[];
 }
 
 /** The cards that wait for a member's places, with what holds those places (PM-297). */
-function waitedFor(tasks: readonly Task[]): Map<string, { cards: Task[]; capacity: Capacity }> {
-  const waited = new Map<string, { cards: Task[]; capacity: Capacity }>();
+function waitedFor(tasks: readonly BoardCard[]): Map<string, { cards: BoardCard[]; capacity: Capacity }> {
+  const waited = new Map<string, { cards: BoardCard[]; capacity: Capacity }>();
   for (const task of tasks) {
     const capacity = capacityOf(task.startWaiting);
     const handle = task.startWaiting?.member;

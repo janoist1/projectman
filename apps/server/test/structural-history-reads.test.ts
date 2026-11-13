@@ -180,7 +180,7 @@ describe('milestones from the state at the closing event', () => {
 });
 
 describe('the wait and the roster read only what they need', () => {
-  it('reads the named prerequisite targets and the open cards, never the project list', async () => {
+  it('reads the named prerequisite targets, requested cards children and open cards, never the project list', async () => {
     await setup();
     const dependent = await card('Dependent');
     const open = await card('Open prerequisite');
@@ -213,7 +213,12 @@ describe('the wait and the roster read only what they need', () => {
     const queries = read.mock.calls.map(([, query]) => query);
     expect(queries).toContainEqual({ kind: 'keys', keys: [open.key, closed.key] });
     expect(queries).toContainEqual({ kind: 'open' });
-    expect(queries.every((query) => query.kind === 'keys' || query.kind === 'open')).toBe(true);
+    expect(queries.filter((query) => query.kind === 'children')).toEqual([
+      { kind: 'children', parentKeys: [dependent.key] },
+    ]);
+    expect(
+      queries.every((query) => query.kind === 'keys' || query.kind === 'open' || query.kind === 'children'),
+    ).toBe(true);
   });
 });
 

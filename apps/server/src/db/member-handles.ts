@@ -1,10 +1,12 @@
+import { migrationFiles } from './migration-files';
+import type { MigrationFile } from './migration-files';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
 /**
  * The columns that hold a member's handle and follow it when an AI member is renamed (PM-1025).
- * The one registration: `rename` is built from it, and `member-handles.test.ts` fails for a
- * handle-like column that is in neither this list nor `UNREWRITTEN_HANDLE_COLUMNS`.
+ * Frozen baseline registrations. New columns belong in migration metadata, never these lists.
+ * `member-handles-columns.test.ts` guards the resulting handleColumns() registry.
  */
 interface HandleTable {
   table: string;
@@ -15,7 +17,7 @@ interface HandleTable {
 
 const PROJECT_TASKS = 'SELECT id FROM tasks WHERE project_key = @project';
 
-export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
+const BASELINE_REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'tasks', columns: ['assignee', 'created_by'] },
   { table: 'task_links', columns: ['author'], scope: `task_id IN (${PROJECT_TASKS})` },
   {
@@ -78,10 +80,11 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
 ];
 
 /** Handle lists kept as a JSON array of strings, or (`receipts`) of receipts naming a handle and where it was handed on. */
-export const REWRITTEN_HANDLE_JSON: readonly {
+const BASELINE_REWRITTEN_HANDLE_JSON: readonly {
   table: string;
   column: string;
   kind: 'handles' | 'receipts';
+  scope?: string;
 }[] = [
   { table: 'team_messages', column: 'to_handles', kind: 'handles' },
   { table: 'team_messages', column: 'receipts', kind: 'receipts' },
@@ -92,7 +95,7 @@ export const REWRITTEN_HANDLE_JSON: readonly {
 ];
 
 /** Handle-like columns a rename leaves alone, with the reason: history, storage keys, or no handle at all. */
-export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
+const BASELINE_UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'timeline_events.actor_handle':
     'the timeline is append-only; the old handle resolves through formerHandles',
   'member_workspaces.member': 'a storage key: the workspace stays under the member storage handle',
@@ -115,9 +118,46 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'deferred_starts.spec': 'a start naming the member makes the rename refuse (member_session_live)',
 };
 
+/** Frozen baseline classifications; append new classifications in migration metadata. */
+export function handleColumns(files: readonly MigrationFile[] = migrationFiles()) {
+  let rewritten = BASELINE_REWRITTEN_HANDLE_COLUMNS.map((e) => ({ ...e, columns: [...e.columns] }));
+  let json = BASELINE_REWRITTEN_HANDLE_JSON.map((e) => ({ ...e }));
+  const unrewritten = { ...BASELINE_UNREWRITTEN_HANDLE_COLUMNS };
+  for (const file of [...files].sort((a, b) => a.version - b.version))
+    for (const [table, meta] of Object.entries(file.meta?.tables ?? {})) {
+      const dropped = 'dropped' in meta;
+      const handles = dropped ? undefined : meta.handles;
+      const removed = new Set(handles?.removed ?? []);
+      rewritten = rewritten
+        .map((e) => (e.table === table ? { ...e, columns: e.columns.filter((c) => !removed.has(c)) } : e))
+        .filter((e) => !(dropped && e.table === table));
+      json = json.filter((e) => e.table !== table || (!dropped && !removed.has(e.column)));
+      for (const key of Object.keys(unrewritten))
+        if (key.startsWith(table + '.') && (dropped || removed.has(key.slice(table.length + 1))))
+          delete unrewritten[key];
+      if (!handles) continue;
+      let entry = rewritten.find((e) => e.table === table);
+      if (!entry) {
+        entry = { table, columns: [] };
+        rewritten.push(entry);
+      }
+      if (handles.scope !== undefined) entry.scope = handles.scope;
+      if (handles.scope !== undefined)
+        json = json.map((value) => (value.table === table ? { ...value, scope: handles.scope } : value));
+      entry.columns = [...new Set([...entry.columns, ...(handles.rewritten ?? [])])];
+      for (const [column, kind] of Object.entries(handles.json ?? {})) {
+        json = json.filter((e) => e.table !== table || e.column !== column);
+        json.push({ table, column, kind, ...(entry.scope !== undefined ? { scope: entry.scope } : {}) });
+      }
+      for (const [column, reason] of Object.entries(handles.unrewritten ?? {}))
+        unrewritten[table + '.' + column] = reason;
+    }
+  return { rewritten: rewritten.filter((e) => e.columns.length), json, unrewritten };
+}
+
 const scopeOf = (entry: HandleTable): string => entry.scope ?? 'project_key = @project';
 
-const jsonRowsWhere = (entry: (typeof REWRITTEN_HANDLE_JSON)[number]): string =>
+const jsonRowsWhere = (entry: (typeof BASELINE_REWRITTEN_HANDLE_JSON)[number]): string =>
   entry.kind === 'handles'
     ? `EXISTS (SELECT 1 FROM json_each(${entry.column}) WHERE value = @from)`
     : `EXISTS (SELECT 1 FROM json_each(${entry.column}) WHERE json_extract(value, '$.handle') = @from OR json_extract(value, '$.handedOffTo') = @from)`;
@@ -133,15 +173,16 @@ interface Receipt {
  * step is repaired by running it again. Runs in the caller's unit of work.
  */
 export function createMemberHandleRepository(db: Db) {
-  const updates = REWRITTEN_HANDLE_COLUMNS.flatMap((entry) =>
+  const { rewritten, json } = handleColumns();
+  const updates = rewritten.flatMap((entry) =>
     entry.columns.map((column) =>
       db.prepare(`UPDATE ${entry.table} SET ${column} = @to WHERE ${column} = @from AND ${scopeOf(entry)}`),
     ),
   );
-  const arrays = REWRITTEN_HANDLE_JSON.map((entry) => ({
+  const arrays = json.map((entry) => ({
     entry,
     select: db.prepare(
-      `SELECT rowid AS id, ${entry.column} AS value FROM ${entry.table} WHERE project_key = @project AND ${jsonRowsWhere(entry)}`,
+      `SELECT rowid AS id, ${entry.column} AS value FROM ${entry.table} WHERE ${entry.scope ?? 'project_key = @project'} AND ${jsonRowsWhere(entry)}`,
     ),
     update: db.prepare(`UPDATE ${entry.table} SET ${entry.column} = @value WHERE rowid = @id`),
   }));

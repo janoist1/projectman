@@ -49,25 +49,15 @@ describe('InboxCard', () => {
         ),
       ).toBeTruthy();
   });
-  it('keeps a historical release readable without decision actions', () => {
+  it('keeps a migrated release row readable as an alert without decision actions', () => {
     const entry: InboxItem = {
       ...item('inb_perm_push'),
-      kind: 'release',
+      kind: 'alert',
       title: 'Legacy release',
       body: 'Historical summary',
-      payload: {
-        release: {
-          releaseId: 'rel_old',
-          commit: 'a'.repeat(40),
-          baseCommit: null,
-          tasks: [],
-          summary: 'Historical summary',
-        },
-      },
-      options: [
-        { id: 'approve', label: 'approve', style: 'primary' },
-        { id: 'reject', label: 'reject', style: 'danger' },
-      ],
+      payload: {},
+      options: [],
+      state: 'resolved',
     };
     const { card } = renderCard(entry);
     expect(within(card).getByText('Historical summary')).toBeTruthy();

@@ -36,6 +36,9 @@ import type {
 } from '@projectman/shared';
 import {
   actorMoveRefusal,
+  canLeaveFollowUps,
+  isReviewResultLabel,
+  labelDefinition,
   boardColumnOf,
   DEFAULT_AGENT_PROVIDER,
   dropStageOfColumn,
@@ -101,6 +104,7 @@ import type {
   MoveOptions,
   MoveResult,
   PreparedMove,
+  ChangedFilesReader,
   SourceHeadReader,
   WorkEntryCheck,
 } from './moves';
@@ -160,6 +164,7 @@ interface TaskUpdate {
   removeLabels?: string[];
   /** A comment for the timeline; with a label change it is the labels' comment. */
   note?: string;
+  followUps?: string[];
   /** PM-1290: the note is a reply to this comment of the card (it then needs a note and no label change). */
   replyTo?: string;
   stageId?: string;
@@ -220,6 +225,7 @@ export class TaskService implements TaskSchedulingReader {
     startOffer?: (task: Task) => TaskStartOffer | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    changedFiles: ChangedFilesReader;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
@@ -241,6 +247,7 @@ export class TaskService implements TaskSchedulingReader {
       labels: this.labels,
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
+      changedFiles: deps.changedFiles,
       order: this.order,
       notifyHandOn: deps.notifyHandOn,
     });
@@ -820,6 +827,14 @@ export class TaskService implements TaskSchedulingReader {
       ...patch,
       complexity: patch.complexity === null ? undefined : (patch.complexity ?? task.complexity),
     };
+    if (change.followUps !== undefined) {
+      if (!isOpenTask(task)) throw conflict('task_closed', `task ${task.key} is closed`);
+      if (
+        !canLeaveFollowUps(config, task, actor.handle ?? '') ||
+        !canLeaveFollowUps(config, prospectiveTask, actor.handle ?? '')
+      )
+        throw invalid('invalid_request', 'follow_ups: only a reviewer or tester of the card may leave them');
+    }
     const labels = planLabelsOrThrow(config, prospectiveTask, labelChange, actor, note);
     // The acceptance operations run before the gates are read: the labels they call for count (PM-1135).
     const acceptancePlan = change.acceptance?.length
@@ -965,6 +980,20 @@ export class TaskService implements TaskSchedulingReader {
         change.replyTo !== undefined ? 'comment' : 'process',
         change.replyTo !== undefined ? { replyTo: change.replyTo } : {},
       );
+    if (change.followUps !== undefined) {
+      const label = labels.added.find((id) => {
+        const definition = labelDefinition(config, id);
+        return definition !== undefined && isReviewResultLabel(definition);
+      });
+      this.timeline.append({
+        projectKey: task.projectKey,
+        taskKey: task.key,
+        actor,
+        sessionId,
+        type: 'review_follow_ups',
+        data: { items: change.followUps, ...(label ? { label } : {}) },
+      });
+    }
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
       ...prepared,

@@ -155,8 +155,11 @@ interface LaunchHost {
     engineId?: EngineId,
   ) => Promise<void>;
   readonly removeSessionFolderOf: (sessionId: string) => void;
-  /** Ends a session whose process never ran as failed, the way the orchestrator ends any session. */
-  readonly markStartFailed: (sessionId: string) => void;
+  /**
+   * Ends a session whose process never ran as failed, the way the orchestrator ends any session. `code` is
+   * what the start failed with (PM-1335): the start failure count tells a setup refusal from an engine fault.
+   */
+  readonly markStartFailed: (sessionId: string, code: string) => void;
   /** The removal of the session's earlier folder that is still running, if any. */
   readonly folderRemoval: (sessionId: string) => Promise<void> | undefined;
 }
@@ -605,7 +608,10 @@ export class SessionLauncher {
     // A session in a checkout of the card (worktree or review copy) with a folder of its own, on Claude or a
     // Codex CLI sandbox (Gemini takes none, PM-522). A reading sandbox does not write the folder: the run
     // then writes only the folder, never the checkout (PM-1202).
+    // The repository must have a screenshot command (`screenshots`, PM-1353).
+    const screenshotCommand = repoName ? repoOf(config, repoName)?.screenshots?.command : undefined;
     if (
+      screenshotCommand &&
       sessionFolder &&
       sandbox &&
       screenshotPlacement(policy.access) &&
@@ -615,6 +621,7 @@ export class SessionLauncher {
       this.screenshotScopes.set(sessionId, {
         cwd,
         sessionDir: sessionFolder,
+        command: screenshotCommand,
         ...(browsers ? { browsersDir: browsers } : {}),
         sandbox: {
           allowWrite: sandboxWritesFolder ? [...sandbox.allowWrite] : [sessionFolder],
@@ -677,7 +684,7 @@ export class SessionLauncher {
     this.live.guides.set(session.id, pack.guide);
     this.live.providers.set(session.id, provider);
     if (resume) this.live.resuming.add(session.id);
-    // Before the process starts: Codex reports its first input as it starts.
+    // Register before starting the process so even an immediate CLI submission or exit settles the wait.
     const firstInput = messages.length > 0 ? this.live.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
     // the continue message. A new conversation has nothing to be nudged about.
@@ -761,7 +768,7 @@ export class SessionLauncher {
     } catch (err) {
       // The start is over before a process ran: the session ends the way any does (what is held for it goes, its
       // folder is removed, the timeline and the listeners are told).
-      this.host.markStartFailed(session.id);
+      this.host.markStartFailed(session.id, errorCode(err) ?? 'session_start_failed');
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
         const status = (err as { status?: { problem?: string; cliVersion?: string; minCliVersion?: string } })
           .status;

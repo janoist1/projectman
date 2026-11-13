@@ -1,0 +1,40 @@
+{
+  "name": "start_task",
+  "title": "Start work on a task",
+  "description": "Start a task on your own authority (an owner request only under owner_request) or on a signal_id; also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, assignee_unfit).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "assignee": {
+        "description": "Name one only when you must: the system's choice keeps the member's complexity limit, and with team.assigneeFit an assignee beyond the limit or specialty is refused (assignee_unfit). Score a hard card first, or ask the scorer.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+      },
+      "despite_prerequisites": {
+        "description": "Honored only when the project settings let the PM override prerequisites.",
+        "type": "boolean"
+      },
+      "signal_id": {
+        "description": "An overdue-obligation signal on a card, when the project lets you act on signals: starts the card's own assignee, without an owner request; no assignee or despite_prerequisites then.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Start work on a task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

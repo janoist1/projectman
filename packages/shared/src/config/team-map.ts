@@ -28,6 +28,8 @@ export interface TeamMapStage {
   approvals: string[];
   humanDecides: boolean;
   nextStageId: string | null;
+  /** The stage's small-card rule (PM-1378): the point limit and who carries those cards; null without the rule. */
+  smallCards: { maxPoints: number; owners: string[] } | null;
 }
 export interface TeamMapLabel {
   label: LabelDefinition;
@@ -98,6 +100,9 @@ export function teamMap(config: Pick<ProjectConfig, 'team' | 'pipeline'>): TeamM
       approvals,
       humanDecides: approvals.length > 0 || stage.kind === 'release',
       nextStageId: config.pipeline.stages[index + 1]?.id ?? null,
+      smallCards: stage.smallCards
+        ? { maxPoints: stage.smallCards.maxPoints, owners: [...stage.smallCards.owners] }
+        : null,
     };
   });
   const members = config.team.members.map((member): TeamMapMember => {

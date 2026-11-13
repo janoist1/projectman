@@ -1,6 +1,5 @@
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createRepositories, migrate, migrations } from '../src/db';
+import { createRepositories } from '../src/db';
 import type { Db, EmailMessageRecord } from '../src/db';
 import { openMigratedMemoryDatabase } from './helpers/database-seed';
 
@@ -54,56 +53,6 @@ describe('email channel repository', () => {
     repo = createRepositories(db).emailChannel;
   });
   afterEach(() => db.close());
-
-  it('migrates an existing database without changing its stored rows', () => {
-    const old = new Database(':memory:');
-    try {
-      const emailVersion = migrations.find((migration) => migration.name === 'email channel')!.version;
-      for (const migration of migrations.filter((migration) => migration.version < emailVersion))
-        old.exec(migration.sql);
-      old.pragma(`user_version = ${emailVersion - 1}`);
-      old
-        .prepare(
-          "INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Test', 'v1', ?, ?)",
-        )
-        .run(now, now);
-      migrate(old);
-      expect(old.prepare("SELECT key FROM projects WHERE key = 'AR'").get()).toEqual({ key: 'AR' });
-      expect(createRepositories(old).emailChannel.contacts.list('AR')).toEqual([]);
-      expect(
-        old
-          .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('email_messages', 'email_contact_events') AND name NOT LIKE 'sqlite_%' ORDER BY name",
-          )
-          .all(),
-      ).toEqual([{ name: 'email_contact_events_project' }, { name: 'email_messages_project' }]);
-    } finally {
-      old.close();
-    }
-  });
-
-  it('adds nullable MIME fields while preserving historical email rows', () => {
-    const old = new Database(':memory:');
-    try {
-      for (const migration of migrations.filter((entry) => entry.version < 112)) old.exec(migration.sql);
-      old.pragma('user_version = 111');
-      old
-        .prepare(
-          `INSERT INTO email_messages (id, project_key, direction, subject, text, status, created_at, updated_at)
-        VALUES ('eml_old', 'AR', 'inbound', 'Old', 'Body', 'delivered', ?, ?)`,
-        )
-        .run(now, now);
-      migrate(old);
-      expect(createRepositories(old).emailChannel.messages.get('eml_old')).toMatchObject({
-        subject: 'Old',
-        text: 'Body',
-        mimeMessageId: null,
-        mimeReferences: null,
-      });
-    } finally {
-      old.close();
-    }
-  });
 
   it('upserts a contact and retains each attributed setting event', () => {
     const event = repo.contacts.set(contact);

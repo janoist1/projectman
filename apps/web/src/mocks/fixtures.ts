@@ -9,7 +9,6 @@ import type {
   MemberView,
   PlanUsage,
   OperatorSignal,
-  OperatorApprovalPayload,
   ProjectConfig,
   ProjectSummary,
   RoleView,
@@ -156,29 +155,6 @@ export const structureFixture: StructureView = {
 export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
 
-/** A critical message proposal, opt-in so existing inbox examples stay unchanged. */
-export function operatorMessageApprovalFixture(): OperatorApprovalPayload {
-  return {
-    requestId: 'opr_message',
-    stepId: 'ops_message',
-    quote: '',
-    action: 'message',
-    operation: {
-      op: 'message_send',
-      to: ['kata'],
-      text: 'The requested work is complete.\n\nPlease reply in your conversation.',
-      taskKey: 'AC-1',
-    },
-    changes: [],
-    consequence: 'message_send',
-    baseVersion: null,
-    session: null,
-    stale: null,
-    plan: { why: 'Report completed work', impact: 'Kata receives one message', reversible: false },
-    expiresAt: hoursFromNow(24),
-  };
-}
-
 /** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
 export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {
   const base = {
@@ -203,7 +179,7 @@ export function operatorSummaryFixture(messageId: string): { body: string; signa
         taskKey: 'AC-20',
         raisedAt: '2026-10-10T09:00:00.000Z',
       },
-      { ...base, id: 'sig_first', kind: 'nobody', actionable: true, taskKey: 'AC-20' },
+      { ...base, id: 'sig_first', kind: 'merge_blocked', actionable: true, taskKey: 'AC-20' },
     ],
   };
 }

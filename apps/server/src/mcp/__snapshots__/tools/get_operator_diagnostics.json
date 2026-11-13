@@ -1,0 +1,32 @@
+{
+  "name": "get_operator_diagnostics",
+  "title": "Read filtered task diagnostics",
+  "description": "Read one card's current state, structured session activity, delivery receipts, check outcomes and engine metrics; no transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes but proves none: recheck before concluding.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "limit": {
+        "default": 10,
+        "description": "Per list, newest first.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read filtered task diagnostics",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

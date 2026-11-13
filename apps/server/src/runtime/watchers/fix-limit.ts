@@ -21,7 +21,7 @@ import {
   memberOf,
   remainingFixExtraRounds,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -628,7 +628,7 @@ export class FixLimitWatch {
   private otherDevelopers(config: ProjectConfig, task: Task): string[] {
     const stage = config.pipeline.stages.find((s) => s.kind === 'work');
     if (!stage) return [];
-    return stageOwners(config, stage).filter(
+    return cardStageOwners(config, stage, task).filter(
       (handle) => handle !== task.assignee && memberOf(config, handle)?.kind === 'ai',
     );
   }
@@ -817,7 +817,7 @@ export class FixLimitWatch {
     ]
       .filter(Boolean)
       .join(' ');
-    if (running) this.delivery.notice(running, 'projectman', text, task.key);
+    if (running) this.delivery.notice(running, 'projectman', text, task.key, { store: true });
     else this.tell(task, task.assignee, text);
   }
 
@@ -841,7 +841,7 @@ export class FixLimitWatch {
     const running = this.sessions.findRunning(task.projectKey, handle, workItem);
     // A paused session takes nothing in: the notice is stored below (admission refuses with `team_paused`).
     if (running && !this.sessions.isPaused(running)) {
-      this.delivery.notice(running, 'projectman', text, task.key);
+      this.delivery.notice(running, 'projectman', text, task.key, { store: true });
       return;
     }
     const config = await this.projects.config(task.projectKey);

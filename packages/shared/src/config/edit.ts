@@ -16,6 +16,7 @@ import {
   MaxConcurrentAi,
   ProjectConfig,
   ReviewTestConfig,
+  ScreenshotsConfig,
   TeamLimits,
   WarnAboveSessionTokens,
 } from './schema';
@@ -79,6 +80,8 @@ export const PatchConfigRequest = z
     projectManagerLifecycle: ProjectConfig.shape.team.shape.projectManagerLifecycle,
     /** Who may override an open prerequisite (PM-1099). */
     prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
+    /** Who may involve a member on a card it has no role on (PM-1267). */
+    memberInvolvement: ProjectConfig.shape.team.shape.memberInvolvement,
     /** What the PM may do on its own authority (PM-1284). Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectConfig.shape.team.shape.projectManagerAuthority,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
@@ -94,6 +97,8 @@ export const PatchConfigRequest = z
     /** The owner topics (PM-1190): the whole list replaces the saved one, [] too. Owner-only (`owner_decision_topics`). */
     ownerDecisionTopics: ProjectConfig.shape.team.shape.ownerDecisionTopics,
     merger: ProjectConfig.shape.team.shape.merger,
+    /** Whether the merger's own approval queues the merge (PM-1379). */
+    mergeAfterReview: ProjectConfig.shape.team.shape.mergeAfterReview,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
     /** Whom a read-only viewer may write to (PM-1102). */
@@ -111,6 +116,11 @@ export const PatchConfigRequest = z
     /** Repository-specific prompt conventions; null removes the setting (PM-1112). */
     repoHeavyChecks: z
       .array(z.object({ repo: z.string(), heavyChecks: HeavyChecks.nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Per repository: the screenshot command the server runs (`screenshots`, PM-1353); null removes it. Owner-only (`review_test`). */
+    repoScreenshots: z
+      .array(z.object({ repo: z.string(), screenshots: ScreenshotsConfig.nullable() }).strict())
       .max(20)
       .optional(),
     /** Per repository: the full test the server runs (`reviewTest`, PM-538); null removes it. Owner-only (`review_test`). */
@@ -214,7 +224,7 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest`, `repoFullTestAtMerge` or
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoScreenshots`, `repoReviewTest`, `repoFullTestAtMerge` or
  * `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
@@ -226,6 +236,7 @@ export function unknownPatchRepo(
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoScreenshots?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoComputeJobs?.find((entry) => !known.has(entry.repo))?.repo ??
@@ -269,6 +280,8 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
   const repoHeavyChecks =
     patch.repoHeavyChecks && new Map(patch.repoHeavyChecks.map((e) => [e.repo, e.heavyChecks] as const));
+  const repoScreenshots =
+    patch.repoScreenshots && new Map(patch.repoScreenshots.map((e) => [e.repo, e.screenshots] as const));
   const repoReviewTest =
     patch.repoReviewTest && new Map(patch.repoReviewTest.map((e) => [e.repo, e.reviewTest] as const));
   const repoFullTestAtMerge =
@@ -293,9 +306,20 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge || repoComputeJobs
+        repoMerge ||
+        repoDocs ||
+        repoHeavyChecks ||
+        repoScreenshots ||
+        repoReviewTest ||
+        repoFullTestAtMerge ||
+        repoComputeJobs
           ? config.project.repos.map((repo) => {
               let changed = repo;
+              const screenshots = repoScreenshots?.get(repo.name);
+              if (screenshots !== undefined) {
+                const { screenshots: _previous, ...rest } = changed;
+                changed = screenshots === null ? rest : { ...rest, screenshots };
+              }
               const merge = repoMerge?.get(repo.name);
               if (merge !== undefined) {
                 const { requireMerge: _previous, ...rest } = changed;
@@ -341,6 +365,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.prerequisiteOverride !== undefined
         ? { prerequisiteOverride: patch.prerequisiteOverride }
         : {}),
+      ...(patch.memberInvolvement !== undefined ? { memberInvolvement: patch.memberInvolvement } : {}),
       ...(patch.projectManagerAuthority !== undefined
         ? { projectManagerAuthority: patch.projectManagerAuthority }
         : {}),
@@ -350,6 +375,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.ruleReasons !== undefined ? { ruleReasons } : {}),
       ...(patch.ownerDecisionTopics !== undefined ? { ownerDecisionTopics: patch.ownerDecisionTopics } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
+      ...(patch.mergeAfterReview !== undefined ? { mergeAfterReview: patch.mergeAfterReview } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

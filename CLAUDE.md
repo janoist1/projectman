@@ -54,9 +54,10 @@ should confirm still goes to them as a question.
 - Route handlers parse the request, check access and call a domain service; business logic
   lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
   `apps/server/src/assembly.ts` composes them. Only `apps/server/src/start.ts` (started by `index.ts`) reads the environment.
-- Older configuration shapes, database rows and timeline events exist in real installations.
-  Configuration migrations live in `apps/server/src/config/migrations.ts`, database
-  migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
+- Stored configuration must use the current schema; retired configuration converters were
+  removed in PM-1383. Database migrations live in
+  `apps/server/src/db/migrations/NNNN-name.sql`, with table journal and handle
+  classifications in sibling `NNNN-name.meta.json`; timeline events are append-only, so old
   event types keep rendering.
 
 ## Machine-dependent assumptions
@@ -105,6 +106,8 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
 
 - TypeScript strict, ESM, `moduleResolution: bundler` (extensionless relative imports).
 - `erasableSyntaxOnly`: no enums, namespaces or constructor parameter properties.
+- A UI change: self-check it against `docs/design/style.md#checklist-for-a-designers-review` (focus after an action
+  included) before asking for the design review.
 - `verbatimModuleSyntax`: use `import type` for type-only imports.
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).
@@ -171,10 +174,11 @@ in the context pack. Gemini's native `command_status` follows a running command;
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
 before hand-over and in fix rounds. A change in a **central file** (`packages/shared/src/**`,
-`apps/server/src/contracts/**`, `apps/server/src/kernel/**`, `apps/server/src/db/migrations.ts`,
+`apps/server/src/contracts/**`, `apps/server/src/kernel/**`,
 `apps/server/src/assembly.ts`, `apps/server/test/helpers/**`, the web `i18n/{hu,en}.ts` and `mocks/**`)
 makes `related` select a large share of the suite; run the test files of the behaviour you changed and
-`npm run handover-check` instead. When removing a capability, also search tests for its
+`npm run handover-check` instead. A new SQL or metadata migration has no import edge: `vitest related` cannot see it; `npm run handover-check` selects its schema tests.
+When removing a capability, also search tests for its
 retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
 HTTP calls and string fixtures are not covered by import-based related selection.
 When changing the shared `ErrorCode` union, update

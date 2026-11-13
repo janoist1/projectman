@@ -46,6 +46,8 @@ import { createOwnerInvitationRepository } from './owner-invitations';
 export type { OwnerInvitationRecord } from './owner-invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
+import { createStartFailureRepository } from './start-failures';
+export type { StartFailureRecord } from './start-failures';
 import { createDecisionOfferRepository } from './decision-offers';
 import { createDocWriteRepository } from './doc-writes';
 export type { DocWriteEdit, DocWritePatch, DocWriteRecord } from './doc-writes';
@@ -92,9 +94,18 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion, statementCount } from './database';
+export {
+  openAuxiliaryDatabase,
+  openDatabase,
+  migrate,
+  schemaVersion,
+  schemaRefusal,
+  hasSchemaObjects,
+  statementCount,
+} from './database';
 export type { Db } from './database';
-export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
+export { BASELINE_VERSION, BASELINE_RELEASE } from './schema/baseline-0152';
+export { latestSchemaVersion } from './migration-files';
 export type { AttachmentRecord } from './attachments';
 export type { MessageTurn, MessageTurnEnd } from './message-turns';
 export type { DeferredStartRecord } from './deferred-starts';
@@ -165,6 +176,7 @@ export function createRepositories(db: Db) {
     decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
+    startFailures: createStartFailureRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),
     sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),

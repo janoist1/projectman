@@ -1,4 +1,5 @@
-import { isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
+import { LIVE_SESSION_STATES, isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
+import type { Session } from '@projectman/shared';
 import type { Messaging } from '../../core/messages';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
@@ -27,6 +28,8 @@ export class ReviewWatch {
   private readonly sessions: SessionOrchestrator;
   private readonly messaging: Messaging;
   private readonly locks = new KeyedMutex();
+  private readonly safetyNetMs: number;
+  private lastFullCheckAt = 0;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -34,7 +37,10 @@ export class ReviewWatch {
     tasks: TaskService;
     sessions: SessionOrchestrator;
     messaging: Messaging;
+    /** How often every pin is read, whoever works (default 10 minutes). */
+    safetyNetMs?: number;
   }) {
+    this.safetyNetMs = deps.safetyNetMs ?? 10 * 60_000;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -42,15 +48,56 @@ export class ReviewWatch {
     this.messaging = deps.messaging;
   }
 
-  /** Looks at every task in review that has a pinned commit. */
-  async check(): Promise<void> {
+  /**
+   * The periodic round (PM-1374): looks at the tasks in review whose branch can be moving. A branch moves while
+   * its developer's session runs, and that session's end checks the task once (`sessionStopped`), as does a push
+   * the GitHub sync sees. Every pin is read only once in the safety-net interval, which catches a commit made by
+   * hand. A quiet round reads nothing over the engine link.
+   */
+  async checkDue(): Promise<void> {
+    const now = this.ctx.now().getTime();
+    if (now - this.lastFullCheckAt >= this.safetyNetMs) {
+      this.lastFullCheckAt = now;
+      return this.check();
+    }
+    const withDeveloper = this.tasksWithLiveDeveloper();
+    if (withDeveloper.size > 0) await this.check((pin) => withDeveloper.has(pin.taskKey));
+  }
+
+  /** Looks at every task in review that has a pinned commit (or those `only` accepts). */
+  async check(only?: (pin: { taskKey: string }) => boolean): Promise<void> {
     for (const pin of this.ctx.repos.reviewPins.list()) {
+      if (only && !only(pin)) continue;
       try {
         await this.checkTask(pin.projectKey, pin.taskKey);
       } catch (err) {
         this.ctx.logger.warn({ err, taskKey: pin.taskKey }, 'could not check the pinned review commit');
       }
     }
+  }
+
+  /** A session of a task ended or went idle: its developer's last commit is looked at now. */
+  async sessionStopped(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<void> {
+    if (session.workItem.type !== 'task') return;
+    const taskKey = session.workItem.taskKey;
+    if (!this.ctx.repos.reviewPins.get(taskKey)) return;
+    if (this.tasks.find(session.projectKey, taskKey)?.assignee !== session.member) return;
+    try {
+      await this.checkTask(session.projectKey, taskKey);
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey }, 'could not check the pinned review commit');
+    }
+  }
+
+  /** The tasks whose assignee has a live session on them. */
+  private tasksWithLiveDeveloper(): Set<string> {
+    const keys = new Set<string>();
+    for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
+      if (session.workItem.type !== 'task') continue;
+      const { taskKey } = session.workItem;
+      if (this.tasks.find(session.projectKey, taskKey)?.assignee === session.member) keys.add(taskKey);
+    }
+    return keys;
   }
 
   /** Whether the task was sent back because its branch moved. */

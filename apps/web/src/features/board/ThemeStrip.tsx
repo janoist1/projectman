@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { isArchivedTheme, isOpenTask } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { ColumnBar } from '../../components/ColumnBar';
 import { Icon } from '../../components/Icon';
@@ -24,7 +24,7 @@ export function ThemeStrip({
   onOpen,
   onNew,
 }: {
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   pipeline: PipelineIndex;
   /** The theme the board is filtered to. */
   active: string | null;
@@ -49,7 +49,7 @@ export function ThemeStrip({
   if (open.length + closed.length + archived.length === 0) return null;
   const hiddenCount = closed.length + archived.length;
   // The theme the board is filtered to stays on show even when it is closed or archived.
-  const visible = (theme: Task) => showHidden || theme.key === active;
+  const visible = (theme: BoardCard) => showHidden || theme.key === active;
   const shown = [...open, ...closed.filter(visible), ...archived.filter(visible)];
   const hiddenLabel =
     archived.length === 0

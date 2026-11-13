@@ -4,11 +4,27 @@ import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import { hasBoundOrigin } from '../domain/actor-origin';
-import { dutyMembers, REVIEW_DUTIES, taskAuthors } from './duties';
+import { dutyMembers, REVIEW_DUTIES, stageOwners, taskAuthors } from './duties';
 import { ownerHandles } from './lookup';
 import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
+
+/** A review or test result label whose setters may not judge their own work. */
+export function isReviewResultLabel(label: LabelDefinition): boolean {
+  return label.group !== undefined && label.notByAuthor === true;
+}
+
+/** Whether the member may leave remarks for a later card (PM-1351). */
+export function canLeaveFollowUps(
+  config: LabelConfig,
+  task: Pick<Task, 'assignee' | 'links'>,
+  handle: string,
+): boolean {
+  return config.pipeline.labels.some(
+    (label) => isReviewResultLabel(label) && labelSetters(config, label, task).includes(handle),
+  );
+}
 
 /** Approvals delegated keys cannot give, including conditional gate requirements. */
 export function isOwnerApprovalLabel(config: LabelConfig, label: LabelDefinition): boolean {
@@ -137,7 +153,7 @@ export function labelRefusal(
   config: LabelConfig,
   label: LabelDefinition | undefined,
   actor: Actor,
-  task: Pick<Task, 'assignee' | 'links'>,
+  task: Pick<Task, 'assignee' | 'links' | 'stageId' | 'stageOwnerPick'>,
   authority?: LabelAuthority,
 ): LabelRefusal | null {
   if (actor.kind === 'system' || !label) return null;
@@ -151,10 +167,44 @@ export function labelRefusal(
   if (label.setBy === 'system') return 'system_only';
   if (isHumanOnlyLabel(label) && actor.kind !== 'human' && !superDelegated) return 'humans_only';
   if (!holders.includes(actor.handle ?? '') && !delegated) return 'not_holder';
+  if (actor.kind === 'ai') {
+    for (const stage of config.pipeline.stages) {
+      if (
+        stage.smallCards?.owners.includes(actor.handle ?? '') &&
+        !stageOwners(config, stage).includes(actor.handle ?? '') &&
+        stageResultLabels(config, stage).includes(label.id) &&
+        (task.stageId !== stage.id || task.stageOwnerPick?.stageId !== stage.id || !task.stageOwnerPick.small)
+      )
+        return 'small_cards_only';
+    }
+  }
   const authors = labelExcludesAuthors(config, label) ? taskAuthors(task) : [];
   if (authors.includes(actor.handle ?? '') || (authority && authors.includes(authority.authorizedBy)))
     return 'self_review';
   return null;
+}
+
+/**
+ * The result labels of a step stage: the `has_label` labels of the next stage's gate (only those in `only`
+ * when given) and the other labels of their groups (`code-review-changes` beside `code-review-ok`): any of
+ * them ends the step. Empty when the stage is not a step or has no next stage.
+ */
+export function stageResultLabels(
+  config: Pick<ProjectConfig, 'pipeline'>,
+  stage: Stage,
+  only?: readonly string[],
+): string[] {
+  const stages = config.pipeline.stages;
+  const next = stages[stages.findIndex((s) => s.id === stage.id) + 1];
+  if (!next || stage.kind !== 'step') return [];
+  const ids = (next.gate?.conditions ?? []).flatMap((c) =>
+    c.type === 'has_label' && (!only || only.includes(c.label)) ? [c.label] : [],
+  );
+  const groups = new Set(ids.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
+  const mates = config.pipeline.labels
+    .filter((label) => label.group !== undefined && groups.has(label.group))
+    .map((label) => label.id);
+  return [...new Set([...ids, ...mates])];
 }
 
 /**
@@ -214,7 +264,7 @@ export type LabelChangePlan =
  */
 export function planLabelChange(
   config: LabelConfig,
-  task: Pick<Task, 'labels' | 'assignee' | 'links'>,
+  task: Pick<Task, 'labels' | 'assignee' | 'links' | 'stageId' | 'stageOwnerPick'>,
   change: { add?: readonly string[]; remove?: readonly string[] },
   actor: Actor,
   comment?: string,
@@ -289,7 +339,7 @@ export function approvalRefusal(
     config,
     label,
     { kind: 'human', handle: approver },
-    task ?? { assignee: null, links: [] },
+    { ...task, assignee: task?.assignee ?? null, links: task?.links ?? [], stageId: '' },
   );
   if (refusal === 'self_review')
     return config.team.releaseFourEyes === true && releaseGateLabels(config).has(label.id)

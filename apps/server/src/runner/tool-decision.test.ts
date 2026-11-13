@@ -480,7 +480,14 @@ describe('row 2: denied operations', () => {
   it('does not trust a line nested deeper than it follows', () => {
     let line = 'git status';
     for (let i = 0; i < 12; i += 1) line = `bash -c '${line.replace(/'/g, `'\\''`)}'`;
-    expect(decide(policyFor('auto'), command(line, true))).toEqual(denied('denied_operation'));
+    // What it left unread may name a denied path as well as publish: the path rule comes first.
+    expect(decide(policyFor('auto'), command(line, true))).toEqual(denied('denied_path'));
+    expect(
+      decide(
+        policyFor('auto', { filesystem: { ...policyFor('auto').filesystem, deniedPaths: [] } }),
+        command(line, true),
+      ),
+    ).toEqual(denied('denied_operation'));
   });
 });
 

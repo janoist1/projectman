@@ -14,6 +14,7 @@
   },
   "scripts": {
     "projectman": "node scripts/projectman/bin.mjs",
+    "generate:barrels": "node --import tsx scripts/barrels/cli.ts",
     "demo": "node scripts/demo.mjs",
     "shots": "node --import tsx scripts/heavy/cli.ts --places 3 node scripts/shots.mjs",
     "heavy": "node --import tsx scripts/heavy/cli.ts",

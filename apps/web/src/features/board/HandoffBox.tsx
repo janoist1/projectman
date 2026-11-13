@@ -1,4 +1,4 @@
-import type { Session, Task } from '@projectman/shared';
+import type { BoardCard, Session } from '@projectman/shared';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import { useUpdateTask } from '../../api/queries';
@@ -41,7 +41,7 @@ export function HandoffBox({
   members,
   sessions = [],
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   sessions?: readonly Session[];
 }) {

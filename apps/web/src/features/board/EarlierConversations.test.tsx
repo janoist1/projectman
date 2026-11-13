@@ -3,8 +3,10 @@ import { Route, Routes } from 'react-router';
 import { isCardMessage, Task } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { openStory } from '../../test/cardStory';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -65,6 +67,27 @@ describe('the earlier conversations of the Process view (PM-1290)', () => {
     // Nothing is written here: a new message is a comment.
     expect(within(section).queryByRole('textbox')).toBeNull();
     expect(within(section).queryByRole('button', { name: t('messages.reply') })).toBeNull();
+  });
+
+  it('reads an unread message only once its mark has been on the screen of the open block (PM-1386)', async () => {
+    const project = mockProject();
+    const unread = project.backend.sendTeamMessage('fe-1', ['owner'], 'AC-21', 'Earlier unread');
+    // A message to a person is a direct conversation; the block holds what the card thread held before.
+    delete project.backend.messages.find((message) => message.id === unread.id)!.conversation;
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    project.render(card, '/p/AC/tasks/AC-21/steps');
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    const mark = () =>
+      within(screen.getByText('Earlier unread').closest('li')!).getByText(t('messages.thread.unread'));
+    expect(mark()).toBeTruthy();
+    // Opening the block is no reading.
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(mark()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    expect((reads()[0]!.body as { ids: string[] }).ids).toEqual([unread.id]);
   });
 
   it('names who got a message under it', async () => {
@@ -262,5 +285,69 @@ describe('the links into the earlier conversations (PM-1290)', () => {
     await openStory(screen, true);
     const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
     expect(links.some((link) => link.getAttribute('href')?.includes('message=msg_system'))).toBe(true);
+  });
+});
+
+describe('the failures of the earlier conversations (PM-1358)', () => {
+  const failure = (status: number, code: string) =>
+    new Response(JSON.stringify({ error: { code, message: 'x' } }), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  /** The messages of the card fail to load until `heal` is called. */
+  function failingLoad(project: ReturnType<typeof mockProject>) {
+    const answer = createMockFetch(project.backend, project.requests);
+    let failing = true;
+    setFetchImplementation(async (input, init) =>
+      failing && String(input).includes('place=card') ? failure(500, 'internal_error') : answer(input, init),
+    );
+    return () => {
+      failing = false;
+    };
+  }
+  /** Waits for the error state, lets the load work again and presses Retry. */
+  const retry = async (heal: () => void) => {
+    const alert = (await screen.findByText(t('task.earlier.loadFailed'))).closest<HTMLElement>(
+      '[role="alert"]',
+    )!;
+    heal();
+    fireEvent.click(within(alert).getByRole('button', { name: t('app.retry') }));
+  };
+
+  it('shows an error state with a retry instead of dropping the block, and moves the focus to the toggle after it', async () => {
+    const project = mockProject();
+    const heal = failingLoad(project);
+    project.render(card, '/p/AC/tasks/AC-21/steps');
+    await retry(heal);
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    expect(screen.queryByText(t('task.earlier.loadFailed'))).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it('leads to the linked message after a retry fixed a failed load', async () => {
+    const project = mockProject();
+    const heal = failingLoad(project);
+    project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await retry(heal);
+    await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
+  });
+
+  it('shows a toast when the automatic marking as read fails, with the server message of the code', async () => {
+    const project = mockProject();
+    const unread = project.backend.messages.find((message) => message.id === 'msg_04')!;
+    unread.to = [project.backend.viewerHandle];
+    unread.receipts = [
+      { handle: project.backend.viewerHandle, kind: 'human', deliveredAt: unread.createdAt, readAt: null },
+    ];
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (input, init) =>
+      String(input).endsWith('/messages/read') ? failure(403, 'not_a_recipient') : answer(input, init),
+    );
+    project.render(<ToastProvider>{card}</ToastProvider>, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await toggle(cardMessages(project, 'AC-21').length);
+    await waitFor(() => expect(row('msg_04')).not.toBeNull());
+    showOnScreen(within(row('msg_04')!).getByText(t('messages.thread.unread')));
+    expect(await screen.findByText(t('errors.codes.not_a_recipient'), {}, { timeout: 3000 })).toBeTruthy();
   });
 });

@@ -161,7 +161,12 @@ describe('round sources (PM-800)', () => {
       testsFailed: 1,
     });
     expect(countFixRounds(events, config(), at(1)).rounds).toBe(0);
-    expect(CardRounds.parse({ reviewRounds: 0, changeRequests: 0, sendBacks: 0 }).testsFailed).toBe(0);
+    // An older measure without the newer counts still reads (PM-1341).
+    expect(CardRounds.parse({ reviewRounds: 0, changeRequests: 0, sendBacks: 0 })).toMatchObject({
+      testsFailed: 0,
+      mergeConflicts: 0,
+      mergeChecksFailed: 0,
+    });
     expect(
       CardRounds.safeParse({ reviewRounds: 0, changeRequests: 0, sendBacks: 0, testsFailed: -1 }).success,
     ).toBe(false);

@@ -15,7 +15,7 @@ import type {
   PausedSession,
   ProjectConfig,
   StartBlock,
-  Task,
+  BoardCard,
   TaskPhase,
   TaskMergeState,
   TaskStartWaiting,
@@ -95,7 +95,9 @@ export interface TaskStateContext {
   members: MemberIndex;
   /** Open inbox items by task key (any assignee). */
   openInboxByTask: ReadonlyMap<string, InboxItem[]>;
-  tasksByKey: ReadonlyMap<string, Task>;
+  tasksByKey: ReadonlyMap<string, BoardCard>;
+  /** Direct sub-cards indexed once for the board's state derivation. */
+  subtasksByParent: ReadonlyMap<string, readonly BoardCard[]>;
   myHandle: string | null;
   /** Label definitions; a blocking label on a task makes it wait under the label's name. */
   labels?: readonly LabelView[];
@@ -108,8 +110,19 @@ export interface TaskStateContext {
 }
 
 /** Done and cancelled tasks are closed: they no longer move or start. */
-export function isTaskClosed(task: Pick<Task, 'status'>): boolean {
+export function isTaskClosed(task: Pick<BoardCard, 'status'>): boolean {
   return task.status === 'done' || task.status === 'cancelled';
+}
+
+export function groupSubtasksByParent(tasks: readonly BoardCard[]): Map<string, BoardCard[]> {
+  const byParent = new Map<string, BoardCard[]>();
+  for (const task of tasks) {
+    if (!task.parentKey) continue;
+    const children = byParent.get(task.parentKey) ?? [];
+    children.push(task);
+    byParent.set(task.parentKey, children);
+  }
+  return byParent;
 }
 
 export function groupOpenInboxByTask(items: readonly InboxItem[] | undefined): Map<string, InboxItem[]> {
@@ -162,7 +175,7 @@ export interface TaskWorker {
  * (e.g. review) that the member owns, otherwise plain work. Review is so the lead developer reviewing
  * a card of the senior developer reads "átnézi", while the developer reads "dolgozik rajta".
  */
-function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): WorkerVerb {
+function workerVerb(member: MemberView, task: BoardCard, pipeline: PipelineIndex): WorkerVerb {
   // The old assignee of an open handoff is not working on the card any more, they hand it over (PM-342).
   if (task.handoff?.from === member.handle) return 'handingOff';
   for (const role of [member.role, ...member.roles]) {
@@ -181,7 +194,7 @@ function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): Wo
  * on another card). The command a session runs lives in the session view.
  */
 function findWorkers(
-  task: Task,
+  task: BoardCard,
   ctx: Pick<TaskStateContext, 'members' | 'pipeline' | 'pausedSessions'>,
 ): TaskWorker[] {
   // A step stage (e.g. review) has the owners who do it; a work stage's owners are the pool the assignee came from.
@@ -255,8 +268,8 @@ export function cardWorkerRows(
  * them too; those the viewer cannot see are left out.
  */
 function prerequisiteWait(
-  task: Task,
-  tasksByKey: ReadonlyMap<string, Task>,
+  task: BoardCard,
+  tasksByKey: ReadonlyMap<string, BoardCard>,
   pipeline: PipelineIndex,
 ): PrerequisiteWait | null {
   if (isTaskClosed(task)) return null;
@@ -328,7 +341,11 @@ function standingOnPrerequisite(wait: PrerequisiteWait | null, since: string): O
  * What a card whose start waits needs, in a sentence. A Senior wait that someone decided to keep says who
  * (the viewer is not named "Te" in the sentence, it reads differently).
  */
-export function startWaitingHint(task: Task, members: MemberIndex, myHandle: string | null): string | null {
+export function startWaitingHint(
+  task: BoardCard,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
   const waiting = task.startWaiting;
   if (!waiting) return null;
   if (waiting.reason === 'senior_busy' && waiting.waitDecidedBy) {
@@ -347,7 +364,7 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
   });
 }
 
-function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
+function startWaitingLabel(task: BoardCard, ctx: TaskStateContext): string {
   return startWaitingText(task.startWaiting!, ctx);
 }
 
@@ -383,7 +400,7 @@ export function startWaitingText(
  * in a queue, or its start waits), and as `prerequisite` on the state when something else is
  * happening to the card, so the card and the drawer never say it twice.
  */
-export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
+export function deriveTaskState(task: BoardCard, ctx: TaskStateContext): TaskState {
   const wait = prerequisiteWait(task, ctx.tasksByKey, ctx.pipeline);
   const block = ctx.config ? startBlock(task, ctx.config) : null;
   const { workers = [], ...state } = deriveOpenState(task, ctx, wait, block);
@@ -426,7 +443,7 @@ function approvalWaiting(
  * earlier line (someone works on it, a blocking label holds it) already says it.
  */
 function startBlockState(
-  task: Task,
+  task: BoardCard,
   block: StartBlock,
   ctx: TaskStateContext,
 ): Omit<TaskState, 'workers'> | null {
@@ -470,7 +487,7 @@ function startBlockState(
 type DerivedState = Omit<TaskState, 'workers'> & { workers?: TaskWorker[] };
 
 function deriveOpenState(
-  task: Task,
+  task: BoardCard,
   ctx: TaskStateContext,
   prerequisites: PrerequisiteWait | null,
   block: StartBlock | null,
@@ -501,6 +518,7 @@ function deriveOpenState(
   const workers = findWorkers(task, ctx);
   const wait = taskWait({
     task,
+    subtasks: ctx.subtasksByParent.get(task.key) ?? [],
     // Where the configuration is not known (a client, or it still loads) the team and the stages are
     // sketched from what the board has, and the start rule and the gates are not asked (PM-460).
     config: ctx.config ?? sketchConfig(ctx),
@@ -541,7 +559,7 @@ function deriveOpenState(
   return { ...state, wait, ...(next ? { next } : {}) };
 }
 
-function queuedFor(task: Task, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<TaskState, 'workers'> {
+function queuedFor(task: BoardCard, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<TaskState, 'workers'> {
   const stage = ctx.pipeline.stageById.get(task.stageId);
   return {
     phase: 'waiting',
@@ -628,7 +646,7 @@ function mergeCardState(
  * `refinement`) keeps the line of its cause.
  */
 function stateOfWait(
-  task: Task,
+  task: BoardCard,
   wait: TaskWait,
   parts: {
     ctx: TaskStateContext;
@@ -653,6 +671,13 @@ function stateOfWait(
   });
 
   switch (wait.reason) {
+    case 'collecting':
+      return {
+        phase: 'waiting',
+        label: t('taskStatus.collecting', { count: wait.openSubtaskCount ?? 0 }),
+        since: wait.since,
+        worker: null,
+      };
     case 'prerequisite':
       return standingOnPrerequisite(prerequisites, wait.since);
     case 'handing_off': {

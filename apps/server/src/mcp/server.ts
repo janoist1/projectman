@@ -18,7 +18,9 @@ import { TEAM_INSTRUCTIONS, TEAM_TOOLS, type TeamTool } from './tools';
 export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as const;
 
 function toolsFor(audience: MemberAudience): TeamTool[] {
-  return TEAM_TOOLS.filter((tool) => toolVisible(tool.audience, audience));
+  return TEAM_TOOLS.filter((tool) => toolVisible(tool.audience, audience)).map((tool) =>
+    tool.forAudience(audience),
+  );
 }
 
 export function visibleTeamTools(audience: MemberAudience): TeamToolListing[] {
@@ -60,7 +62,7 @@ export const jsonSchemaValidator = new AjvJsonSchemaValidator();
 const listings = new Map<string, Tool[]>();
 
 export function toolListing(tools: readonly TeamTool[]): Tool[] {
-  const signature = tools.map((tool) => tool.name).join('\u0000');
+  const signature = tools.map((tool) => tool.schemaKey).join('\u0000');
   let listing = listings.get(signature);
   if (!listing) {
     listing = tools.map((tool) => ({

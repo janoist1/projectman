@@ -5,7 +5,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { as, historyHarness } from './helpers/history';
-import { HISTORY_INDEX_VERSION, LATEST_SCHEMA_VERSION, migrate, migrations, schemaVersion } from '../src/db';
+import { HISTORY_INDEX_VERSION, latestSchemaVersion, migrate, schemaVersion } from '../src/db';
 import type { Repositories } from '../src/db';
 import { createHistoryService } from '../src/services/history';
 import { createHistoryIndexer } from '../src/services/history/indexer';
@@ -292,8 +292,8 @@ describe('history index', () => {
     });
   });
 
-  describe('a database from before the index existed', () => {
-    it('is migrated and read into the index at start, with every source and a label comment', async () => {
+  describe('recovery of an empty derived index', () => {
+    it('rebuilds the empty index at start from every source and a label comment', async () => {
       h = await historyHarness({ persistent: true });
       const card = await h.domain.tasks.create(
         'AR',
@@ -331,40 +331,21 @@ describe('history index', () => {
       await h.domain.stop();
       h.repos.db.close();
 
-      // Build the historical schema forwards, independently of all later tables and columns.
-      const current = new Database(join(directory, 'db.sqlite'));
-      const old = new Database(':memory:');
-      for (const migration of migrations.filter((m) => m.version <= 83)) old.exec(migration.sql);
-      old.pragma('foreign_keys = OFF');
-      for (const { name } of old
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-        .all() as { name: string }[]) {
-        const sourceColumns = new Set(
-          (current.pragma(`table_info("${name}")`) as { name: string }[]).map((column) => column.name),
-        );
-        const columns = (old.pragma(`table_info("${name}")`) as { name: string }[])
-          .map((column) => column.name)
-          .filter((column) => sourceColumns.has(column));
-        if (!columns.length) continue;
-        const names = columns.map((column) => `"${column}"`).join(', ');
-        const insert = old.prepare(
-          `INSERT OR REPLACE INTO "${name}" (${names}) VALUES (${columns.map(() => '?').join(', ')})`,
-        );
-        for (const row of current.prepare(`SELECT ${names} FROM "${name}"`).raw().all() as unknown[][])
-          insert.run(...row);
-      }
-      current.close();
-      old.pragma('user_version = 83');
-      await old.backup(join(directory, 'db.sqlite'));
-      expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
-        { n: 0 },
-      );
-      expect(schemaVersion(old)).toBe(83);
-      old.close();
+      // Rebuild derived history state from the durable sources on the current baseline.
+      const db = new Database(join(directory, 'db.sqlite'));
+      for (const table of [
+        'history_documents',
+        'history_fts',
+        'history_doc_state',
+        'history_index_state',
+        'history_dirty',
+      ])
+        db.exec(`DELETE FROM ${table}`);
+      db.close();
 
       h = await createDomainHarness({ directory });
-      expect(schemaVersion(h.repos.db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(migrate(h.repos.db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(schemaVersion(h.repos.db)).toBe(latestSchemaVersion());
+      expect(migrate(h.repos.db)).toBe(latestSchemaVersion());
       expect(h.repos.history.indexState('AR')).toMatchObject({
         complete: true,
         version: HISTORY_INDEX_VERSION,
@@ -417,6 +398,19 @@ describe('history index', () => {
     const details = plan.map((row) => row.detail).join('\n');
     expect(details).toMatch(/VIRTUAL TABLE INDEX .*history_fts|SCAN history_fts/);
     expect(details).not.toMatch(/SCAN d\b|SCAN history_documents/);
+  });
+
+  it('offers its fallback round to the kernel: it applies the changes the events missed (PM-1394)', async () => {
+    h = await historyHarness();
+    await h.domain.tasks.create('AR', { title: 'Alpaca card' }, OWNER_ACTOR);
+    const sweep = h.domain.history.sweep;
+    expect(sweep).toMatchObject({ name: 'history', everyMs: 1000 });
+    await sweep.run();
+    expect(titles(h, 'task')).toEqual(['Alpaca card']);
+    await h.domain.history.stop();
+    await h.domain.tasks.create('AR', { title: 'Late card' }, OWNER_ACTOR);
+    await sweep.run();
+    expect(titles(h, 'task')).toEqual(['Alpaca card']);
   });
 
   it('keeps a service of its own working over the same database', async () => {

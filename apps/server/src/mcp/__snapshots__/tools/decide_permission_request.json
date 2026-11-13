@@ -1,0 +1,42 @@
+{
+  "name": "decide_permission_request",
+  "title": "Decide a delegated permission request",
+  "description": "Answer a member's permission request a team message handed to you as its decider (a tool call with its exact input; read it completely). Your duty instructions say what to allow, deny or escalate. Only the decider, before the deadline: late answers are refused and never mean permission.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "request_id": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"
+      },
+      "decision": {
+        "type": "string",
+        "enum": [
+          "allow",
+          "deny",
+          "escalate"
+        ],
+        "description": "escalate hands it to a person; always for anything not plainly routine or plainly out."
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 400,
+        "description": "Short, without secrets: the owner and the member see it."
+      }
+    },
+    "required": [
+      "request_id",
+      "decision",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Decide a delegated permission request",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

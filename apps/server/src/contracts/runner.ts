@@ -235,6 +235,11 @@ export type RunnerEvent =
    */
   | { type: 'first_input_failed'; sessionId: string }
   /**
+   * The nudge a pause's release typed (`release`'s `nudge`) was never taken by the CLI (R-04): `text` is
+   * the nudge, which the hub stores as a message so that the member still gets it.
+   */
+  | { type: 'nudge_failed'; sessionId: string; text: string }
+  /**
    * The agent CLI's own conversation id, when the runner learns it instead of choosing it
    * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
    */
@@ -329,6 +334,8 @@ export interface RunningSessionInfo {
   state: SessionState;
   cols: number;
   rows: number;
+  /** The session's input is held by a pause (PM-1403). Set only when true, so an older hub reads the hello as before. */
+  paused?: boolean;
 }
 
 /** Where a paused session stopped (PM-218). */
@@ -427,6 +434,11 @@ export interface SessionRunner {
    * dropped. False, and nothing done, when there is no pause. No event: the caller knows.
    */
   release(sessionId: string, opts?: { nudge?: string }): boolean;
+  /**
+   * Whether a call for the session reaches the process now (PM-1348): false while the link to its
+   * remote engine is down, so a `release` would not get there. Absent: always (a local runner).
+   */
+  reaches?(sessionId: string): boolean;
   /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.

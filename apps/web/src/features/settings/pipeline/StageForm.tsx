@@ -14,6 +14,7 @@ import { FieldErrors } from '../edit/FieldErrors';
 import type { FieldIssue } from '../edit/FieldErrors';
 import { GateEditor } from './GateEditor';
 import { MemberAvatar, MemberPicker } from './MemberPicker';
+import { SmallCardsBlock } from './SmallCardsBlock';
 import { NEW_COLUMN, namesText } from './stageDraft';
 import type { StageDraft } from './stageDraft';
 import styles from './StagePanel.module.css';
@@ -38,6 +39,8 @@ interface StageFormProps {
   kindLock?: string | null;
   /** Under the column: the identifier preview of a new column. */
   columnNote?: ReactNode;
+  /** The small-card rule is a block of a saved step stage; a new stage has none yet. */
+  withSmallCards?: boolean;
 }
 
 /** The fields of one stage, in the order of the design; the panel of a saved stage and of a new one share them. */
@@ -55,6 +58,7 @@ export function StageForm({
   newColumnName,
   kindLock = null,
   columnNote,
+  withSmallCards = false,
 }: StageFormProps) {
   const { isOwner } = useProject();
   const map = useMemo(() => teamMap(config), [config]);
@@ -261,6 +265,20 @@ export function StageForm({
           ) : null}
           <FieldErrors id={errorId('owners')} issues={issuesAt('owners')} />
         </fieldset>
+
+        {withSmallCards && draft.kind === 'step' ? (
+          <SmallCardsBlock
+            formId={formId}
+            config={config}
+            draft={draft}
+            update={update}
+            disabled={disabled}
+            issuesAt={issuesAt}
+            stageOwnerNames={(draft.ownersMode === 'duty' ? dutyHolders : chosen).map(
+              (member) => member.displayName,
+            )}
+          />
+        ) : null}
 
         <GateEditor
           stageKind={draft.kind}

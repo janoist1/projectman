@@ -1,0 +1,46 @@
+{
+  "name": "start_member",
+  "title": "Start a member on work without a card",
+  "description": "Start an AI member on work without a card, on your own authority (an owner request only under owner_request) or on a signal_id: the text goes to their general conversation (a running one gets it when its turn ends). Waits up to 5 seconds and says what became of the start. For a card use start_task.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "member": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+      },
+      "despite_workers": {
+        "description": "A start on a card where a member of the same role already works is not sent (the result names them); true sends it anyway, only for intended parallel work.",
+        "type": "boolean"
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000
+      },
+      "task_key": {
+        "description": "The card the text is about; the member needs a role on it (the card's merger or its step owner).",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "signal_id": {
+        "description": "Without an owner request, when the project lets you act on signals: starts the member the signal names.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "member",
+      "text"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Start a member on work without a card",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

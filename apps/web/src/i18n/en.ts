@@ -325,6 +325,8 @@ export const en = {
       nanogpt_key_missing: 'No NanoGPT key is set, so the session won’t start.',
       nanogpt_setup_incomplete: 'The NanoGPT setup is incomplete, so the session won’t start.',
       codex_setup_incomplete: 'The Codex setup is incomplete, so the session won’t start.',
+      start_backoff: 'The last session start failed, so the next try comes later.',
+      start_failing: 'The session start failed several times in a row, so it stops trying on its own.',
       workspace_codex_config: 'The worktree’s.codex folder contains a Codex setting that isn’t allowed.',
       provider_unsupported: 'The provider isn’t supported in this run profile.',
       nanogpt_key_rejected: 'NanoGPT didn’t accept the key. Check it and try again.',
@@ -471,6 +473,8 @@ export const en = {
         'The project manager can only put a ready card to work; the owner does every other move.',
       project_manager_lifecycle_refused:
         'The project’s settings don’t allow the project manager this card action.',
+      member_involvement_refused:
+        'The project’s settings let only people involve a member on a card: ask a person to message the member.',
       builtin_role: 'A built-in role can’t be changed.',
       role_id_mismatch: 'The role’s id doesn’t match.',
       not_human_member: 'This isn’t a person.',
@@ -484,6 +488,8 @@ export const en = {
       prerequisite_open: 'The card’s prerequisite isn’t closed yet.',
       unknown_member: 'Unknown team member.',
       task_closed: 'This card is already closed.',
+      collecting_task_not_startable:
+        'This card collects sub-cards: the work happens on them, so it cannot be started.',
       complexity_forbidden: 'You can’t change the points.',
       complexity_points_invalid: 'The points can only be 1, 2, 3, 5, 8 or 13.',
       complexity_limit_not_developer: 'A limit can only be set for a developer member.',
@@ -626,6 +632,7 @@ export const en = {
       duplicate_repo: 'The same repo is listed twice.',
       invalid_config: 'The setting is invalid.',
       config_invalid: 'The setting is invalid.',
+      config_version_outdated: 'This version uses an older settings format and cannot be restored.',
       config_conflict: 'The settings changed in the meantime.',
       stage_in_use: 'The stage still has cards. Move them to another stage first.',
       already_set_up: 'The owner account already exists.',
@@ -1240,6 +1247,8 @@ export const en = {
       nanogpt_key_missing: 'Waiting to start: no NanoGPT key',
       nanogpt_setup_incomplete: 'Waiting to start: NanoGPT setup incomplete',
       codex_setup_incomplete: 'Waiting to start: Codex setup incomplete',
+      start_backoff: 'The start failed, retrying {until}',
+      start_failing: 'The start keeps failing, no more tries',
       workspace_codex_config: 'Waiting to start: disallowed settings in the worktree .codex folder',
     },
     stageOwners: 'all stage owners',
@@ -1315,6 +1324,10 @@ export const en = {
         'NanoGPT setup is incomplete on the server. The NanoGPT row in Settings → AI providers shows what is missing. If it looks ready, a Codex setting prevents starting: the workspace .codex folder, the server /etc/codex folder or the NanoGPT Codex home settings. Remove the offending setting. This includes hooks (the hooks setting and hooks.json), project_root_markers and the macOS MDM profile (com.openai.codex): the owner must remove them or move them to another Codex home. If Codex is in a disallowed folder, use the official installer or install outside that folder. Work starts automatically once fixed.',
       codex_setup_incomplete:
         'Update Codex to at least {minCliVersion}, or remove sandbox settings (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles) from the configuration file named in the error. Hooks (the hooks setting and hooks.json, both personal and administrator), project_root_markers and the macOS MDM profile (com.openai.codex) also prevent starting: the owner must remove them or move them to another Codex home. For MCP configuration errors, give mcp_servers unique names in the personal config.toml; team is reserved for projectman. If Codex is in a disallowed folder, use the official installer or install outside that folder. Work starts automatically once fixed.',
+      start_backoff:
+        'The session start failed. The server retries on its own after 30 seconds, then 1, 2 and 4 minutes; after the fifth failure it stops.',
+      start_failing:
+        'The start failed five times in a row, so the server stops trying. It tries once more when the provider changes (login, update, engine reconnect); the alert’s Check now button gives it one more try too.',
     },
     next: {
       between: ' · ',
@@ -1357,6 +1370,8 @@ export const en = {
         nanogpt_key_missing: 'no NanoGPT key',
         nanogpt_setup_incomplete: 'NanoGPT setup incomplete',
         codex_setup_incomplete: 'Codex setup incomplete',
+        start_backoff: 'the start failed, retrying later',
+        start_failing: 'the start keeps failing',
         workspace_codex_config: 'disallowed settings in the worktree .codex folder',
         prerequisite_open: 'prerequisite',
       },
@@ -1382,6 +1397,7 @@ export const en = {
       },
       short: {
         startOffer: 'starts it (moves it to development)',
+        collecting: '{count|# open sub-card|# open sub-cards} to close',
         inbox: {
           question: 'answers a question',
           permission: 'grants permission',
@@ -1426,6 +1442,7 @@ export const en = {
       },
       long: {
         capacity: 'Working on something else. This card is next once that work finishes.',
+        collecting: 'The work happens on its sub-cards; this card is not started.',
         readyHold:
           'The card is ready to start but is intentionally waiting. It starts automatically when the condition clears.',
         startOffer: 'The card is ready and a developer is free. The system has asked for it to be started.',
@@ -1452,6 +1469,7 @@ export const en = {
       },
       todo: {
         startOffer: 'Move the card to development; the system chooses a developer.',
+        collecting: 'Nothing: when its last sub-card closes, this card closes by itself.',
         auto: 'Nothing: it starts automatically. If urgent, check the Team page to see what is holding it.',
         capacity: 'Nothing. {hint}',
         nothing: 'Nothing: it progresses automatically.',
@@ -1487,6 +1505,7 @@ export const en = {
     stuckTodo: {
       login: 'Log in on the server: {command}',
       loginOnEngine: 'Log in on the machine running engine {engine}: {command}',
+      startFailing: 'Look at the affected member’s last session and fix the cause.',
       settings: 'Enter it in Settings → AI providers.',
       engine: 'Turn on the engine machine or restart the projectman engine on it.',
     },
@@ -1536,6 +1555,7 @@ export const en = {
     fixLimitYou: 'Waiting for you: decision · after {rounds|# fix round|# fix rounds}',
     queuedFor: 'Queued for: {stage}',
     ready: 'Ready to start',
+    collecting: '{count|# open sub-card|# open sub-cards}',
     prerequisite: 'Waiting for prerequisite',
     prerequisiteOn: 'Waiting · {ref}',
     prerequisiteRef: '{key} ({stage})',
@@ -1556,6 +1576,7 @@ export const en = {
   },
   taskCard: {
     stageRows: 'Checks',
+    processLabelsMore: '{count|# more process label|# more process labels}',
     stageProgress: 'Progress: {stage}, stage {index} of {total}',
     columnSteps: 'Steps of {column}',
     stepState: { done: 'done', current: 'in progress here', todo: 'to do', finished: 'done' },
@@ -1781,6 +1802,7 @@ export const en = {
     earlier: {
       title: 'Earlier conversations ({count})',
       readOnly: 'Read-only.',
+      loadFailed: "Couldn't load the earlier conversations.",
       to: 'To: {names}',
       none: 'No machine messages visible to you.',
     },
@@ -1789,6 +1811,9 @@ export const en = {
       add: 'Add label',
       none: 'None',
       remove: 'Remove {label}',
+      foldedShow: '+{count|# process label|# process labels} ▾',
+      foldedHide: '{count|# process label|# process labels} ▴',
+      pickerAll: 'All applied labels',
       free: 'New label',
       freeHint: 'A free label, with no special meaning.',
       comment: 'Reason: {label}',
@@ -1799,6 +1824,7 @@ export const en = {
         humans_only: 'only a person can set it',
         owner_approval: 'only the owner can grant it with their own login',
         not_holder: 'not your duty',
+        small_cards_only: 'you can only change it on a small card assigned to you in this stage',
         self_review: 'not on your own work',
       },
     },
@@ -2104,6 +2130,19 @@ export const en = {
     repoNone: 'no repo selected',
     workspaceRoot: 'workspace root',
     next: 'Next',
+    /** Why the stage gave the card to those who carry it (PM-1378): a line under the state of the card, and in the timeline. */
+    ownerPick: {
+      small: 'Small card: {points|# point|# points}, touches no central file.',
+      no_points: 'It has no points, so it does not count as a small card.',
+      over_limit: '{points|# point|# points}; the limit for small cards is {maxPoints|# point|# points}.',
+      central_files: 'Touches a central file:',
+      central_more: '(and {count} more)',
+      no_branch: 'It has no handed-over branch, so it cannot be told whether it touches a central file.',
+      unreadable: 'The changed files could not be read, so the stage’s handlers got it.',
+      small_owner_is_author:
+        'The small cards’ handler is the card’s developer, so the stage’s handlers got it.',
+      small_owners_on_leave: 'The small cards’ handlers are on leave, so the stage’s handlers got it.',
+    },
     nextStageNoOwner: '{stage}',
     lastStage: 'This is the last stage.',
     notFound: 'No such card: {key}',
@@ -2410,16 +2449,23 @@ export const en = {
     unmeasured:
       'No measurements for {sessions|# session|# sessions} across {cards|# card|# cards} (recorded before measurement was introduced); excluded from the comparison.',
     noImplementer: 'no implementer',
+    reviewerUnknown: 'No reviewer data',
+    failedByReviewer: 'Failed merge checks by reviewer:',
+    reviewerRatio: '{name}: {failed} / {total|# card|# cards} ({percent})',
     sessionsWithoutData: '{count|# session|# sessions} without measurements',
     columns: {
       card: 'Card',
       implementer: 'Implementer and model',
+      reviewer: 'Reviewer',
       tokens: 'Weighted tokens',
       reviewRounds: 'Review rounds',
       sendBacks: 'Send-backs',
+      mergeConflicts: 'Merge conflicts',
+      mergeChecksFailed: 'Failed merge checks',
       closedAt: 'Closed',
     },
     changeRequestsOf: 'of which requested changes: {count}',
+    reviewTestsFailedOf: 'of which the review full test failed: {count}',
     sortBy: 'Sort by: {column}',
   },
   // ---- Timeline, sessions, how we work ----
@@ -2457,6 +2503,7 @@ export const en = {
       loop: 'To fix: the work goes back to the developer ({stage}) · limit: {limit|# round|# rounds}',
       noOwner: 'no stage owner',
       ownersMore: '{names} and {count} more',
+      smallCards: 'small cards (up to {points|# point|# points}): {names}',
       ownerCount: '{count|# member|# members}',
       refine: 'Refinement here:',
       refineOneAtATime: '· one member at a time',
@@ -2614,6 +2661,9 @@ export const en = {
         lifecycleNone: 'It can’t assign, cancel or reopen on its own.',
         override: 'It can start a card even with an open prerequisite.',
         noOverride: 'It can’t start a card with an open prerequisite.',
+        involve:
+          'It can bring a member without a role in on a card, with a reason; this gives the member no right to approve.',
+        noInvolve: 'It can’t bring a member in on a card; a person can, with a message.',
         actions: {
           assign: 'assign or change the assignee',
           cancel: 'cancel a card',
@@ -3420,6 +3470,7 @@ export const en = {
         owner_topic_missing: 'no topic',
         signal_not_for_owner: 'a signal not meant for the owner',
         pm_matter: 'a project manager matter',
+        pm_affected: 'the outage also blocks the project manager',
         no_pm: 'there is no project manager',
         information: 'information',
         human_duty: 'a human duty',
@@ -3550,6 +3601,7 @@ export const en = {
       assignment_note: '{line} Reason: {note}',
       task_created_imported: 'Created (imported)',
       task_created: 'Created the card',
+      review_follow_ups: 'Left follow-ups for a later card{label}: {items}',
       task_updated: 'Updated: {fields}',
       task_stage_changed: 'Moved on: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Pulled forward by the system: {from} → {to}; the card is urgent',
@@ -3557,6 +3609,7 @@ export const en = {
         'Pulled forward by the system: {from} → {to}; because of focus position {position} ({title}, {key})',
       task_hand_on_requested: '{requestedBy} is done; {mover} moves it on to {to}',
       task_merge_requested: 'Waiting to be merged: {merger}.',
+      task_merge_requested_on_approval: 'Queued for merge on approval: {startedBy}.',
       task_merge_prioritized: 'Moved ahead in the merge queue. Reason: {reason}',
       task_merge_prioritized_ahead: 'Moved ahead of these in the merge queue: {ahead}. Reason: {reason}',
       task_merged: 'Merged into {base}: {commit}{parts}',
@@ -3600,6 +3653,8 @@ export const en = {
       },
       merge_target_unknown: 'the next step',
       task_stage_changed_pinned: 'Moved on: {from} → {to}; handed-over commit: {commit}',
+      owner_pick: '{names} got it. {reason}',
+      owner_repick: 'After a new commit the card went to the stage’s handlers: {names}. {reason}',
       task_stage_changed_parts_closed:
         'Closed: {from} → {to}, without gates, because all its sub-cards were closed ({parts})',
       task_stage_changed_parts_closed_by:
@@ -3745,6 +3800,7 @@ export const en = {
       member_hired: 'Hired: {handle}',
       member_retired: 'Retired: {handle}',
       member_renamed: 'Handle renamed: {from} → {to}',
+      member_involved: 'Involved on the card: {member}. Reason: {reason}',
       member_retired_handover: 'Retired: {handle}, their work moved to {to}',
       config_changed: 'Setting changed: {message}',
       focus_added: 'Added to the focus: {title}, position {position}',
@@ -4472,6 +4528,7 @@ export const en = {
 
   messages: {
     new: 'New message',
+    readFailed: "Couldn't mark as read.",
     recipients: 'To',
     contactsOnlyHint: 'You can only write to contacts.',
     managerOnlyHint: 'You can only write to the project manager.',
@@ -4494,6 +4551,8 @@ export const en = {
       relation_check:
         'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
       work_outage: 'An outage ({outage}) blocks the work; affected cards: {tasks}.',
+      work_outage_details:
+        'Work has been blocked since {since}: {reason}. Engine: {engine}; affected cards: {tasks}. Action: restore the provider subscription login or setup, or reconnect the engine.',
       waiting_digest:
         '{todos} machine to-dos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
     },
@@ -4752,7 +4811,6 @@ export const en = {
       question: 'Question',
       approval: 'Approval',
       alert: 'Alert',
-      release: 'Release',
       mention: 'Mention',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'To-do',
@@ -4765,7 +4823,6 @@ export const en = {
       question: 'question',
       approval: 'approval',
       alert: 'alert',
-      release: 'release',
       mention: 'mention',
       todo: 'to-do',
     },
@@ -4981,6 +5038,7 @@ export const en = {
           no_key: 'No NanoGPT key',
           setup_incomplete: 'The {provider} set-up is incomplete',
           chatgpt_login: 'The {provider} set-up is incomplete',
+          start_failing: '{provider} sessions keep failing to start',
           engine: 'The {engine} engine isn’t connected',
           engineNone: 'No engine is connected',
         },
@@ -5001,6 +5059,8 @@ export const en = {
           install: 'Install or update the {provider} CLI, then log in:',
           installOnEngine:
             'Install or update the {provider} CLI on the machine of the {engine} engine, then log in:',
+          startFailing:
+            'Look at the affected member’s last session (the exit reason is in the log) and fix the cause. Then Check now gives it one more try.',
           settings: 'Enter it here: Settings → AI providers.',
           openSettings: 'Open AI providers →',
           engine:
@@ -5036,6 +5096,7 @@ export const en = {
           no_key: 'no NanoGPT key',
           setup_incomplete: 'the {provider} set-up is incomplete',
           chatgpt_login: 'the {provider} set-up is incomplete',
+          start_failing: '{provider} sessions keep failing to start',
           engine: 'the {engine} engine isn’t connected',
           engineNone: 'no engine is connected',
           onEngine: '{reason} ({engine})',
@@ -5106,7 +5167,6 @@ export const en = {
         'If they may write to them, check whether they ask for email (Settings › Email) and are a contact (Settings › Team), then ask them to send it again.',
     },
     release: {
-      title: 'Earlier release',
       newTab: '(opens in a new tab)',
     },
     handOn: {
@@ -5832,71 +5892,13 @@ export const en = {
       },
     },
     approval: {
-      plan: 'The plan',
-      planWhy: 'Why',
-      planImpact: 'Impact',
-      planReversible: 'Can it be undone?',
-      reversibleYes: 'Yes, it can be reversed',
-      reversibleNo: 'It can’t be undone',
-      recipients: 'To',
-      guest: '· guest',
-      message: 'The message',
-      messageExact: 'Exactly this goes out, in the connected Claude’s name.',
-      messageExactTask: 'Exactly this goes out, in the connected Claude’s name, about card {key}.',
-      expires: 'Expires: {time}. If you don’t decide by then, nothing happens.',
-      expiresSoon: 'Expires in {minutes} min. If you don’t decide by then, nothing happens.',
-      send: 'Send',
-      asked: 'You asked: “{quote}”',
-      quoteMore: 'The whole quote',
-      quoteLess: 'Shorter',
       changes: 'What changes',
       more: '{count|# more change|# more changes}',
       less: 'Less',
       approve: 'Approve',
       reject: 'Reject',
-      stop: 'Stop',
-      pause: 'Pause',
       ok: 'OK',
-      stale: 'Out of date',
-      staleReasons: {
-        expired:
-          'It expired because you didn’t decide within 24 hours, so nothing happened. If you still need it, ask the connected Claude again.',
-        interrupted:
-          'The execution was interrupted and, for safety, isn’t restarted. Check whether it happened; if you still need it, ask the connected Claude again.',
-        config_changed:
-          'The setting changed in the meantime, so this request can’t be run any more. I told the connected Claude; if you still need it, ask them again.',
-        session_changed:
-          'The session has stopped in the meantime, or is somewhere else now, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
-        pause_changed:
-          'The project’s pause changed in the meantime, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
-      },
-      approved: 'Approved: {title}',
       rejected: 'Rejected, nothing changed.',
-      consequences: {
-        message_send:
-          'After approval the message goes out once. If you reject it, nothing goes out and the recipient isn’t notified.',
-        operator_watch:
-          'Signals already raised don’t change; from its next wake-up the connected Claude acts on signals this way.',
-        network:
-          'Running sessions don’t change; the network rule applies to sessions that start from now on.',
-        permission_mode:
-          'Running sessions don’t change; the permission mode applies to sessions that start from now on.',
-        pipeline: 'Cards stay where they are; the rule applies from the next move.',
-        labels: 'Labels already on cards don’t change; the rule applies from the next decision.',
-        member_hire: 'The new member can get work right after saving.',
-        member_retire: 'The member’s running sessions stop, and the team takes over their work.',
-        member_rename:
-          'The member’s handle changes to the new name, earlier entries keep the old name; their email address follows the new handle too.',
-        member_other: 'The member’s running sessions don’t change.',
-        locations: 'Running sessions don’t change; sessions that start from now on use the new location.',
-        review_test: 'Tests already running don’t change; the new setting applies from the next full test.',
-        fix_limit: 'Fix rounds already under way don’t change.',
-        session_stop: 'The session stops; the card can carry on the usual way.',
-        project_pause: 'Running sessions finish their current step; no new ones start.',
-        project_resume: 'Waiting work can start again.',
-        project: 'The project’s setting changes, the location of the work doesn’t.',
-        other: 'The change applies to the setting named.',
-      },
     },
     signal: {
       pending: '{count|# open signal|# open signals}',
@@ -5929,43 +5931,33 @@ export const en = {
         loop_suspected: '{key}: suspected going in circles',
         outage: 'Outage: part of the work is stuck',
         process_cleanup_failed: '{key}: a session’s processes didn’t stop',
-        nobody: '{key}: nobody can take it',
         stalled: '{key}: the session is waiting for a reply',
         silent: '{key}: the session isn’t giving any sign',
-        idle: '{key}: nobody is working on it',
-        merge_waiting: '{key}: waiting to be merged',
         merge_blocked: '{key}: the merge is stuck',
         unreleased: 'Work waiting for a release',
-        ready_waiting: 'Cards ready to start are waiting',
         answer_stalled: '{key}: the answer arrived, but the member isn’t carrying on',
         structural_pattern: 'A structural pattern repeating on several cards',
         milestone_closed: 'A closed stage',
-        refinement_stalled: '{key}: the refinement turn ended without the label',
         start_blocked: '{key}: the start is quietly waiting',
         obligation_overdue: '{key}: the step is still stuck after the reminder',
         relation_check: '{key}: the card got new relations',
         senior_wait: '{key}: waiting for a developer who can take it',
+        review_follow_ups: '{key}: non-blocking remarks left when it closed',
       },
       bodies: {
         loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
         outage: 'A provider or an engine isn’t reachable; the PM handles it, and the affected cards show it.',
         process_cleanup_failed:
           'The background processes of a session that ended are still running after it stopped; its workspace stays busy. You can stop them on the Machine panel.',
-        nobody: 'According to the settings, no member can take the card right now.',
         stalled: 'The session has been waiting for input for a while.',
         silent: 'The session is working, but hasn’t given a sign for a while.',
-        idle: 'The card has an assignee, but no work has been running on it for half an hour.',
-        merge_waiting: 'The merge was requested half an hour ago, but the merger hasn’t started it yet.',
         merge_blocked: 'The merge is stuck because of a conflict, a failed check or an error.',
         unreleased: 'Work merged into the main branch more than a day ago is waiting for a release.',
-        ready_waiting: 'A card ready to start is waiting, and there is a free developer.',
         answer_stalled:
           'A reply or message was already delivered to the member, but they haven’t taken a step since.',
         structural_pattern: 'On concrete evidence, it may be worth asking for a short architecture review.',
         milestone_closed:
           'A theme or collector card closed; the PM weighs whether an occasional review is worth it.',
-        refinement_stalled:
-          'The refinement turn ended, but its label isn’t on the card, and the member isn’t carrying on.',
         start_blocked:
           'The card’s start is waiting for a repository choice or a stuck workspace. The PM sorts out what a member can; when the cause is gone, the signal closes by itself.',
         obligation_overdue:
@@ -5974,6 +5966,8 @@ export const en = {
           'The relations of the card changed. The PM checks that they still hold; when they are gone, the signal closes by itself.',
         senior_wait:
           'The card is waiting for a developer whose limit reaches its points. The PM decides: keep waiting for the Senior, or let anyone take it; if the choice costs money, the PM asks the owners first. The signal closes by itself once decided.',
+        review_follow_ups:
+          'The card closed, but the non-blocking remarks its reviewers left for a later card are still there. The PM decides per item: add it to an existing card, open a new card, or drop it; then closes the signal by hand.',
       },
     },
   },
@@ -6564,6 +6558,8 @@ export const en = {
       nanogpt_key_missing: 'No NanoGPT key is set, so the session doesn’t start.',
       nanogpt_setup_incomplete: 'The NanoGPT setup is incomplete, so the session doesn’t start.',
       codex_setup_incomplete: 'The Codex setup is incomplete, so the session doesn’t start.',
+      start_backoff: 'The last session start failed, so the next try comes later.',
+      start_failing: 'The session start failed several times in a row, so it stops trying on its own.',
       workspace_codex_config:
         'The worktree’s own .codex folder holds a Codex setting that could run a command outside the sandbox (for example a hook, an MCP server or a rule), so the Codex member doesn’t start.',
       provider_unsupported: 'The provider isn’t supported in this run profile.',
@@ -7581,6 +7577,40 @@ export const en = {
         releaseRule:
           'A release always needs a human approval: the gate takes a label that only members of the “Release approval” duty can set, on every card.',
         details: 'Details',
+        smallRule: {
+          toggle: 'Small cards have their own handlers',
+          intro:
+            'Small cards that touch no central file go to other handlers. Every other card stays with the handlers above.',
+          group: 'Small card',
+          pointsBefore: 'Small card: at most',
+          pointsAfter: 'points',
+          owners: 'Handlers',
+          paths: 'Central files',
+          pathsHelp:
+            'One pattern per line, relative to the repository root (** matches any depth). If the card’s branch changes even one of them, the handlers above get the card.',
+          summarySmall: '{points|# point|# points} or fewer, no central file → {names}',
+          summaryNobody: '{points|# point|# points} or fewer, no central file → no handler yet',
+          summaryOthers: 'Every other card → {names}',
+          whenTitle: 'When do the handlers above get a small card anyway?',
+          whenPoints: 'It has no points, or more than the limit.',
+          whenFiles:
+            'Its branch changes a central file, it has no handed-over branch yet, or the changed files cannot be read.',
+          whenAuthor: 'Every handler of the small cards is the card’s developer, or on leave.',
+          whenEntry:
+            'The rule checks the points and the files when the card enters this stage; changing the limit or the patterns applies to cards that enter afterwards. Changing the small cards’ handlers also applies to small cards already in the stage, and turning the rule off gives those back to the handlers above.',
+          errors: {
+            noOwner: 'Pick a handler for the small cards.',
+            unknownOwner: '{handle} is not a member of the team.',
+            invalidPath:
+              'Line {line} is not a valid pattern: “{pattern}”. Give it relative to the repository root, with no leading slash and no ‹.› or ‹..› segments.',
+            tooManyPaths: 'At most 50 patterns are allowed.',
+          },
+          warnings: {
+            cannotSetLabel: '{name} cannot set the label {label}, so could not pass the card on.',
+            labelSetters: 'Who can set labels',
+            onLeave: '{name} is on leave: small cards go to the handlers above until they return.',
+          },
+        },
       },
     },
     team: {
@@ -7692,6 +7722,17 @@ export const en = {
           automatic: 'Only the system’s choice fits',
         },
       },
+      /** Whether the merger’s own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Merge right after approval',
+        note: 'The merger merges with the merge_task call. When this is on and they are also the card’s code reviewer, their approval makes that call too, as long as the card has no open or unconfirmed acceptance item. If the merge cannot be queued, the reply to their approval tells them why and what to do.',
+        noEffect: 'No effect now: the merger is not the code reviewer.',
+        readOnlyLabel: 'Merge after approval',
+        value: {
+          on: 'On',
+          off: 'Off',
+        },
+      },
       /** Who may open a new card (PM-1100). */
       taskCreate: {
         title: 'Opening a new card',
@@ -7756,6 +7797,21 @@ export const en = {
         value: {
           people: 'Only a person',
           people_and_project_manager: 'A person and the project manager, with an explicit flag',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Bringing a member in on a card',
+        help: 'A person can always bring anyone in on a card: their message starts the member. An AI member’s message only starts members who have a role on the card. A member brought in gets no right to approve.',
+        question: 'Who else can bring a member in?',
+        project_manager: 'Project manager, with a reason',
+        covers: 'Member concerned: {names}',
+        noProjectManager: 'There is no project manager in the team now.',
+        humansOnly: 'Now only a person can bring a member in on a card.',
+        readOnlyLabel: 'Who can bring a member in on a card?',
+        value: {
+          people: 'Only a person',
+          people_and_project_manager: 'A person and the project manager, with a reason',
         },
       },
       /** Who besides people may set a card’s priority (PM-1096). */
@@ -8015,6 +8071,10 @@ export const en = {
       mover_not_member: 'The person who moves the cards on is no longer a member of the project.',
       mover_cannot_move: 'The one who moves the cards on can’t move cards.',
       mover_on_leave: 'The project manager who moves the cards on is on leave.',
+      small_cards_not_step: 'The small-cards rule can only sit on a step stage.',
+      small_cards_unknown_owner: 'An owner of the small cards is not a member of the project.',
+      small_cards_invalid_path:
+        'Invalid path pattern: it can’t be empty, start with ‹/›, hold a ‹.› or ‹..› segment, or be over 200 characters.',
       review_test_runner_github: 'For the GitHub Actions runner, the repo needs its GitHub owner/name pair.',
       compute_jobs_github: 'For machine jobs, the repo needs its GitHub owner/name pair.',
     },

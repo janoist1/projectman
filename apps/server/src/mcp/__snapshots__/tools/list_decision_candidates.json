@@ -1,0 +1,24 @@
+{
+  "name": "list_decision_candidates",
+  "title": "List the owners’ answers that may be decisions",
+  "description": "The questions owners answered on cards since you last looked, with no verdict yet, earliest first: offer them in your answer to the owner's message. Unmarked ones come back; more true: call again after marking these. Your internal conversations only; no owner request needed.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "description": "How many to return, 1–50 (default 20).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List the owners’ answers that may be decisions",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

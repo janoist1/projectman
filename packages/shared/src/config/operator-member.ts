@@ -10,12 +10,6 @@ import type { ProjectConfig } from './schema';
 // There is no Operator member since decision 66 (PM-1076): a connected Claude acts as its holder or as the
 // issuer of a queue item, and the project manager acts as the selected coordinator.
 
-/**
- * The retired built-in role of the Operator (PM-447, PM-1076). It is no role any more: the configuration
- * migration removes the member that held it, and this id only lets that migration (and nothing else) find it.
- */
-export const RETIRED_OPERATOR_ROLE = 'ai_operator';
-
 /** The handle the Operator had. It stays taken for good: older events and messages name it. */
 export const RETIRED_OPERATOR_HANDLE = 'operator';
 

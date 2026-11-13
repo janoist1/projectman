@@ -1,17 +1,78 @@
 import { MODULES } from '../../apps/server/test/architecture/module-map';
-import { serverTestImpact } from './impact';
+import { sourceImports } from '../../apps/server/test/architecture/check';
+import { isCode, serverTestImpact } from './impact';
 import type { MergeTestFile } from './impact';
-import type { MergeTestScope } from './scope';
+import { testsReadingDocs } from './scope';
+import type { MergeTestScope, MergeTestWorkspace } from './scope';
 import { sharedImpact } from './shared-impact';
-import { MERGE_TEST_WORKSPACES } from './steps';
+import { MERGE_TEST_WORKSPACES, workspaceOf } from './steps';
+
+/** The fallback `serverTestImpact` reports when a change reaches no test. */
+const NO_TESTS = 'no tests selected';
 
 const underServer = (file: MergeTestFile): boolean =>
   file.path.startsWith('apps/server/') || file.path.startsWith('scripts/');
 
+/** The workspace whose checks cover a path: the scripts belong to the server's. */
+export const checkedBy = (path: string): MergeTestWorkspace | undefined =>
+  path.startsWith('scripts/') ? 'apps/server' : workspaceOf(path);
+
+/** The files that import `pkg` (or a subpath of it), and those that do it other than by type. */
+export function importersOf(
+  files: readonly MergeTestFile[],
+  pkg: string,
+): { all: string[]; value: string[] } {
+  const all: string[] = [];
+  const value: string[] = [];
+  for (const file of files) {
+    if (!isCode(file.path) || !checkedBy(file.path)) continue;
+    const imports = sourceImports(file.source);
+    const own = (s: string) => s === pkg || s.startsWith(`${pkg}/`);
+    if (!imports.specifiers.some(own)) continue;
+    all.push(file.path);
+    if (imports.specifiers.some((s) => own(s) && !imports.typeOnly.includes(s))) value.push(file.path);
+  }
+  return { all, value };
+}
+
+/** Whether the scope runs the templates workspace because its own files changed. */
+const templatesChanged = (scope: Extract<MergeTestScope, { kind: 'workspaces' }>): boolean =>
+  scope.workspaces.includes('packages/templates');
+
+/** Refines a change in `packages/templates`: the workspaces and server tests that import it. */
+function templatesScope(
+  scope: Extract<MergeTestScope, { kind: 'workspaces' }>,
+  changed: readonly string[],
+  before: readonly MergeTestFile[],
+  after: readonly MergeTestFile[],
+): MergeTestScope {
+  const importers = importersOf(after, '@projectman/templates').all;
+  const workspaces = new Set<MergeTestWorkspace>(scope.workspaces);
+  for (const path of importers) workspaces.add(checkedBy(path)!);
+  const sorted = (list: Iterable<MergeTestWorkspace>) => [...list].sort();
+  if (!workspaces.has('apps/server')) return { kind: 'workspaces', workspaces: sorted(workspaces) };
+  const impact = serverTestImpact({
+    changed,
+    seeds: importers.filter((path) => checkedBy(path) === 'apps/server'),
+    before: before.filter(underServer),
+    after: after.filter(underServer),
+    modules: MODULES,
+  });
+  return impact.fallback
+    ? { kind: 'workspaces', workspaces: sorted(workspaces), fallback: impact.fallback }
+    : {
+        kind: 'modules',
+        modules: impact.modules,
+        tests: withDocTests(impact.tests, changed),
+        workspaces: sorted([...workspaces].filter((ws) => ws !== 'apps/server')),
+      };
+}
+
 /** Whether refining the scope needs the file contents of both revisions, and which roots it reads. */
 export function refineRoots(scope: MergeTestScope): string[] | undefined {
   if (scope.kind !== 'workspaces') return undefined;
-  if (scope.sharedChanged !== undefined) return [...MERGE_TEST_WORKSPACES, 'scripts'];
+  if (scope.sharedChanged !== undefined || templatesChanged(scope))
+    return [...MERGE_TEST_WORKSPACES, 'scripts'];
   return scope.workspaces.includes('apps/server') ? ['apps/server', 'scripts'] : undefined;
 }
 
@@ -52,9 +113,17 @@ function sharedScope(
     kind: 'shared',
     exports: shared.exports,
     workspaces,
-    ...(server?.fallback ? { fallback: server.fallback } : server ? { tests: server.tests } : {}),
+    ...(server?.fallback
+      ? { fallback: server.fallback }
+      : server
+        ? { tests: withDocTests(server.tests, changed) }
+        : {}),
   };
 }
+
+/** The server tests of the selection plus those that read a changed document by path. */
+const withDocTests = (tests: readonly string[], changed: readonly string[]): string[] =>
+  [...new Set([...tests, ...testsReadingDocs(changed)])].sort();
 
 /**
  * The merge check's scope for a change, from the coarse path scope: the shared export analysis and the
@@ -68,6 +137,12 @@ export function refineScope(
   after: readonly MergeTestFile[],
 ): MergeTestScope {
   if (refineRoots(scope) === undefined || scope.kind !== 'workspaces') return scope;
+  if (templatesChanged(scope)) {
+    // The two package analyses do not combine: a shared change next to a templates one runs everything.
+    return scope.sharedChanged === undefined
+      ? templatesScope(scope, changed, before, after)
+      : { kind: 'all', reason: 'packages/templates with packages/shared' };
+  }
   if (scope.sharedChanged !== undefined) return sharedScope(scope, changed, before, after);
   const impact = serverTestImpact({
     changed,
@@ -75,12 +150,21 @@ export function refineScope(
     after: after.filter(underServer),
     modules: MODULES,
   });
+  // A change of a document alone selects no module, only the tests that read it.
+  const docTests = testsReadingDocs(changed).filter((test) => after.some((file) => file.path === test));
+  if (impact.fallback === NO_TESTS && docTests.length)
+    return {
+      kind: 'modules',
+      modules: impact.modules,
+      tests: docTests,
+      workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
+    };
   return impact.fallback
     ? { ...scope, fallback: impact.fallback }
     : {
         kind: 'modules',
         modules: impact.modules,
-        tests: impact.tests,
+        tests: withDocTests(impact.tests, changed),
         workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
       };
 }

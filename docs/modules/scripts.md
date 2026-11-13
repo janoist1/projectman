@@ -5,6 +5,23 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
+## Sorted registries and generated barrels (PM-1339)
+
+Run `npm run generate:barrels` from the repository root after adding, removing or renaming a
+source file in `packages/shared/src/` or `apps/server/src/contracts/`, and commit the generated
+`index.ts` files with the source change. Do not edit these barrels by hand. The generator
+(`scripts/barrels/generate.ts`) recursively exports TypeScript source files, excluding tests,
+declarations, snapshots and the root barrel itself. Its explicit shared-helper exclusions preserve
+the existing public API. A new private helper belongs in that exclusion list.
+
+Exports are sorted by extensionless relative module path using JavaScript's default string sort
+(case-sensitive, locale-independent). `ERROR_CODES` in `packages/shared/src/api/error-codes.ts`
+uses the same order by code: insert a new code at its alphabetical position, keeping any code-specific
+comment with it, and add its translations to both web locales. MCP imports in
+`apps/server/src/mcp/tools.ts` are sorted by module path; `TEAM_TOOL_GROUPS` is sorted by constant name.
+`apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
+committed barrels with the generator output; handover-check selects it for changes in these folders.
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -148,7 +165,13 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   **Server and script impact (PM-864).** Server contracts and config use their source modules;
   script code uses the server workspace. Both server and script files are read from each git tree.
   Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
-  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  test (an unmapped snapshot falls back). Per-tool JSON snapshots in
+  `apps/server/src/mcp/__snapshots__/tools/` select `apps/server/src/mcp/tools.test.ts` in both
+  merge and hand-over checks. That test compares one JSON file per tool and checks the directory
+  against the registered tool names, so missing and orphaned files fail. Update with
+  `npx vitest run src/mcp/tools.test.ts --configLoader runner -u` in `apps/server`, remove files
+  for retired tools, then rerun without `-u` to verify the complete file set.
+  Changed helpers and scripts select tests reaching them in
   either tree; a script dependency also proves a source dependency. Server markdown is ignored.
   Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
   nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest
@@ -172,9 +195,17 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
-  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
-  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  Paths only a few server tests read by path run those tests (PM-1354): `deploy/mac/**` and
+  `.github/workflows/*.yml`, `projectman.structure.yaml` and `apps/server/test/architecture/**`, and
+  `scripts/merge-test/**` each have an `OWNED_PATH_RULES` entry (`scripts/merge-test/scope.ts`) with its
+  test list; a diff made only of such paths (and the rules' own tests) gets the `owned` scope: server
+  type check and those tests. A guard test fails when a server test that reads one of these paths is
+  not named by a rule. A `packages/templates/**` change runs the templates workspace and the
+  workspaces that import `@projectman/templates` (the server through the module/test graph seeded by
+  its importers); next to a shared source change it requires all workspaces.
+  Changes to `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, such paths next to other code or
+  unknown paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
   `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
@@ -193,11 +224,28 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   changed file matching one selects the tests), `tests` (test file patterns that then run) and
   optionally `on: 'add-delete'` (only an added or deleted file counts). Patterns are repository
   paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
-  test fails when an `import.meta.glob` test is not covered by a rule or a rule names no existing
-  test. The tool-definition snapshot and the `*-migration` tests need no rule: the shared export
-  analysis and the import graph reach them. **Order by proximity (PM-1306).** At most
-  `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files run, so the
-  nearest come first and the alphabet only decides between tests of the same proximity:
+  test fails when a server or web test that reads a repository file by path (an
+  `import.meta.glob`, or a path from `import.meta.url` read with `readFileSync`, `readdirSync`,
+  `existsSync`) is not named by a rule, or a rule names no existing test. The `CLAUDE.md` Commands
+  lines of the form "run this test after changing that" are rules too (`web-get-contracts`, the
+  merge-test watchdog, `start-offer` and the `golden-path-*` tests). The tool-definition snapshot and the
+  migration folder (`apps/server/src/db/migrations/`) has a `SELECTION_RULES` path rule selecting
+  loader, baseline, database, journal, handle, history and retained migration tests: SQL and metadata
+  have no import edge. Merge impact treats these data files as changes to the `db` module. A rule
+  with `broad: true` has sources so wide that matching one does not make a file "mapped" (the
+  not-mapped list). **Documents a test reads (PM-1337).** `TEST_READ_DOCS`
+  (`scripts/merge-test/scope.ts`) maps the documents tests read by path (`docs/HYBRID.md`,
+  `docs/MACHINE-DEPENDENT.md`, `docs/ARCHITECTURE.md`, `docs/EFFECT.md`) to those tests. Such a document is
+  no documentation-only file: the merge check runs the server tests with the tests that read it added
+  (`refine.ts`), and the hand-over check chooses them by the rule built from the same map. A test
+  that reads another document by path adds it there; the tests check documents' machine-readable
+  facts, never their wording. **Order by proximity (PM-1306).** The tests come
+  nearest first and the alphabet only decides between tests of the same proximity. **The cap
+  (PM-1337).** The cap, `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`),
+  cuts only the farther tests: every `direct` and `rule` test and the first `NAME_TESTS_ALWAYS` (10)
+  `name` tests always run, and the remaining room under the cap goes to the rest of the `name` tests
+  and the `graph` tests in order. A run can therefore be larger than 60 files (the nearest tests decide
+  the merge); the last lines say how many tests the cap cut:
   1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
      file themselves (snapshot tests first). A test that only imports a changed `packages/shared`
      export through the package is not direct: it is `graph`, however many there are;
@@ -218,9 +266,10 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say
-  `ran 60 of M (cap 60); the merge-test runs the other M-60` (exit 0) and
-  `left out by proximity: <n> direct, <n> selection-rule, <n> name-usage, <n> farther import-graph`,
-  and name the omitted tests of the nearer proximities, at most 20 per line and then `(+N more)`
+  `ran R of M (cap 60 cuts only the farther tests, the N nearest always run); the merge-test runs the other C`
+  (exit 0), `the cap cut C test(s)` and
+  `left out by proximity: 0 direct, 0 selection-rule, <n> name-usage, <n> farther import-graph`
+  (the first two are always 0), and name the omitted tests of the `name` tier, at most 20 per line and then `(+N more)`
   (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).

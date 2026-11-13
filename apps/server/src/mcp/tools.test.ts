@@ -3,6 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import Fastify from 'fastify';
+import { readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, SERVER_INFO, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
@@ -20,6 +21,7 @@ const developerAudience: MemberAudience = {
   email: false,
   machineAccess: false,
   hostRequests: false,
+  screenshots: false,
   duties: new Set(),
 };
 
@@ -45,6 +47,18 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it('rejects retired operations on member knowledge proposals', () => {
+    const tool = TEAM_TOOLS.find((tool) => tool.name === 'propose_operator_knowledge')!;
+    const proposal = {
+      expected_revision: 0,
+      change: { kind: 'principle_remove', id: 'olp_one' },
+      title: 'Explicit owner request',
+    };
+    expect(tool.inputSchema.shape).not.toHaveProperty('operations');
+    expect(tool.inputSchema.safeParse(proposal).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ ...proposal, operations: [] }).success).toBe(false);
+    expect(tool.external).toBeUndefined();
+  });
   it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s tools/list within its byte budget', async (role) => {
     const result = await listToolsFor({
       ...developerAudience,
@@ -74,7 +88,8 @@ describe('tool audience', () => {
       translator: 40_000,
       docs: 40_000,
     };
-    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+    // PM-1361 adds the bounded follow_ups schema and its usage description to update_task.
+    expect(bytes).toBeLessThanOrEqual(budgets[role] + 512);
   });
   it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',
@@ -97,7 +112,7 @@ describe('tool audience', () => {
           {
             title: tool.title,
             description: tool.description,
-            inputSchema: tool.inputSchema,
+            inputSchema: tool.forAudience(audience).inputSchema,
             annotations: tool.annotations,
           },
           () => ({ content: [] }),
@@ -267,9 +282,94 @@ describe('tool audience', () => {
     }
   });
 
-  it('keeps the read-only merge check list for every member', async () => {
-    const names = (await listToolsFor(developerAudience)).tools.map((tool) => tool.name);
-    expect(names).toContain('list_merge_checks');
+  it.each([
+    { name: 'a developer', audience: developerAudience, visible: false },
+    { name: 'the merger', audience: { ...developerAudience, merger: true }, visible: true },
+    { name: 'a project manager', audience: { ...developerAudience, projectManager: true }, visible: true },
+  ])('lists the merge check list for the merger and the PM only ($name)', async ({ audience, visible }) => {
+    const names = (await listToolsFor(audience)).tools.map((tool) => tool.name);
+    expect(names.includes('list_merge_checks')).toBe(visible);
+  });
+
+  it.each([
+    { name: 'a developer', duties: [] as const, visible: false },
+    { name: 'a code reviewer', duties: ['code_review'] as const, visible: true },
+    { name: 'technical direction', duties: ['technical_direction'] as const, visible: true },
+  ])('lists decide_fix_limit only for the fix limit deciders ($name)', async ({ duties, visible }) => {
+    const names = (await listToolsFor({ ...developerAudience, duties: new Set(duties) })).tools.map(
+      (tool) => tool.name,
+    );
+    expect(names.includes('decide_fix_limit')).toBe(visible);
+  });
+
+  it.each([false, true])(
+    'lists the screenshot tools only when a repository has the command (%s)',
+    async (screenshots) => {
+      const names = (await listToolsFor({ ...developerAudience, screenshots })).tools.map(
+        (tool) => tool.name,
+      );
+      for (const name of ['take_screenshots', 'get_screenshot_run'])
+        expect(names.includes(name)).toBe(screenshots);
+    },
+  );
+
+  describe('field audience (PM-1353)', () => {
+    const PM_ONLY_FIELDS = {
+      send_message: ['signal_id', 'signal_actionable', 'signal_ids', 'actionable_signal_ids', 'places'],
+      ask_human: ['signal_id'],
+      update_task: ['despite_prerequisites'],
+    };
+    const propertiesOf = async (audience: MemberAudience, name: string) => {
+      const tool = (await listToolsFor(audience)).tools.find((candidate) => candidate.name === name)!;
+      return Object.keys(tool.inputSchema.properties ?? {});
+    };
+
+    it.each(Object.entries(PM_ONLY_FIELDS))(
+      'keeps the PM-only fields of %s out of a developer schema and in the PM schema',
+      async (name, fields) => {
+        const developer = await propertiesOf(developerAudience, name);
+        const pm = await propertiesOf({ ...developerAudience, projectManager: true }, name);
+        for (const field of fields) {
+          expect(developer).not.toContain(field);
+          expect(pm).toContain(field);
+        }
+        // Only the PM-only fields differ.
+        expect(pm.filter((field) => !developer.includes(field)).sort()).toEqual([...fields].sort());
+      },
+    );
+
+    it('shows the fields and the narrow tools each audience gets in a snapshot', async () => {
+      const audiences = {
+        developer: developerAudience,
+        project_manager: { ...developerAudience, projectManager: true },
+        merger: { ...developerAudience, merger: true },
+        code_review: { ...developerAudience, duties: new Set(['code_review'] as const) },
+        screenshots: { ...developerAudience, screenshots: true },
+      };
+      const narrow = ['list_merge_checks', 'decide_fix_limit', 'take_screenshots', 'get_screenshot_run'];
+      const view: Record<string, { narrow_tools: string[]; fields?: Record<string, string[]> }> = {};
+      for (const [name, audience] of Object.entries(audiences)) {
+        const { tools } = await listToolsFor(audience);
+        view[name] = { narrow_tools: narrow.filter((tool) => tools.some((t) => t.name === tool)) };
+        if (name === 'developer' || name === 'project_manager')
+          view[name]!.fields = Object.fromEntries(
+            Object.keys(PM_ONLY_FIELDS).map((tool) => [
+              tool,
+              Object.keys(tools.find((t) => t.name === tool)!.inputSchema.properties ?? {}),
+            ]),
+          );
+      }
+      await expect(`${JSON.stringify(view, null, 2)}\n`).toMatchFileSnapshot('__snapshots__/audiences.json');
+    });
+
+    it('refuses a PM-only field from a member whose schema does not list it', () => {
+      const tool = TEAM_TOOLS.find((candidate) => candidate.name === 'update_task')!;
+      const input = { task_key: 'PM-1', despite_prerequisites: true };
+      expect(
+        tool.forAudience({ ...developerAudience, projectManager: true }).inputSchema.safeParse(input).success,
+      ).toBe(true);
+      expect(tool.forAudience(developerAudience).inputSchema.safeParse(input).success).toBe(false);
+    });
   });
 
   it.each([
@@ -307,19 +407,19 @@ describe('tool audience', () => {
 });
 
 describe('team tool definitions', () => {
+  it('has exactly one snapshot file for each registered tool', async () => {
+    const files = await readdir(new URL('./__snapshots__/tools/', import.meta.url));
+    expect(files.sort()).toEqual(TEAM_TOOL_NAMES.map((name) => `${name}.json`).sort());
+  });
+
   it('preserves the public tool definitions across module moves', async () => {
     const { tools } = await listToolsFor(fullAudience);
-    expect(
-      tools
-        .map(({ name, title, description, inputSchema, annotations }) => ({
-          name,
-          title,
-          description,
-          inputSchema,
-          annotations,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    ).toMatchSnapshot();
+    for (const { name, title, description, inputSchema, annotations } of tools) {
+      const definition = { name, title, description, inputSchema, annotations };
+      await expect(`${JSON.stringify(definition, null, 2)}\n`).toMatchFileSnapshot(
+        `__snapshots__/tools/${name}.json`,
+      );
+    }
   });
 });
 
@@ -378,6 +478,7 @@ describe('team tool registration', () => {
         'reassign_task',
         'cancel_task',
         'reopen_task',
+        'involve_member',
         'start_member',
       ],
       'services/feedback': [

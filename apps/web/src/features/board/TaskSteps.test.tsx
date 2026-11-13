@@ -122,6 +122,29 @@ describe('the "Most" box of the Process view (PM-1160)', () => {
     expect(screen.getByTestId('where').textContent).toMatch(/^\/p\/AC\/tasks\/AC-21#inbox-item-/);
   });
 
+  it('says why the stage gave the card to its owners, with the central file as code and all of them in a title', async () => {
+    const project = mockProject();
+    const task = project.backend.tasks.find((candidate) => candidate.key === 'AC-21')!;
+    task.stageOwnerPick = {
+      stageId: task.stageId,
+      small: false,
+      reason: { code: 'central_files', files: ['packages/shared/a.ts', 'db/b.ts'], count: 3 },
+    };
+    await openProcess(project);
+    const file = within(now()).getByText('packages/shared/a.ts');
+    expect(file.tagName).toBe('CODE');
+    expect(file.getAttribute('title')).toBe('packages/shared/a.ts\ndb/b.ts');
+    expect(now().textContent).toContain(t('task.ownerPick.central_more', { count: 2 }));
+  });
+
+  it('shows no reason for the pick of a stage the card has left', async () => {
+    const project = mockProject();
+    const task = project.backend.tasks.find((candidate) => candidate.key === 'AC-21')!;
+    task.stageOwnerPick = { stageId: 'ready', small: false, reason: { code: 'no_points' } };
+    await openProcess(project);
+    expect(within(now()).queryByText(t('task.ownerPick.no_points'))).toBeNull();
+  });
+
   it('leaves out the list when nothing waits', async () => {
     const project = mockProject();
     project.backend.inbox = project.backend.inbox.filter((item) => item.taskKey !== 'AC-21');

@@ -1,7 +1,12 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createConfigStore } from '../../apps/server/src/config';
-import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
+import {
+  BASELINE_VERSION,
+  latestSchemaVersion,
+  hasSchemaObjects,
+  schemaRefusal,
+} from '../../apps/server/src/db';
 import { instanceRole, InstanceMarkerError } from '../../apps/server/src/instance';
 import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './instance';
 import { databaseInUse, snapshotDatabase } from './database';
@@ -117,19 +122,24 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
     try {
       const db = snapshot.db;
       schema = Number(db.pragma('user_version', { simple: true }));
-      if (schema > LATEST_SCHEMA_VERSION)
+      const refusal = schemaRefusal(schema, hasSchemaObjects(db));
+      if (refusal)
         add(
           'blocker',
-          'schema_newer',
+          schema > latestSchemaVersion()
+            ? 'schema_newer'
+            : schema < BASELINE_VERSION && schema > 0
+              ? 'schema_before_baseline'
+              : 'schema_unversioned',
           'db.sqlite',
-          `schema ${schema} is newer than this build (${LATEST_SCHEMA_VERSION}): an older build must never start on it`,
+          refusal,
         );
-      else if (schema < LATEST_SCHEMA_VERSION)
+      else if (schema < latestSchemaVersion())
         add(
           'warning',
           'schema_older',
           'db.sqlite',
-          `schema ${schema}, this build migrates to ${LATEST_SCHEMA_VERSION} at the first start`,
+          `schema ${schema}, this build migrates to ${latestSchemaVersion()} at the first start`,
         );
       const integrity = String(db.pragma('integrity_check', { simple: true }));
       if (integrity !== 'ok') add('blocker', 'integrity_failed', 'db.sqlite', integrity);

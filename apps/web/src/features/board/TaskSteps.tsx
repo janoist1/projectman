@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { isProcessTimelineEvent } from '@projectman/shared';
-import type { CardStep, Task, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
+import type { BoardCard, CardStep, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import type { ChipTone } from '../../components/Chip';
@@ -15,6 +15,7 @@ import { buildCardStory } from '../../lib/cardStory';
 import type { StoryRound } from '../../lib/cardStory';
 import { inboxItemDomId } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
+import { pickReasonText } from '../../lib/ownerPick';
 import { startWaitingText } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import type { TimelineContext } from '../../lib/timeline';
@@ -47,7 +48,11 @@ function stepName(step: CardStep): string {
 }
 
 /** What the step waits for, from its wait code; the code is data, so an unknown one reads "Vár". */
-function waitText(step: CardStep, task: Task, ctx: Pick<TimelineContext, 'members' | 'myHandle' | 'labels'>) {
+function waitText(
+  step: CardStep,
+  task: BoardCard,
+  ctx: Pick<TimelineContext, 'members' | 'myHandle' | 'labels'>,
+) {
   if (!step.waitCode) return null;
   if (step.source === 'start') {
     const waiting = (task.startWaiting ?? {
@@ -66,6 +71,28 @@ function waitText(step: CardStep, task: Task, ctx: Pick<TimelineContext, 'member
   return null;
 }
 
+/**
+ * Under the owner of the stage: why the stage gave the card to them (PM-1378). Only the pick of the stage the
+ * card stands in counts; a card without a small-card rule, or an older one, has no line.
+ */
+function PickReason({ task }: { task: BoardCard }) {
+  const pick = task.stageOwnerPick;
+  const parts = pick?.stageId === task.stageId ? pickReasonText(pick.reason) : null;
+  if (!parts) return null;
+  return (
+    <p className={styles.pickReason}>
+      {parts.before}
+      {parts.file ? (
+        <>
+          {' '}
+          <code title={parts.files?.join('\n')}>{parts.file}</code>
+          {parts.after ? ` ${parts.after}` : null}
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 function Time({ value, children }: { value: string; children?: string }) {
   return (
     <time dateTime={value} title={formatStamp(value)}>
@@ -81,7 +108,7 @@ function StepRow({
   now,
 }: {
   step: CardStep;
-  task: Task;
+  task: BoardCard;
   ctx: TimelineContext;
   now: number;
 }) {
@@ -168,7 +195,7 @@ function Now({
   round,
   ctx,
 }: {
-  task: Task;
+  task: BoardCard;
   state: TaskState;
   /** Absent: the server did not read them (no waiting rows, no error). */
   steps: readonly CardStep[] | undefined;
@@ -189,6 +216,7 @@ function Now({
         <p className={styles.nowText}>
           {done ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
         </p>
+        {done ? null : <PickReason task={task} />}
         <p className={styles.nowSince}>
           {round && !done
             ? t('task.steps.nowMeta', { stage: round.stageName, number: round.number, time })
@@ -237,7 +265,7 @@ export function TaskProcess({
   earlier,
 }: {
   active: boolean;
-  task: Task;
+  task: BoardCard;
   /** Absent for a theme: it has no "Most" box. */
   state: TaskState | undefined;
   theme: boolean;

@@ -21,6 +21,7 @@ import { mergeBlockText } from './merge';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
+import { pickReasonSentence } from './ownerPick';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
 import { isHttpsUrl, releaseOutcome, releaseStepName } from './release';
@@ -49,6 +50,8 @@ export interface DescribedEvent {
   note?: string;
   /** An external page the row ends with ("GitHub release ↗"); always an `https://` address. */
   link?: { href: string; label: string };
+  /** A second, quieter line under the row: whom a stage gave the card to, and why (PM-1378). */
+  aside?: string;
 }
 
 function str(value: unknown): string {
@@ -330,15 +333,39 @@ function assessmentText(value: unknown): string {
 
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
 export function describeEvent(event: TimelineEvent, ctx: TimelineContext): DescribedEvent {
+  const described = describeEventBody(event, ctx);
+  // A move into a stage with a small-card rule says whom the stage gave the card to, and why (PM-1378).
+  const pick =
+    event.type === 'task_stage_changed' ? ownerPickSentence(record(event.data.ownerPick), ctx) : null;
+  return pick ? { ...described, aside: pick } : described;
+}
+
+/** "{names} kapta. {reason}" for an owner pick recorded on an event; null when there is none or it cannot be read. */
+function ownerPickSentence(pick: Record<string, unknown> | null, ctx: TimelineContext): string | null {
+  const reason = pick ? pickReasonSentence(pick.reason) : null;
+  if (!pick || !reason) return null;
+  return t('timeline.events.owner_pick', {
+    names: joinNames(namesOf(strings(pick.owners), ctx.members, ctx.myHandle)),
+    reason,
+  });
+}
+
+function describeEventBody(event: TimelineEvent, ctx: TimelineContext): DescribedEvent {
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
-    case 'task_merge_requested':
+    case 'task_merge_requested': {
+      const startedBy = str(d.startedBy);
       return normal(
-        t('timeline.events.task_merge_requested', {
-          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
-        }),
+        startedBy
+          ? t('timeline.events.task_merge_requested_on_approval', {
+              startedBy: nameOf(startedBy, ctx.members, ctx.myHandle),
+            })
+          : t('timeline.events.task_merge_requested', {
+              merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+            }),
       );
+    }
     case 'task_merge_prioritized': {
       const ahead = strings(d.ahead);
       return normal(
@@ -518,6 +545,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       if (d.action === 'closed') return normal(t('timeline.events.theme_closed'));
       if (d.action === 'archived') return normal(t('timeline.events.theme_archived'));
       if (d.action === 'unarchived') return normal(t('timeline.events.theme_unarchived'));
+      // A new commit moved the card to the stage's own handlers (PM-1378).
+      const repick = record(d.stageOwnerPick);
+      const repickReason = repick ? pickReasonSentence(repick.reason) : null;
+      if (repick && repickReason)
+        return normal(
+          t('timeline.events.owner_repick', {
+            names: joinNames(namesOf(strings(repick.owners), ctx.members, ctx.myHandle)),
+            reason: repickReason,
+          }),
+        );
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);
       if (request) {
@@ -670,6 +707,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(checkLine(str(d.check), str(d.to)));
     case 'task_labels_changed':
       return normal(labelsChanged(d, ctx));
+    case 'review_follow_ups':
+      return normal(
+        t('timeline.events.review_follow_ups', {
+          label: d.label ? ` (${str(d.label)})` : '',
+          items: strings(d.items)
+            .map((item, i) => `${i + 1}) ${item}`)
+            .join('; '),
+        }),
+      );
     case 'refinement_turn': {
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));
@@ -1193,6 +1239,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'member_renamed':
       return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
+    case 'member_involved':
+      return normal(
+        t('timeline.events.member_involved', {
+          member: nameOf(str(d.member), ctx.members, ctx.myHandle),
+          reason: str(d.reason),
+        }),
+      );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'team_contact_changed':

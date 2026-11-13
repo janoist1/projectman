@@ -364,6 +364,13 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
                 : 'howWeWork.rules.project_manager_rights.noOverride',
             )}
           </Item>
+          <Item icon="team">
+            {t(
+              rule.memberInvolvement
+                ? 'howWeWork.rules.project_manager_rights.involve'
+                : 'howWeWork.rules.project_manager_rights.noInvolve',
+            )}
+          </Item>
         </ul>
       </>
     ),

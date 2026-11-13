@@ -5,7 +5,7 @@ import { hasBoundOrigin, isUnreadBy } from '@projectman/shared';
 import { ActorName } from '../../components/ActorName';
 import type { TeamMessage } from '@projectman/shared';
 import type { AllMessagesFilter } from '../../api/queryKeys';
-import { useAllMessages, useBoard, useReadTeamMessages, useTeamThreads } from '../../api/queries';
+import { useAllMessages, useBoard, useTeamThreads } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -21,6 +21,7 @@ import { MessageAttachments } from './MessageAttachments';
 import { deliveryState, receiptsOf } from './receipts';
 import { TaskChip } from './TaskChip';
 import type { ThreadComposeRequest } from './ConversationThread';
+import { useReadWhenVisible } from './useReadWhenVisible';
 import styles from './AllMessages.module.css';
 
 /** The server's page of the list (`limit` of the request); a full page means older messages are not shown. */
@@ -49,8 +50,26 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
   const [params, setParams] = useSearchParams();
   const filter = filterFromParams(params);
   const feed = useAllMessages(key, filter, true);
-  const readMessages = useReadTeamMessages(key);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // In the unread filter a row read while open would drop out of the list under the reader's eyes: the rows opened
+  // there are kept (as the server last answered for them) until they are folded.
+  const [kept, setKept] = useState<ReadonlyMap<string, TeamMessage>>(new Map());
+  // They belong to the visit of this project and filter combination: another one starts with none.
+  const scope = [key, filter.member, filter.task, filter.unread].join('|');
+  const [keptScope, setKeptScope] = useState(scope);
+  if (keptScope !== scope) {
+    setKeptScope(scope);
+    setKept(new Map());
+  }
+  // An opened row is read when the unread mark at the start of its content has been on the screen (PM-1386).
+  const watchUnread = useReadWhenVisible(key, {
+    onRead: (read) =>
+      setKept((current) => {
+        const next = new Map(current);
+        for (const message of read) if (next.has(message.id)) next.set(message.id, message);
+        return next;
+      }),
+  });
 
   const titles = useMemo(
     () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
@@ -75,18 +94,24 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
       else next.delete(message.id);
       return next;
     });
-    // Opening a row is reading it.
-    if (opening && isUnreadBy(message, myHandle)) readMessages.mutate([message.id]);
+    setKept((current) => {
+      const next = new Map(current);
+      if (opening && filter.unread && isUnreadBy(message, myHandle)) next.set(message.id, message);
+      else next.delete(message.id);
+      return next;
+    });
   };
 
   const memberOptions = distinctMembers(members).filter(
     (member) => member.status !== 'retired' || member.handle === filter.member,
   );
   const taskOptions = board.data?.tasks ?? [];
-  const messages = useMemo(
-    () => [...(feed.data?.messages ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [feed.data],
-  );
+  const messages = useMemo(() => {
+    const listed = feed.data?.messages ?? [];
+    const present = new Set(listed.map((message) => message.id));
+    const folded = filter.unread ? [...kept.values()].filter((message) => !present.has(message.id)) : [];
+    return [...listed, ...folded].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [feed.data, kept, filter.unread]);
 
   let lastDay = '';
   return (
@@ -238,6 +263,11 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       ) : null}
                       {expanded ? (
                         <>
+                          {unread ? (
+                            <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+                              {t('messages.thread.unread')}
+                            </span>
+                          ) : null}
                           {hasBoundOrigin(message.actor) ? (
                             <ActorName
                               actor={message.actor}

@@ -1,4 +1,4 @@
-import type { LabelView, MemberView, Task } from '@projectman/shared';
+import type { BoardCard, LabelView, MemberView, Task } from '@projectman/shared';
 import { labelName } from '../../lib/labels';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -55,7 +55,7 @@ export function matchesPriority(task: Pick<Task, 'priority'>, priority: string):
 
 /** Everything but the state filter: the segments' counts are taken over this. */
 export function matchesCardFilters(
-  task: Task,
+  task: BoardCard,
   filters: Pick<BoardFilters, 'assignee' | 'label' | 'priority'>,
   search: string,
   labels: readonly LabelView[],

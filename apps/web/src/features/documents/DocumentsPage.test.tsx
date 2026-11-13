@@ -1,9 +1,10 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Route, Routes, useLocation } from 'react-router';
 import { documentOutline } from '@projectman/shared';
 import type { HumanAccess } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -255,6 +256,37 @@ describe('reading a document', () => {
 });
 
 describe('the history', () => {
+  it('focuses its heading on opening and preserves focus when the page refreshes', async () => {
+    const { p, slug } = seeded();
+    const { client } = p.render(<Pages />, `/p/AC/docs/${slug}`);
+    fireEvent.click(await screen.findByRole('button', { name: t('documents.history.title') }));
+    const drawer = await screen.findByRole('complementary', { name: t('documents.history.title') });
+    expect(document.activeElement).toBe(within(drawer).getByRole('heading'));
+    const close = within(drawer).getByRole('button', { name: t('documents.history.close') });
+    close.focus();
+    p.backend.documents.changeElsewhere(slug, '# Terv\n\nChanged elsewhere.', 'devops');
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.document('AC', slug) }));
+    await screen.findByText('Changed elsewhere.');
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Escape' });
+    expect(screen.queryByRole('complementary', { name: t('documents.history.title') })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('documents.history.title') }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: t('documents.history.title') }));
+  });
+
+  it('keeps the history open when Escape belongs to a dialog', async () => {
+    const { p, slug } = seeded();
+    p.render(<Pages />, `/p/AC/docs/${slug}`);
+    fireEvent.click(await screen.findByRole('button', { name: t('documents.history.title') }));
+    fireEvent.click(screen.getByRole('button', { name: t('documents.more') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('documents.delete.action') }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.keyDown(within(dialog).getByRole('button', { name: t('documents.delete.action') }), {
+      key: 'Escape',
+    });
+    expect(screen.getByRole('complementary', { name: t('documents.history.title') })).toBeTruthy();
+  });
+
   it('shows an older version and restores it as a new one', async () => {
     const { p, slug } = seeded();
     p.backend.documents.changeElsewhere(slug, '# Terv\n\nÚj szöveg.', 'devops');

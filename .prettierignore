@@ -5,3 +5,4 @@ package-lock.json
 .research/
 .demo/
 apps/server/test/fixtures/gemini/
+apps/server/src/mcp/__snapshots__/tools/

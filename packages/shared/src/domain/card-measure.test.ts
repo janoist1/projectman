@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectConfig } from '../config/schema';
 import {
+  cardReviewer,
+  ClosedCardMeasure,
+  failedChecksByReviewer,
   closedCardsSince,
   countCardRounds,
   isClosedSince,
   measureClosedCard,
   sortClosedCards,
   weightedTokensByModel,
-  type ClosedCardMeasure,
 } from './card-measure';
 import type { TimelineEvent } from './event';
 import type { TokenUsage } from './token-usage';
@@ -30,10 +32,26 @@ const config = ProjectConfig.parse({
       { id: 'dev', name: 'Fejlesztés', kind: 'work', owners: ['builder'], columnId: 'all' },
       // A review step named after neither: only the duty (here the owner's) makes it a code review.
       { id: 'cr', name: 'Átnézés', kind: 'step', owners: ['reviewer'], columnId: 'all' },
-      { id: 'test', name: 'Teszt', kind: 'step', duty: 'testing_acceptance', columnId: 'all' },
+      {
+        id: 'test',
+        name: 'Teszt',
+        kind: 'step',
+        duty: 'testing_acceptance',
+        columnId: 'all',
+        gate: {
+          conditions: [
+            { type: 'has_label', label: 'custom-approval' },
+            { type: 'has_label', label: 'merge-ok' },
+            { type: 'lacks_label', label: 'blocked' },
+          ],
+        },
+      },
       { id: 'done', name: 'Kész', kind: 'done', columnId: 'all' },
     ],
-    labels: [],
+    labels: [
+      { id: 'custom-approval', name: 'Approval', setBy: { duties: ['code_review'] } },
+      { id: 'merge-ok', name: 'Merge approval', setBy: { members: ['owner'], humansOnly: true } },
+    ],
   },
 });
 
@@ -49,7 +67,69 @@ const NO_ROUNDS = {
   designChangeRequests: 0,
   sendBacks: 0,
   testsFailed: 0,
+  mergeConflicts: 0,
+  mergeChecksFailed: 0,
 };
+
+describe('cardReviewer', () => {
+  const approval = (handle: string, added = ['custom-approval'], removed: string[] = []) => ({
+    ...labels(added, removed),
+    actor: { kind: 'ai' as const, handle },
+  });
+
+  it('uses the last setter of the configured approval, ignoring removals and unrelated labels', () => {
+    expect(
+      cardReviewer(
+        [
+          approval('first'),
+          approval('last'),
+          approval('remover', [], ['custom-approval']),
+          approval('other', ['code-review-ok', 'blocked']),
+        ],
+        config,
+      ),
+    ).toBe('last');
+  });
+
+  it('returns null without approval history, including old event shapes', () => {
+    expect(cardReviewer([], config)).toBeNull();
+    expect(
+      cardReviewer(
+        [{ type: 'task_labels_changed', data: {}, actor: { kind: 'system', handle: null } }],
+        config,
+      ),
+    ).toBeNull();
+  });
+
+  it('ignores gate labels that the review stage owners cannot set', () => {
+    expect(cardReviewer([approval('reviewer'), approval('owner', ['merge-ok'])], config)).toBe('reviewer');
+    expect(cardReviewer([approval('owner', ['merge-ok'])], config)).toBeNull();
+  });
+
+  it('defaults older measurement responses to no reviewer', () => {
+    const card = measureClosedCard(
+      { key: 'EX-1', title: 'Old', closedAt: '', assignee: null },
+      [],
+      NO_ROUNDS,
+    );
+    const { reviewer, ...old } = card;
+    expect(reviewer).toBeNull();
+    expect(ClosedCardMeasure.parse(old).reviewer).toBeNull();
+  });
+});
+
+describe('failedChecksByReviewer', () => {
+  it('counts failed-check cards once, includes conflict-only cards in totals and skips missing reviewers', () => {
+    const card = (reviewer: string | null, mergeChecksFailed = 0, mergeConflicts = 0) => ({
+      reviewer,
+      rounds: { ...NO_ROUNDS, mergeChecksFailed, mergeConflicts },
+    });
+    expect(failedChecksByReviewer([card('b', 0, 2), card('a', 2), card('a'), card(null, 1)])).toEqual([
+      { reviewer: 'a', failed: 1, total: 2 },
+      { reviewer: 'b', failed: 0, total: 1 },
+    ]);
+  });
+});
 
 describe('countCardRounds (PM-222)', () => {
   it('counts two reviews and one change request with its send-back (PM-1103) of a card', () => {
@@ -63,12 +143,24 @@ describe('countCardRounds (PM-222)', () => {
       labels(['code-review-ok']),
       move('cr', 'done'),
     ];
+    expect(countCardRounds(events, config)).toEqual({ ...NO_ROUNDS, reviewRounds: 2, changeRequests: 1 });
+  });
+
+  it('counts the failed merges by their reason apart from the send-backs (PM-1341)', () => {
+    const failed = (reason: string) => ({
+      type: 'task_merge_failed' as const,
+      data: { reason, mergeId: 'm' },
+    });
+    const events = [
+      failed('conflict'),
+      failed('check_failed'),
+      failed('check_failed'),
+      { type: 'task_merge_failed' as const, data: {} },
+    ];
     expect(countCardRounds(events, config)).toEqual({
-      reviewRounds: 2,
-      changeRequests: 1,
-      designChangeRequests: 0,
-      sendBacks: 0,
-      testsFailed: 0,
+      ...NO_ROUNDS,
+      mergeConflicts: 1,
+      mergeChecksFailed: 2,
     });
   });
 
@@ -136,13 +228,7 @@ describe('weightedTokensByModel (PM-222)', () => {
 });
 
 describe('measureClosedCard (PM-222)', () => {
-  const rounds = {
-    reviewRounds: 2,
-    changeRequests: 1,
-    designChangeRequests: 0,
-    sendBacks: 1,
-    testsFailed: 0,
-  };
+  const rounds = { ...NO_ROUNDS, reviewRounds: 2, changeRequests: 1, sendBacks: 1 };
   const row = (model: string, scope: TokenUsage['scope'], input: number): TokenUsage => ({
     model,
     scope,
@@ -220,6 +306,7 @@ describe('sortClosedCards (PM-222)', () => {
     title: taskKey,
     closedAt,
     implementer: null,
+    reviewer: null,
     implementerModels: [],
     tokens,
     byModel: [],

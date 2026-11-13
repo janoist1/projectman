@@ -1,0 +1,35 @@
+{
+  "name": "merge_task",
+  "title": "Merge a task",
+  "description": "Start merging the card's approved commit into its repository's default branch. The result arrives as a team message. Call again to retry a failed or blocked merge.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "fix_conflict": {
+        "description": "After a conflict failure, request a writable merge-fix worktree. Your session restarts when this turn ends.",
+        "type": "boolean"
+      },
+      "resolution": {
+        "description": "While fixing: describe what and where you resolved, after committing the mechanical conflict resolution.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Merge a task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

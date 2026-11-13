@@ -93,6 +93,13 @@ export function describeEvent(
       const why = text('note') ? `: ${text('note')}` : '';
       return (text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it') + why;
     }
+    case 'review_follow_ups':
+      return `left follow-ups for a later card${text('label') ? ` (${text('label')})` : ''}: ${oneLine(
+        list('items')
+          .map((item, i) => `${i + 1}) ${item}`)
+          .join('; '),
+        textLimit,
+      )}`;
     case 'task_labels_changed': {
       const added = list('added').map((id) => style.label(id));
       const removed = list('removed').map((id) => style.label(id));
@@ -255,6 +262,8 @@ export function describeEvent(
       return `retired ${member('handle', 'a member')}`;
     case 'member_renamed':
       return `renamed ${member('from', 'a member')} to ${member('to', 'a member')}`;
+    case 'member_involved':
+      return `involved ${member('member', 'a member')} in the card${text('reason') ? `: ${text('reason')}` : ''}`;
     case 'team_contact_changed':
       return `${data.contact === true ? 'made' : 'removed'} ${member('handle', 'a member')} ${data.contact === true ? 'a contact of the project' : 'from the contacts of the project'}`;
     case 'config_changed':

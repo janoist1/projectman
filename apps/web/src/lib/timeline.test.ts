@@ -16,6 +16,23 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders follow-up items and the review result', () => {
+  const line = describeEvent(
+    { ...creation, type: 'review_follow_ups', data: { items: ['Reuse helper', 'Add test'], label: 'qa-ok' } },
+    context,
+  ).text;
+  expect(line).toContain('qa-ok');
+  expect(line).toContain('1) Reuse helper; 2) Add test');
+});
+
+it.each([
+  [{ merger: 'cr' }, 'timeline.events.task_merge_requested'],
+  [{ merger: 'cr', startedBy: 'cr' }, 'timeline.events.task_merge_requested_on_approval'],
+] as const)('tells whether the approval queued the merge (%j)', (data, key) => {
+  const event = { ...creation, type: 'task_merge_requested' as const, data };
+  expect(describeEvent(event, context).text).toBe(t(key, { merger: 'cr', startedBy: 'cr' }));
+});
+
 it.each([
   [null, 'timeline.events.item_routed'],
   ['integrator', 'timeline.events.item_routed_requested'],
@@ -1229,5 +1246,39 @@ describe('the timeline in English (PM-1180)', () => {
     expect(row(1)).toContain('1 minute');
     expect(row(1)).not.toContain('1 minutes');
     expect(row(30)).toContain('30 minutes');
+  });
+});
+
+describe('the owner pick of a stage move (PM-1378)', () => {
+  const moved = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'task_stage_changed',
+    data: { from: 'dev', to: 'qa', ...data },
+  });
+
+  it('adds a second line with the owners and the reason', () => {
+    const described = describeEvent(
+      moved({ ownerPick: { small: true, reason: { code: 'small', points: 2 }, owners: ['kata'] } }),
+      context,
+    );
+    expect(described.aside).toContain(t('task.ownerPick.small', { points: 2 }));
+  });
+
+  it('adds no line to an event recorded before the rule, or with a reason this build does not know', () => {
+    expect(describeEvent(moved({}), context).aside).toBeUndefined();
+    const unknown = { small: true, reason: { code: 'from_the_future' }, owners: ['kata'] };
+    expect(describeEvent(moved({ ownerPick: unknown }), context).aside).toBeUndefined();
+  });
+
+  it('tells that a new commit gave the card back to the stage’s own owners', () => {
+    const described = describeEvent(
+      {
+        ...creation,
+        type: 'task_updated',
+        data: { stageOwnerPick: { reason: { code: 'no_points' }, owners: ['kata'] } },
+      },
+      context,
+    );
+    expect(described.text).toContain(t('task.ownerPick.no_points'));
   });
 });

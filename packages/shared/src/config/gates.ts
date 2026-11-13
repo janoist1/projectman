@@ -3,7 +3,7 @@ import type { LabelDefinition } from '../domain/label';
 import type { GateCondition, Pipeline, Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import { isOnLeave } from './leave';
-import { labelDefinition, labelHolders, labelSetters } from './labels';
+import { labelDefinition, labelHolders, labelSetters, stageResultLabels } from './labels';
 import { memberOf } from './lookup';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 
@@ -261,11 +261,7 @@ export function stepResult(
     if (label && labelSetters(config, label, task).includes(member)) gate.push(condition.label);
   }
   if (gate.length === 0) return null;
-  const groups = new Set(gate.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
-  const mates = config.pipeline.labels
-    .filter((label) => label.group !== undefined && groups.has(label.group))
-    .map((label) => label.id);
-  return { gate, results: [...new Set([...gate, ...mates])] };
+  return { gate, results: stageResultLabels(config, from, gate) };
 }
 
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */

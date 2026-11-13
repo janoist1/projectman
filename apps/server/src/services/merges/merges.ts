@@ -2,8 +2,10 @@ import {
   cardMerger,
   mergeReadiness,
   mergeRepoOf,
+  mergeGateUnmet,
   mergeTargetOf,
-  stageOwners,
+  allStageOwners,
+  reviewMergeSkip,
   isCodeReviewStage,
   isOpenTask,
   isConnectedOwnerActor,
@@ -16,6 +18,7 @@ import type {
   Task,
   OrderMergeQueueRequest,
   MergeQueueOrder,
+  ReviewMergeOutcome,
 } from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
 import { mergedState } from '../../db';
@@ -79,6 +82,7 @@ export class Merges {
               } catch (err) {
                 // No train was reserved: the individual program owns reconnect waiting and recovery.
                 if (isEngineLinkLost(err)) reserved = false;
+                else if (await this.steps.requeueUnreachable(run, err)) return;
                 else {
                   await this.steps.block(
                     run,
@@ -131,7 +135,7 @@ export class Merges {
     );
     const review = stages.reverse().find((s) => isCodeReviewStage(config, s));
     if (!review) return null;
-    const owners = stageOwners(config, review);
+    const owners = allStageOwners(config, review);
     const events = this.deps.ctx.repos.timeline.listOfTypes(
       task.projectKey,
       task.key,
@@ -197,13 +201,14 @@ export class Merges {
       await this.steps.release(existing, this.steps.engine(task)?.merger);
     }
     if (!ready.ready || !merger) return;
-    let source;
+    let read;
     try {
-      source = await this.source(config, task, true);
+      read = await this.requestSource(config, task, merger);
     } catch (err) {
       ctx.logger.warn({ err, taskKey }, 'could not read a merge request source');
       return;
     }
+    const { source, queueNow } = read;
     if (!source || (await this.steps.includesApproved(task, ready.repo.name, source.commit))) return;
     let row: MergeRecord | undefined;
     ctx.unitOfWork(() => {
@@ -224,6 +229,8 @@ export class Merges {
         landed: 'nowhere',
         createdAt: at,
         updatedAt: at,
+        // The merger's own approval makes the `merge_task` call in their name (PM-1379).
+        ...(queueNow ? this.queueFields(merger, source, at) : {}),
       };
       ctx.repos.taskMerges.save(row);
       tasks.publish(current);
@@ -232,10 +239,76 @@ export class Merges {
         taskKey,
         actor: SYSTEM_ACTOR,
         type: 'task_merge_requested',
-        data: { mergeId: row.id, merger, repo: row.repo, base: row.base, toStageId: row.toStageId },
+        data: {
+          mergeId: row.id,
+          merger,
+          repo: row.repo,
+          base: row.base,
+          toStageId: row.toStageId,
+          ...(queueNow ? { startedBy: merger } : {}),
+        },
       });
     });
-    if (row) await this.steps.notify(row, config);
+    if (!row) return;
+    if (queueNow) this.pump();
+    else await this.steps.notify(row, config);
+  }
+
+  /**
+   * The source a new merge request is made from. When the merger's own approval queues the merge
+   * (`reviewMergeSkip`) it is read strictly, like `start()` does; a source with uncommitted work falls back to
+   * the plain request, which the merger then starts themselves.
+   */
+  private async requestSource(
+    config: ProjectConfig,
+    task: Task,
+    merger: string,
+  ): Promise<{ source: { commit: string; branch: string } | null; queueNow: boolean }> {
+    if (reviewMergeSkip(config, this.reviewer(config, task), merger) !== null)
+      return { source: await this.source(config, task, true), queueNow: false };
+    try {
+      return { source: await this.source(config, task), queueNow: true };
+    } catch (err) {
+      if (!(err instanceof DomainError && err.code === 'handover_uncommitted')) throw err;
+      return { source: await this.source(config, task, true), queueNow: false };
+    }
+  }
+
+  /** What puts a merge request in the queue (`start()` and a request the merger's own approval queues). */
+  private queueFields(startedBy: string, source: { commit: string; branch: string } | null, at: string) {
+    return { ...source, state: 'queued', step: 'queued', startedBy, startedAt: at } as const;
+  }
+
+  /**
+   * What the merger's own approval did to the card's merge (PM-1379), for the reply of the call that approved:
+   * waits for the card's reconcile, then reports the queued merge, why it waits for `merge_task`, or which gate
+   * of the merge target is unmet. Null: nothing to report (the setting is off, the caller is not the card's
+   * merger or did not approve it, or the card is not on the way to the merge).
+   */
+  async reviewOutcome(projectKey: string, taskKey: string, actor: Actor): Promise<ReviewMergeOutcome | null> {
+    const { ctx, tasks, projects } = this.deps;
+    if (!tasks.find(projectKey, taskKey)) return null;
+    await this.reconcile(projectKey, taskKey);
+    const config = await projects.config(projectKey);
+    const task = tasks.find(projectKey, taskKey);
+    if (!task || !isOpenTask(task)) return null;
+    const merger = this.mergerOf(config, task);
+    if (!merger || actorHandle(actor) !== merger) return null;
+    if (reviewMergeSkip(config, this.reviewer(config, task), merger) !== null) return null;
+    const readiness = mergeReadiness(config, task);
+    if (!readiness.ready)
+      return readiness.reason === 'gate'
+        ? { state: 'not_ready', reason: 'gate', unmet: mergeGateUnmet(config, task) }
+        : null;
+    const row = ctx.repos.taskMerges.open(projectKey, taskKey);
+    if (!row) return null;
+    if (row.state === 'queued' || row.state === 'running') return { state: 'queued', mergeId: row.id };
+    if (row.state !== 'requested') return { state: 'waiting', mergeId: row.id, why: 'blocked' };
+    const uncommitted = await this.source(config, task).then(
+      () => false,
+      (err: unknown) => err instanceof DomainError && err.code === 'handover_uncommitted',
+    );
+    return { state: 'waiting', mergeId: row.id, why: uncommitted ? 'uncommitted' : 'earlier_request' };
   }
 
   async start(
@@ -277,7 +350,15 @@ export class Merges {
         // restart has none yet. Without either, the row is stuck.
         const holder = this.queue.slot(projectKey, row.repo);
         if (holder && runs(holder, row)) return task;
-        if (row.trainId && this.deps.ctx.repos.mergeTrains.get(row.trainId)?.state === 'running') return task;
+        const train = row.trainId ? this.deps.ctx.repos.mergeTrains.get(row.trainId) : null;
+        if (train?.state === 'running') {
+          // No run holds the slot for this train: recover it as at startup (its leader queues, or it retires).
+          if (!holder) {
+            await this.trains.scheduleRecovery(train);
+            this.pump();
+          }
+          return tasks.get(projectKey, taskKey);
+        }
         await this.steps.abandon(
           { row, pushing: row.landed === 'remote' },
           new Error('the merge lost its run; retry with merge_task to resume safely'),
@@ -316,11 +397,7 @@ export class Merges {
         this.steps.save(row, {
           trainId: undefined,
           retry: undefined,
-          ...(row.landed === 'remote' ? {} : source),
-          state: 'queued',
-          step: 'queued',
-          startedBy: actorHandle(actor),
-          startedAt: isoNow(ctx),
+          ...this.queueFields(actorHandle(actor), row.landed === 'remote' ? null : source, isoNow(ctx)),
           block: undefined,
           failure: undefined,
           finishedAt: undefined,
@@ -569,7 +646,11 @@ export class Merges {
     }
     for (const row of ctx.repos.taskMerges.list('running'))
       if (!row.trainId || ctx.repos.mergeTrains.get(row.trainId)?.state !== 'running')
-        this.steps.save(row, { state: 'queued', step: 'queued' });
+        // A merge that was pushing keeps that step: its push may have landed, so the pump starts it first.
+        this.steps.save(row, {
+          state: 'queued',
+          step: row.step === 'pushing' && row.mergeCommit ? 'pushing' : 'queued',
+        });
     // Known abandoned check worktrees are released before any new check is made.
     for (const state of ['queued', 'blocked'] as const) {
       for (const row of ctx.repos.taskMerges.list(state)) {

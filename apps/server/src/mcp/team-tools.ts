@@ -217,6 +217,7 @@ export class TeamToolsService implements TeamToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
+    mayInvolve: boolean;
   }> {
     return this.tools.messages.sendMessage(ctx, args);
   }
@@ -405,6 +406,7 @@ export class TeamToolsService implements TeamToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      followUps?: string[];
       replyTo?: string;
       title?: string;
       description?: string;
@@ -521,6 +523,9 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async reopenTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reopenTask']>[1]) {
     return this.tools.operator.reopenTask(ctx, args);
+  }
+  async involveMember(ctx: ToolContext, args: Parameters<OperatorToolsHandler['involveMember']>[1]) {
+    return this.tools.operator.involveMember(ctx, args);
   }
   async openIntegratorTodo(
     ctx: ToolContext,

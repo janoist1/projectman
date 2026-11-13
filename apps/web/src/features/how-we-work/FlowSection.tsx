@@ -184,7 +184,7 @@ function GateRow({ entry }: { entry: TeamMapStage }) {
 }
 
 function Station({ entry, flash }: { entry: TeamMapStage; flash: boolean }) {
-  const { map, stageName } = useMapView();
+  const { map, stageName, member } = useMapView();
   const { stage } = entry;
   const show = useShowTarget({ kind: 'stage', id: stage.id });
   const loop = map.fixRounds.loops.find((candidate) => candidate.fromStageId === stage.id);
@@ -210,6 +210,14 @@ function Station({ entry, flash }: { entry: TeamMapStage; flash: boolean }) {
         ) : null}
       </span>
       <span className={styles.stSub}>{sub}</span>
+      {entry.smallCards ? (
+        <span className={styles.stSub}>
+          {t('howWeWork.flow.smallCards', {
+            points: entry.smallCards.maxPoints,
+            names: joinNames(entry.smallCards.owners.map((handle) => member(handle)?.displayName ?? handle)),
+          })}
+        </span>
+      ) : null}
       {loop ? (
         <span className={styles.stLoop}>
           <Icon name="undo" size={14} strokeWidth={2} />

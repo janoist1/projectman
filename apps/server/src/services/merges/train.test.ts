@@ -7,7 +7,7 @@ import type {
   EngineDirectory,
   MergeBaseState,
 } from '../../contracts';
-import { EngineLinkLostError } from '../../contracts';
+import { EngineLinkLostError, MergeError } from '../../contracts';
 import { LocalEngineDirectory } from '../../runtime/sessions';
 import { createCloudRemote } from '../../engine-link/remote';
 import type { CloudRemote } from '../../engine-link/remote';
@@ -384,6 +384,41 @@ describe('merge train execution', () => {
     await settled();
     expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
     expect(merger.push).toHaveBeenCalledTimes(2);
+  });
+
+  it('requeues the head card when the train reservation finds the remote unreachable, then forms the train (M-02)', async () => {
+    await setup();
+    merger.prepare.mockRejectedValueOnce(new MergeError('remote_unreachable', 'fetch failed (timed out)'));
+    pump();
+    await settled();
+    expect(row('AR-1')).toMatchObject({
+      state: 'queued',
+      retry: { attempt: 2, cause: 'remote_unreachable' },
+    });
+    expect(row('AR-2')).toMatchObject({ state: 'queued' });
+    expect(row('AR-2')?.block).toBeUndefined();
+    for (const key of ['AR-1', 'AR-2'])
+      expect(
+        h.domain.timeline.list('AR', { taskKey: key }).filter((event) => event.type === 'task_merge_blocked'),
+      ).toHaveLength(0);
+    // Nothing else started while the retry waits.
+    expect(merger.prepare).toHaveBeenCalledTimes(1);
+    h.repos.taskMerges.save({
+      ...row('AR-1')!,
+      retry: { ...row('AR-1')!.retry!, at: new Date(0).toISOString() },
+    });
+    let retryAtCheck: unknown = 'unset';
+    vi.mocked(executor.run).mockImplementationOnce(async (_spec, _signal, started) => {
+      retryAtCheck = row('AR-1')?.retry;
+      started?.();
+      return passed;
+    });
+    h.domain.merges.pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+    expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined();
+    // The successful reservation freed the queue before the group check ran.
+    expect(retryAtCheck).toBeUndefined();
   });
 
   it.each([false, true])('requeues a disconnected train on shutdown (push started: %s)', async (pushing) => {
@@ -1491,6 +1526,92 @@ describe('merge train execution', () => {
     expect(merger.push).not.toHaveBeenCalled();
     expect(merger.advance).toHaveBeenCalledTimes(1);
     expect(h.domain.tasks.get('AR', 'AR-2').merged?.check?.runId).toBe('original-check');
+  });
+
+  it('keeps the pushing step of a lone merge the startup requeues, so the pump starts it first', async () => {
+    await setup(2);
+    peerBusy = true;
+    h.repos.taskMerges.save({ ...row('AR-2')!, state: 'running', step: 'pushing', mergeCommit: sha(91) });
+    await h.domain.merges.init();
+    expect(row('AR-2')).toMatchObject({ state: 'queued', step: 'pushing', mergeCommit: sha(91) });
+    expect(row('AR-1')).toMatchObject({ state: 'queued', step: 'queued' });
+    const pushingCommit = row('AR-2')!.commit;
+    peerBusy = false;
+    pump();
+    await vi.waitFor(() => expect(merger.prepare).toHaveBeenCalled());
+    expect(merger.prepare.mock.calls[0]![1].commit).toBe(pushingCommit);
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined());
+    await settled();
+  });
+
+  describe('a running manifest whose first member left it', () => {
+    /** A `running` train of every queued row, the first one blamed alone (failed, no `trainId`): no run holds it. */
+    async function interruptedSplit(count: number) {
+      await setup(count);
+      peerBusy = true;
+      const rows = Array.from({ length: count }, (_, i) => row(`AR-${i + 1}`)!);
+      const trainId = 'mrg_recovery0002';
+      h.repos.mergeTrains.save({
+        id: trainId,
+        projectKey: 'AR',
+        repo: 'web',
+        base: 'main',
+        engineId: 'local',
+        reviewTest,
+        state: 'running',
+        step: 'merging',
+        landed: 'nowhere',
+        members: rows.map((r) => ({
+          mergeId: r.id,
+          taskKey: r.taskKey,
+          commit: r.commit!,
+          branch: r.branch!,
+          startedBy: r.startedBy!,
+          startedAt: r.startedAt!,
+        })),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      rows.forEach((r, i) =>
+        h.repos.taskMerges.save(
+          i === 0
+            ? { ...r, state: 'failed', step: undefined }
+            : { ...r, trainId, state: 'running', step: 'merging' },
+        ),
+      );
+      return trainId;
+    }
+
+    it('queues the first member still in it at startup', async () => {
+      const trainId = await interruptedSplit(3);
+      await h.domain.merges.init();
+      expect(row('AR-2')?.state).toBe('queued');
+      expect(row('AR-3')?.state).toBe('running');
+      expect(h.repos.mergeTrains.get(trainId)?.state).toBe('running');
+      // Once it runs, the left member closes the manifest and the survivors merge on their own.
+      peerBusy = false;
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+      await settled();
+      expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined();
+      expect(h.repos.mergeTrains.get(trainId)?.state).not.toBe('running');
+      expect(h.repos.mergeTrains.listRunning()).toHaveLength(0);
+    });
+
+    it('retires the manifest at startup when no member is left in it', async () => {
+      const trainId = await interruptedSplit(2);
+      h.repos.taskMerges.save({ ...row('AR-2')!, state: 'failed', trainId: undefined });
+      await h.domain.merges.init();
+      expect(h.repos.mergeTrains.get(trainId)?.state).toBe('cancelled');
+      expect(h.repos.mergeTrains.listRunning()).toHaveLength(0);
+    });
+
+    it('is recovered by merge_task on a member instead of answered as fine', async () => {
+      await interruptedSplit(3);
+      await h.domain.merges.start('AR', 'AR-3', aiActor('dev-1'));
+      expect(row('AR-2')?.state).toBe('queued');
+    });
   });
 
   it('recovers local-only publication after a DB transaction failure without another check or advance', async () => {

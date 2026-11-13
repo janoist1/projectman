@@ -1,0 +1,17 @@
+{
+  "name": "get_checklist",
+  "title": "Read the project startup checklist",
+  "description": "Read the startup checklist (items with state, reason, condition and whether it holds now; progress; the base template) and the item ids each template would add. Without a list the answer says so: create it with update_checklist op init. Needs no owner request.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read the project startup checklist",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

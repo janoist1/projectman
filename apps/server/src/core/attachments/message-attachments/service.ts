@@ -34,6 +34,7 @@ import { receiveUpload, storageFailed } from '../attachments/upload';
 import { isoNow } from '../../base';
 import type { DomainContext } from '../../base';
 import { DomainError, forbidden, invalid, notFound } from '../../../kernel';
+import type { Sweep } from '../../../kernel';
 import type { ProjectService } from '../../projects';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../../kernel';
 import { MessageImageRenderer } from './image';
@@ -508,16 +509,17 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
     return swept;
   }
 
-  /** Sweeps now and then hourly; returns the function that stops it. */
-  startSweeping(): () => void {
-    const run = () =>
-      void this.sweepUnsent().catch((err: unknown) =>
-        this.ctx.logger.warn({ err }, 'the sweep of unsent message attachments failed'),
-      );
-    run();
-    const timer = setInterval(run, SWEEP_INTERVAL_MS);
-    timer.unref();
-    return () => clearInterval(timer);
+  /** The kernel sweep of the unsent uploads: now and then hourly (PM-1394). */
+  unsentSweep(): Sweep {
+    return {
+      name: 'message-attachments',
+      everyMs: SWEEP_INTERVAL_MS,
+      atStart: true,
+      run: async () => {
+        await this.sweepUnsent();
+      },
+      onError: (err) => this.ctx.logger.warn({ err }, 'the sweep of unsent message attachments failed'),
+    };
   }
 
   /** The acting member's current standing in the project; every member may upload for a message they can send. */

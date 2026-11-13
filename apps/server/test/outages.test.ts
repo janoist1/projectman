@@ -4,12 +4,14 @@ import {
   alertPayloadOf,
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
+  START_FAILURE_LIMIT,
   isOnLeave,
+  isIntegratorTodo,
 } from '@projectman/shared';
 import type { AgentProvider, EngineId, HumanMemberConfig, Task, WorkOutageAlert } from '@projectman/shared';
 import type { ProviderStatus, EngineDirectory } from '../src/contracts';
 import type { AutomaticStart } from '../src/runtime/admission';
-import { DeferredStarts } from '../src/runtime/admission';
+import { DeferredStarts, StartFailures } from '../src/runtime/admission';
 import { WorkOutages } from '../src/runtime/watchers';
 import { createDomainEvents } from '../src/core/base';
 import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
@@ -18,6 +20,7 @@ import type { ProjectAccess } from '../src/core/members';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { FakeWorktreeManager, capturingLogger, flush } from './helpers/fakes';
+import { systemNotices } from './helpers/notices';
 
 function status(
   provider: AgentProvider,
@@ -25,6 +28,16 @@ function status(
   problem?: ProviderStatus['problem'],
 ): ProviderStatus {
   return { provider, loggedIn, problem, method: null, checkedAt: '2026-10-10T20:00:00Z' };
+}
+
+/** The failed-start counter on the harness's database; the provider is never on hold here. */
+function startFailuresOf(h: DomainHarness): StartFailures {
+  return new StartFailures({
+    ctx: h.domain.ctx,
+    engineOf: () => null,
+    providerOnHold: () => false,
+    awaitsFirstTurn: () => false,
+  });
 }
 
 describe('work outage watch', () => {
@@ -38,6 +51,12 @@ describe('work outage watch', () => {
   let directory: EngineDirectory;
   let engineListeners: Array<(id: EngineId, online: boolean) => void>;
   let startedAt: Date;
+  let failures: StartFailures;
+  let clock: number;
+  /** Lets a failing provider's backoff (30 s at first) run out. */
+  const waitOutBackoff = () => {
+    clock += 5 * 60_000;
+  };
   const remote = 'eng_abcdefghijkl';
 
   beforeEach(async () => {
@@ -67,6 +86,8 @@ describe('work outage watch', () => {
     Object.assign(h.runner, { providerStatus: probe });
     deferred = new DeferredStarts();
     retry = vi.fn();
+    failures = startFailuresOf(h);
+    failures.useReleased(() => retry());
     watch = new WorkOutages({
       // This watch owns different deferrals and engine names from the domain's watch. Keep its
       // notifications isolated so an Operator wake-up cannot invoke the domain's separate watch.
@@ -85,9 +106,11 @@ describe('work outage watch', () => {
       tasks: h.domain.tasks,
       retry,
       engineName: () => 'Mac mini',
+      startFailures: failures,
     });
     startedAt = h.domain.ctx.now();
-    vi.spyOn(h.domain.ctx, 'now').mockReturnValue(new Date(startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS));
+    clock = startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS;
+    vi.spyOn(h.domain.ctx, 'now').mockImplementation(() => new Date(clock));
   });
   afterEach(async () => {
     vi.useRealTimers();
@@ -158,9 +181,19 @@ describe('work outage watch', () => {
     });
   }
 
-  it('warns without deferred tasks and records only failed active members', async () => {
-    probe.mockImplementation(async (provider, opts) =>
-      status(provider, opts.member === 'dev-1' ? false : true, 'cli_missing'),
+  /** Moves a member to another provider, so that its login state differs from the other members'. */
+  async function useProvider(handle: string, provider: AgentProvider) {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      const member = config.team.members.find((m) => m.handle === handle)!;
+      if (member.kind === 'ai') member.provider = provider;
+      return `Use ${provider}`;
+    });
+  }
+
+  it('warns without deferred tasks and records only the members of a failed provider', async () => {
+    await useProvider('dev-2', 'codex');
+    probe.mockImplementation(async (provider) =>
+      status(provider, provider === 'claude' ? false : true, 'cli_missing'),
     );
     await watch.check();
     expect(raised()).toHaveLength(1);
@@ -168,7 +201,7 @@ describe('work outage watch', () => {
       projectKey: 'AR',
       payload: {
         alert: 'work_outage',
-        members: ['dev-1'],
+        members: ['cr', 'dev-1'],
         tasks: [],
         outage: { provider: DEFAULT_AGENT_PROVIDER, problem: 'cli_missing', engine: null },
       },
@@ -176,7 +209,7 @@ describe('work outage watch', () => {
     expect(alerts()).toEqual([]);
     expect(watch.forMember('AR', 'dev-1')?.kind).toBe('provider');
     expect(watch.forMember('AR', 'dev-2')).toBeUndefined();
-    expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', refresh: true });
+    expect(probe).toHaveBeenCalledWith('claude', { refresh: false });
   });
 
   it('updates affected cards, tells about an episode once and starts a new episode after recovery', async () => {
@@ -195,6 +228,7 @@ describe('work outage watch', () => {
     expect(raised()).toHaveLength(1);
     expect(watch.forMember('AR', 'dev-1')?.since).toBe(since);
     probe.mockImplementation(async (provider) => status(provider, true));
+    waitOutBackoff();
     await watch.check();
     expect(retry).toHaveBeenCalledTimes(1);
     expect(watch.forMember('AR', 'dev-1')).toBeUndefined();
@@ -203,6 +237,111 @@ describe('work outage watch', () => {
     await watch.check();
     expect(raised()).toHaveLength(2);
   });
+
+  it('preserves engine login backoff for periodic checks and admission refusals', async () => {
+    await watch.check();
+    await watch.observeRefusal('AR', 'dev-1', 'provider_not_logged_in');
+    expect(probe.mock.calls.every(([, opts]) => opts.refresh === false)).toBe(true);
+    probe.mockClear();
+    await watch.recheckProvider('claude');
+    expect(probe.mock.calls.every(([, opts]) => opts.refresh === true)).toBe(true);
+  });
+
+  it('asks a failing provider once per backoff step, however many rounds and refusals come between', async () => {
+    const roundsAndRefusals = async () => {
+      for (let round = 0; round < 3; round++) {
+        await watch.check();
+        for (const handle of ['dev-1', 'dev-2', 'cr'])
+          await watch.observeRefusal('AR', handle, 'provider_not_logged_in');
+      }
+    };
+    await roundsAndRefusals();
+    expect(probe).toHaveBeenCalledTimes(1);
+    let asked = 1;
+    for (const step of [30_000, 60_000, 120_000, 300_000, 300_000]) {
+      clock += step - 1;
+      await roundsAndRefusals();
+      expect(probe).toHaveBeenCalledTimes(asked);
+      clock += 1;
+      await roundsAndRefusals();
+      expect(probe).toHaveBeenCalledTimes(++asked);
+    }
+    expect(probe.mock.calls.every(([, opts]) => opts.refresh === false)).toBe(true);
+  });
+
+  it('asks a provider once per round for all its members and keeps providers apart', async () => {
+    await useProvider('dev-2', 'codex');
+    await watch.check();
+    expect(probe.mock.calls.map(([provider]) => provider).sort()).toEqual(['claude', 'codex']);
+  });
+
+  it('merges the queued checks of one refusal into a single check', async () => {
+    await Promise.all(
+      Array.from({ length: 5 }, () => watch.observeRefusal('AR', 'dev-1', 'provider_not_logged_in')),
+    );
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(raised()).toHaveLength(1);
+  });
+
+  it.each([
+    ['an auth error', () => watch.observeAuthError('AR', 'dev-1', 'claude', LOCAL_ENGINE_ID)],
+    // "Check now" rechecks the outage's target.
+    ['a check now', () => watch.recheck({ kind: 'provider', provider: 'claude', engineId: null })],
+  ])('checks at once on %s and starts the backoff steps over', async (_name, ask) => {
+    await watch.check();
+    clock += 30_000;
+    await watch.check();
+    expect(probe).toHaveBeenCalledTimes(2);
+    await ask();
+    expect(probe).toHaveBeenCalledTimes(3);
+    expect(probe).toHaveBeenLastCalledWith('claude', { refresh: true });
+    clock += 30_000;
+    await watch.check();
+    expect(probe).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(['provider', 'engine'] as const)(
+    'routes a %s outage affecting the project manager to the integrator and informs the owner once',
+    async (kind) => {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        const pm = config.team.members.find((member) => member.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = false;
+        return 'Activate the project manager';
+      });
+      const signals = { raise: vi.fn() };
+      h.domain.inbox.registerAlertPmSignals(signals);
+      if (kind === 'engine') {
+        engineId = remote;
+        online = false;
+      }
+      await watch.observeRefusal(
+        'AR',
+        'pm',
+        kind === 'provider' ? 'provider_not_logged_in' : 'engine_offline',
+      );
+      await watch.check();
+      const todos = h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
+      expect(todos).toHaveLength(1);
+      expect(todos[0]).toMatchObject({
+        kind: 'question',
+        payload: { recipient: 'integrator' },
+        route: { kind: 'alert:work_outage', to: 'integrator_queue', reason: 'pm_affected' },
+      });
+      expect(isIntegratorTodo(todos[0]!)).toBe(true);
+      expect(signals.raise).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(systemNotices(h, 'work_outage')).toHaveLength(1));
+      expect(systemNotices(h, 'work_outage')[0]).toMatchObject({ to: ['owner'], kind: 'info' });
+      expect(systemNotices(h, 'work_outage')[0]?.origin.params).toMatchObject({
+        since: raised()[0]!.payload.outage.since,
+        problem: kind === 'provider' ? 'not_logged_in' : 'engine',
+      });
+      online = true;
+      probe.mockImplementation(async (provider) => status(provider, true));
+      waitOutBackoff();
+      await watch.check();
+      expect(h.domain.inbox.list('AR', { state: 'open', kind: 'question' })).toEqual([]);
+    },
+  );
 
   it('resolves an open alert only after confirmed recovery, including a manual check', async () => {
     await watch.check();
@@ -299,6 +438,7 @@ describe('work outage watch', () => {
       members: h.domain.members,
       tasks: h.domain.tasks,
       retry,
+      startFailures: startFailuresOf(h),
     });
     const result = await watch.checkNow('AR', item.id, access());
     expect(result).toMatchObject({ stillFailing: true, item: { state: 'open' } });
@@ -453,7 +593,7 @@ describe('work outage watch', () => {
       minCliVersion: '2.0.0',
     }));
     await watch.observeAuthError('AR', 'dev-1', 'claude', remote);
-    expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', engineId: remote, refresh: true });
+    expect(probe).toHaveBeenCalledWith('claude', { engineId: remote, refresh: true });
     expect(raised()[0]!.payload.outage).toMatchObject({
       problem: 'cli_too_old',
       cliVersion: '1.0.0',
@@ -472,11 +612,7 @@ describe('work outage watch', () => {
   });
 
   it('opens setup failures even when login works and resolves them when the deferral ends', async () => {
-    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-      const member = config.team.members.find((m) => m.handle === 'dev-1')!;
-      if (member.kind === 'ai') member.provider = 'codex';
-      return 'Use Codex';
-    });
+    await useProvider('dev-1', 'codex');
     probe.mockImplementation(async (provider) => status(provider, true));
     const task = await h.domain.tasks.create('AR', { title: 'Sandbox setup' }, OWNER_ACTOR);
     keep(task, 'codex_setup_incomplete');
@@ -488,6 +624,7 @@ describe('work outage watch', () => {
     probe.mockImplementation(async (provider) => status(provider, false));
     await watch.check();
     probe.mockImplementation(async (provider) => status(provider, true));
+    waitOutBackoff();
     await watch.check();
     expect(watch.factsOf('AR', outage.id)?.outage).toMatchObject({ problem: 'setup_incomplete' });
     deferred.drop(task.key);
@@ -496,13 +633,78 @@ describe('work outage watch', () => {
     expect(watch.factsOf('AR', outage.id)).toBeNull();
   });
 
+  describe('places that stopped at the start failure limit (PM-1335)', () => {
+    /** Fails the starts of both members at their general place until the limit, and tells the watch. */
+    async function stopPlaces(cliVersion?: string) {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        for (const member of config.team.members) if (member.kind === 'ai') member.provider = 'codex';
+        return 'Use Codex';
+      });
+      probe.mockImplementation(async (provider) => ({ ...status(provider, true), cliVersion }));
+      for (const member of ['dev-1', 'dev-2']) {
+        let hold;
+        for (let i = 0; i < START_FAILURE_LIMIT; i++)
+          hold = failures.record(
+            { projectKey: 'AR', member, place: { type: 'general' }, provider: 'codex' },
+            { code: 'link_down', sessionId: null },
+          );
+        await watch.startFailureStopped('AR', member, hold!);
+      }
+    }
+
+    it('opens one alert for the provider, however many places stopped, and tries nothing more by itself', async () => {
+      await stopPlaces();
+      expect(raised()).toHaveLength(1);
+      const { outage } = raised()[0]!.payload;
+      expect(outage).toMatchObject({ provider: 'codex', problem: 'start_failing' });
+      await watch.check();
+      await watch.check();
+      expect(raised()).toHaveLength(1);
+      expect(watch.factsOf('AR', outage.id)).not.toBeNull();
+      expect(retry).not.toHaveBeenCalled();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(true);
+    });
+
+    it('gives the stopped places one more try when a person checks now, and ends the outage', async () => {
+      await stopPlaces();
+      const item = legacyAlert();
+      const result = await watch.checkNow('AR', item.id, access());
+      expect(result.stillFailing).toBe(false);
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(failures.stoppedFor('AR', 'dev-2')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+
+    it('gives the stopped places one more try when the provider login changes', async () => {
+      await stopPlaces();
+      probe.mockImplementation(async (provider) => status(provider, false));
+      await watch.check();
+      probe.mockImplementation(async (provider) => status(provider, true));
+      waitOutBackoff();
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+
+    it('gives the stopped places one more try when the CLI version changes', async () => {
+      await stopPlaces('1.0.0');
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(true);
+      probe.mockImplementation(async (provider) => ({ ...status(provider, true), cliVersion: '1.1.0' }));
+      await watch.check();
+      expect(failures.stoppedFor('AR', 'dev-1')).toBe(false);
+      expect(retry).toHaveBeenCalled();
+    });
+  });
+
   it('retries a recovered member while another launcher login still fails', async () => {
+    await useProvider('dev-2', 'codex');
     await watch.check();
-    probe.mockImplementation(async (provider, opts) => status(provider, opts.member === 'dev-1'));
+    probe.mockImplementation(async (provider) => status(provider, provider === 'claude'));
+    waitOutBackoff();
     await watch.check();
     expect(watch.forMember('AR', 'dev-1')).toBeUndefined();
     expect(watch.forMember('AR', 'dev-2')).toBeDefined();
-    expect(watch.factsOf('AR', raised()[0]!.payload.outage.id)?.members).not.toContain('dev-1');
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
@@ -516,6 +718,7 @@ describe('work outage watch', () => {
     const second = raised().find(({ projectKey }) => projectKey === 'BR')!;
     expect(second.payload.outage).toEqual(first.payload.outage);
     probe.mockImplementation(async (provider) => status(provider, true));
+    waitOutBackoff();
     await watch.check();
     expect(watch.activeIds('BR')!.size).toBe(0);
     expect(watch.activeIds('AR')!.size).toBe(0);
@@ -566,35 +769,54 @@ describe('work outage watch', () => {
       await vi.advanceTimersByTimeAsync(20_000);
       await first;
       expect(raised()).toEqual([]);
-      expect(probe.mock.calls.length).toBe(
-        h.domain.projects.cachedConfig('AR')!.team.members.filter((m) => m.kind === 'ai' && !isOnLeave(m))
-          .length,
-      );
+      // Every member here uses Claude on the local engine: one question for the pair.
+      expect(probe.mock.calls.length).toBe(1);
     },
   );
 
-  it('adopts the original start time of an open alert and does not close it on unknown checks', async () => {
-    await watch.check();
-    const item = legacyAlert();
-    await watch.stop();
-    watch = new WorkOutages({
-      ctx: h.domain.ctx,
-      projects: h.domain.projects,
-      inbox: h.domain.inbox,
-      engines: directory,
-      runner: h.runner,
-      deferred,
-      messageRouter: h.domain.messageRouter,
-      members: h.domain.members,
-      tasks: h.domain.tasks,
-      retry,
-    });
-    probe.mockImplementation(async (provider) => status(provider, null));
-    await watch.check();
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0]!.state).toBe('open');
-    expect(watch.forMember('AR', 'dev-1')?.since).toBe((item.payload.outage as { since: string }).since);
-  });
+  it.each(['legacy', 'integrator'] as const)(
+    'adopts an open %s outage after restart and preserves it on unknown checks',
+    async (kind) => {
+      if (kind === 'integrator') {
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          const pm = config.team.members.find((member) => member.handle === 'pm');
+          if (pm?.kind === 'ai') pm.onLeave = false;
+          return 'Activate the project manager';
+        });
+      }
+      await watch.check();
+      const item =
+        kind === 'legacy'
+          ? legacyAlert()
+          : h.domain.inbox.list('AR', { state: 'open', kind: 'question' })[0]!;
+      const since = raised()[0]!.payload.outage.since;
+      await watch.stop();
+      watch = new WorkOutages({
+        ctx: h.domain.ctx,
+        projects: h.domain.projects,
+        inbox: h.domain.inbox,
+        engines: directory,
+        runner: h.runner,
+        deferred,
+        messageRouter: h.domain.messageRouter,
+        members: h.domain.members,
+        tasks: h.domain.tasks,
+        retry,
+        startFailures: startFailuresOf(h),
+      });
+      probe.mockImplementation(async (provider) => status(provider, null));
+      await watch.check();
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+      expect(watch.forMember('AR', 'dev-1')?.since).toBe(since);
+      expect(raised()).toHaveLength(1);
+      probe.mockImplementation(async (provider) => status(provider, true));
+      await watch.check();
+      expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
+        state: 'resolved',
+        resolution: { rule: 'outage_ended' },
+      });
+    },
+  );
 
   it('publishes member and task outages through the domain views after an admission refusal', async () => {
     const task = await h.domain.tasks.create('AR', { title: 'Unavailable provider' }, OWNER_ACTOR);

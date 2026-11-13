@@ -43,11 +43,16 @@ from it (see "Driver" below).
   reported to its lane (`dropped`, PM-1248): the message lane writes a `message_dropped` timeline event and sends the
   AI sender of an `action` a non-waking info message into its general conversation. Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
-  stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
+  stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted. The driver's start runs as an
+  **automatic** start (PM-1335, `admission.exclusive(..., { automatic: true })`): when the place's earlier starts
+  failed it answers `start_backoff` (with `until`) or, after the fifth failure in a row, `start_failing`; both keep
+  the item queued with that code as its wait (the sweep and the lifting events try it again), so a session that dies
+  at its start is not restarted in a tight loop. See [ARCHITECTURE.md](../ARCHITECTURE.md), admission.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/project-manager/queue` only. Access: a
   person's own login (developer or more) or a connected Claude's read or super key. Keys of the retired legacy mode fail
   authentication with 401.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: the queue, the driver and the sweep live on the hub with the database; only the session start
   crosses to an engine ([MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md)). A member whose engine is offline waits with
-  `engine_offline` as the item's wait, and the sweep starts it when the engine is back.
+  `engine_offline` as the item's wait, and the sweep starts it when the engine is back. The start-failure count
+  (`start_failures`, PM-1335) is the hub's too; an engine reconnect lifts a stopped place for one more try.

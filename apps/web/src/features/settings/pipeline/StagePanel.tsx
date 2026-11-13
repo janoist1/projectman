@@ -209,6 +209,7 @@ export function StagePanel({
         issuesAt={(field) => sorted?.fields.get(field) ?? []}
         kindLock={kindLock}
         withDescription
+        withSmallCards
         onSubmit={() => {
           if (canSave) void edit.save();
         }}

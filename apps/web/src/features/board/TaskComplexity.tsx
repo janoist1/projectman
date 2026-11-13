@@ -11,7 +11,7 @@ import {
   stageDevelopers,
   workStageOf,
 } from '@projectman/shared';
-import type { ProjectConfig, Task } from '@projectman/shared';
+import type { BoardCard, ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useConfig, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -24,7 +24,7 @@ import { errorMessage } from '../../lib/errors';
 import drawer from './drawer.module.css';
 import styles from './TaskComplexity.module.css';
 
-function noneReach(config: ProjectConfig, task: Task, points: number | null) {
+function noneReach(config: ProjectConfig, task: BoardCard, points: number | null) {
   const stage = workStageOf(config, task);
   return (
     isComplexityPoints(points) &&
@@ -33,7 +33,7 @@ function noneReach(config: ProjectConfig, task: Task, points: number | null) {
   );
 }
 
-export function TaskComplexity({ task }: { task: Task }) {
+export function TaskComplexity({ task }: { task: BoardCard }) {
   const { key, can, myHandle } = useProject();
   const configQuery = useConfig(key, can.readConfig);
   const config = can.readConfig ? configQuery.data?.config : undefined;
@@ -94,7 +94,7 @@ function ComplexityEditor({
   config,
   onClose,
 }: {
-  task: Task;
+  task: BoardCard;
   config: ProjectConfig;
   onClose: () => void;
 }) {

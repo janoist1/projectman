@@ -112,7 +112,8 @@ describe('question screening while the PM’s machine is offline', () => {
   const item = (id: string) => h.domain.inbox.get('AR', id);
   const screeningOf = (id: string) => questionPayloadOf(item(id))?.screening;
   const pmSessions = () => h.domain.sessions.list('AR', { member: 'pm' });
-  const humanQueue = () => h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
+  const humanQueue = () =>
+    h.domain.inbox.list('AR', { state: 'open', kind: 'question' }).filter((item) => !item.payload.workOutage);
   const skipped = () =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type === 'question_screening_skipped');
   const sweep = async () => {

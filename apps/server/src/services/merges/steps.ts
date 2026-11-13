@@ -18,7 +18,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import type { BranchMerger, EngineHost, MergeBuildResult } from '../../contracts';
-import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
+import { EngineLinkLostError, isEngineLinkLost, MergeError } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
 import { isoNow } from '../../core/base';
@@ -41,6 +41,9 @@ import {
   checkRetryNote,
   checkInfraMessage,
   checkFallbackNote,
+  holdsRepoQueue,
+  nextRemoteAttempt,
+  remoteRetryNote,
 } from './check-retry';
 import type { MergeCheckRetry } from './check-retry';
 import { regenerateConflict } from './regenerate';
@@ -73,6 +76,7 @@ export class MergeSteps {
         return;
       } catch (err: unknown) {
         if (!this.continue(run)) return;
+        if (await this.requeueUnreachable(run, err)) return;
         if (!isEngineLinkLost(err))
           return this.block(run, 'merge_error', err instanceof Error ? err.message : 'merge failed');
         if (++losses > MERGE_ENGINE_LOSSES)
@@ -387,6 +391,8 @@ export class MergeSteps {
     for (let attempt = 0; attempt < 2; attempt++) {
       const base = await merger.prepare(ref, { base: row.base, commit: commit });
       if (!this.continue(running)) return;
+      // The remote answered: its wait is over and the check starts with a clean attempt count.
+      if (holdsRepoQueue(row)) this.save(row, { retry: undefined });
       // A crash may fall between the git push/advance and the following durable write.
       if (
         row.mergeCommit &&
@@ -412,6 +418,8 @@ export class MergeSteps {
       }
       if (row.landed === 'remote') {
         if (!row.mergeCommit) return this.block(running, 'merge_error', 'the landed merge has no commit');
+        if (await merger.isAncestor(ref, { ancestor: row.mergeCommit, commit: base.local }))
+          return this.finish(row, config);
         const advance = await merger.advance(ref, { base: row.base, from: base.local, to: row.mergeCommit });
         if (!advance.ok) return this.block(running, 'local_checkout', advance.message);
         return this.finish(row, config);
@@ -521,14 +529,22 @@ export class MergeSteps {
       if (repo.reviewTest) {
         // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
         this.save(row, { step: 'check_waiting' });
-        const passed = ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
-          // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
-          (run) =>
-            run.status === 'passed' &&
-            run.runner === 'engine' &&
-            run.projectKey === row.projectKey &&
-            run.repo === row.repo,
-        );
+        // A passed engine run stands in only when the repository allows it, the run ran the same command and the
+        // approved commit has one parent: a diff-selecting command sees another diff on a merge commit (PM-1377).
+        // An older engine does not report the parents: no reuse.
+        const { command: checkCommand, reusePassedRun } = repo.reviewTest;
+        const passed =
+          reusePassedRun === false || base.commitParents !== 1
+            ? undefined
+            : ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
+                // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
+                (run) =>
+                  run.status === 'passed' &&
+                  run.runner === 'engine' &&
+                  run.projectKey === row.projectKey &&
+                  run.repo === row.repo &&
+                  run.command === checkCommand,
+              );
         if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             step: 'checking',
@@ -734,7 +750,29 @@ export class MergeSteps {
     });
   }
 
-  private requeueForRetry(running: MergeRun, retry: MergeCheckRetry): void {
+  /**
+   * An unreachable remote before anything landed is waited out, not blocked (M-02): the row goes back to
+   * the queue with the check's delays and holds its repository's queue; after the last attempt it blocks.
+   * False when `err` is another failure (or work already reached the remote): the caller handles it.
+   */
+  async requeueUnreachable(running: MergeRun, err: unknown): Promise<boolean> {
+    const { row } = running;
+    if (!(err instanceof MergeError) || err.code !== 'remote_unreachable') return false;
+    if (row.landed !== 'nowhere' || running.pushing) return false;
+    const next = nextRemoteAttempt(row.retry, this.deps.ctx.now());
+    if (next.kind === 'exhausted') {
+      await this.block(
+        running,
+        'remote_unreachable',
+        `the remote stayed unreachable after ${next.attempts} attempts: ${err.message}`,
+      );
+      return true;
+    }
+    this.requeueForRetry(running, next.retry, remoteRetryNote(next.retry, err.message));
+    return true;
+  }
+
+  private requeueForRetry(running: MergeRun, retry: MergeCheckRetry, note = checkRetryNote(retry)): void {
     const { row } = running;
     this.deps.ctx.unitOfWork(() => {
       this.save(row, {
@@ -748,7 +786,7 @@ export class MergeSteps {
         finishedAt: undefined,
       });
       this.clearAlert(row);
-      this.note(row, checkRetryNote(retry));
+      this.note(row, note);
     });
   }
 
@@ -768,10 +806,19 @@ export class MergeSteps {
         data: { ...mergedState(row)!, mergeId: row.id },
       });
     });
-    await this.notify(row, config);
+    // The merge is recorded; a failure below must leave a log line and must not undo it.
+    try {
+      await this.notify(row, config);
+    } catch (err) {
+      ctx.logger.warn({ err, mergeId: row.id }, 'could not notify a merged card');
+    }
     await this.release(row, this.engine(tasks.get(row.projectKey, row.taskKey))?.merger);
-    const task = tasks.find(row.projectKey, row.taskKey);
-    if (task) await this.deps.afterMerge(task);
+    try {
+      const task = tasks.find(row.projectKey, row.taskKey);
+      if (task) await this.deps.afterMerge(task);
+    } catch (err) {
+      ctx.logger.warn({ err, mergeId: row.id }, 'could not advance a merged card');
+    }
   }
 
   async block(running: MergeRun, reason: MergeBlockReason, message: string, detail?: string): Promise<void> {
@@ -872,18 +919,20 @@ export class MergeSteps {
 
   /** The merge fails for good, with the event and the notification; a train blames a member through it too (PM-844). */
   async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
-    const { ctx, timeline } = this.deps;
-    ctx.unitOfWork(() => {
-      this.save(row, { state: 'failed', step: undefined, failure, block: undefined });
-      this.clearAlert(row);
-      timeline.append({
-        projectKey: row.projectKey,
-        taskKey: row.taskKey,
-        actor: SYSTEM_ACTOR,
-        type: 'task_merge_failed',
-        data: { ...failure, mergeId: row.id },
-      });
-    });
+    this.deps.ctx.unitOfWork(() => this.markFailed(row, failure));
     await this.notify(row, config);
+  }
+
+  /** The state, alert and event of `fail`, without the notification: the caller holds the unit of work. */
+  markFailed(row: MergeRecord, failure: MergeFailure): void {
+    this.save(row, { state: 'failed', step: undefined, failure, block: undefined });
+    this.clearAlert(row);
+    this.deps.timeline.append({
+      projectKey: row.projectKey,
+      taskKey: row.taskKey,
+      actor: SYSTEM_ACTOR,
+      type: 'task_merge_failed',
+      data: { ...failure, mergeId: row.id },
+    });
   }
 }

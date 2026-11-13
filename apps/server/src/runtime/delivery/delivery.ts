@@ -80,6 +80,7 @@ export interface DeliveryEffects {
     from: string,
     text: string,
     taskKey: string | null,
+    options?: NoticeOptions,
   ) => Effect.Effect<boolean>;
   readonly noticeOrHold: (
     session: Session,
@@ -99,6 +100,14 @@ export interface DeliveryEffects {
 
 /** Keeps the text of a notice no session took as a stored `system` message for the session's member and work item. */
 export type NoticeStore = (session: Session, text: string) => Promise<void>;
+
+/**
+ * `store`: keep the text as a stored message when the session does not take it. Only for a caller
+ * nothing retries; the member queue types again by itself and would deliver the text twice.
+ */
+export interface NoticeOptions {
+  readonly store?: boolean;
+}
 
 /** A notice kept for an idle session; `messageId` is set when a stored message is behind it. */
 interface HeldNotice {
@@ -571,7 +580,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         }
       });
 
-    const notice: DeliveryEffects['notice'] = (session, from, text, taskKey) =>
+    const notice: DeliveryEffects['notice'] = (session, from, text, taskKey, options) =>
       Effect.gen(function* () {
         const {
           text: typed,
@@ -587,8 +596,8 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         catchFailure((cause) =>
           Effect.gen(function* () {
             ctx.logger.warn({ err: failure(cause), sessionId: session.id }, 'could not deliver a message');
-            // Nothing retries a notice (PM-1369, R-03): stored, it waits like any message for the member.
-            yield* storeNotice(session, text);
+            // Nothing retries these notices (PM-1369, R-03): stored, one waits like any message for the member.
+            if (options?.store) yield* storeNotice(session, text);
             return false;
           }),
         ),
@@ -628,7 +637,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
       noticeOrHold: (session, from, text, taskKey) =>
         session.state !== 'idle'
           ? Effect.asVoid(
-              Effect.forkIn(notice(session, from, text, taskKey), scope, { startImmediately: true }),
+              Effect.forkIn(notice(session, from, text, taskKey, { store: true }), scope, {
+                startImmediately: true,
+              }),
             )
           : Effect.sync(() =>
               keep(session, { text: formatInjectedTeamMessage(from, text, taskKey), messageId: null }),
@@ -811,8 +822,14 @@ export class MessageDelivery {
     );
   }
 
-  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean> {
-    return runPromise(this.core.notice(session, from, text, taskKey));
+  notice(
+    session: Session,
+    from: string,
+    text: string,
+    taskKey: string | null,
+    options?: NoticeOptions,
+  ): Promise<boolean> {
+    return runPromise(this.core.notice(session, from, text, taskKey, options));
   }
 
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {

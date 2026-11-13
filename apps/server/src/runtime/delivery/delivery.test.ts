@@ -270,11 +270,27 @@ describe('message delivery under the TestClock', () => {
     const taken = await run(deps, (delivery) =>
       Effect.gen(function* () {
         yield* delivery.useNoticeStore(store);
-        return yield* delivery.notice(session, 'projectman', 'The fix round limit was lifted', 'AR-1');
+        return yield* delivery.notice(session, 'projectman', 'The fix round limit was lifted', 'AR-1', {
+          store: true,
+        });
       }),
     );
     expect(taken).toBe(false);
     expect(store).toHaveBeenCalledExactlyOnceWith(session, 'The fix round limit was lifted');
+  });
+
+  it('stores nothing for a notice whose caller retries it (the member queue)', async () => {
+    const { deps, control } = setup();
+    control.typeInto = 'fail';
+    const store = vi.fn(async () => {});
+    const taken = await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.useNoticeStore(store);
+        return yield* delivery.notice(session, 'projectman', 'A decision is waiting', 'AR-1');
+      }),
+    );
+    expect(taken).toBe(false);
+    expect(store).not.toHaveBeenCalled();
   });
 
   it('stores no notice the session took', async () => {
@@ -284,7 +300,7 @@ describe('message delivery under the TestClock', () => {
     await run(deps, (delivery) =>
       Effect.gen(function* () {
         yield* delivery.useNoticeStore(store);
-        expect(yield* delivery.notice(session, 'projectman', 'FYI', null)).toBe(true);
+        expect(yield* delivery.notice(session, 'projectman', 'FYI', null, { store: true })).toBe(true);
       }),
     );
     expect(store).not.toHaveBeenCalled();

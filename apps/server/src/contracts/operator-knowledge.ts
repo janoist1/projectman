@@ -8,7 +8,7 @@ export interface ProjectManagerKnowledgeStore {
     expectedRevision: number,
     next: ProjectManagerKnowledgeDocument,
   ): Promise<ProjectManagerKnowledgeDocument>;
-  /** The instance-level knowledge of the global project manager (PM-1046): one document for the whole server. */
+  /** The instance-level knowledge of the connected Claude (PM-1046): one document for the whole server. */
   readInstanceKnowledge(): Promise<ProjectManagerKnowledgeDocument>;
   compareAndSwapInstanceKnowledge(
     expectedRevision: number,

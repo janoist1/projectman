@@ -1286,8 +1286,8 @@ describe('token economy (PM-181)', () => {
   // PM-426 adds 463 characters: who a message starts, and whose job the code review is.
   // PM-432 adds 39 characters: every team has a project manager, one more line in the team list.
   // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
-  // PM-462 adds 35 characters: every team has an Operator, one more line in the team list (the human
-  // operator role is now called owner, three characters shorter).
+  // PM-462 added 35 characters: the team list had a line for an Operator member (decision 66 later removed
+  // that member; the human operator role is now called owner, three characters shorter).
   // PM-486 adds 70 characters: answering ask_human never grants an approval label.
   // PM-559 adds 106 characters: a question that became moot is withdrawn with withdraw_question.
   // PM-656 adds 522 characters: record checks that cannot run instead of asking for escalation.
@@ -1323,7 +1323,7 @@ describe('token economy (PM-181)', () => {
     // PM-426 adds the same 463 characters (who a message starts, whose job the code review is).
     // PM-432 adds the project manager's 39-character line to the team list.
     // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
-    // PM-462 adds the Operator's 35 characters to the team list.
+    // PM-462 added 35 characters for an Operator line in the team list (decision 66 later removed that member).
     // PM-486 adds the same 70-character approval warning.
     // PM-559 adds the same 106 characters about withdrawing a moot question.
     // PM-647 adds the same 236 characters about a collecting card closing with its subtasks.

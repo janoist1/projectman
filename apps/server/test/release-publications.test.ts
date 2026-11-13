@@ -5,7 +5,8 @@ import { MergeError } from '../src/contracts';
 import type { BranchMerger, FullTestExecutor, FullTestSpec, MergeBaseState } from '../src/contracts';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { releaseStatusOf } from '../src/services/releases';
-import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
+import { createSuperExecution } from '../src/services/super';
+import { OWNER, OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { connectedClaude, inIntegratorExecution } from './helpers/integrator-scope';
 
@@ -340,6 +341,46 @@ describe('publish_release', () => {
       await expect(
         inIntegratorExecution(claude, () => publish({ by: claude }), { hostOwner: false }),
       ).rejects.toMatchObject({ code: 'host_only' });
+      refusedWithNothingWritten();
+    });
+
+    it('refuses publication when host ownership changes during an engine call', async () => {
+      await setup();
+      const claude = connectedClaude();
+      let hostOwner = 'user-1';
+      const execution = createSuperExecution({
+        projects: h.domain.projects,
+        audit: h.domain.superAudit,
+        credentials: {
+          assertActive: () => {},
+          user: () => OWNER,
+          keyCoversProject: () => true,
+          isHostOwner: (userId) => userId === hostOwner,
+        },
+      });
+      vi.mocked(git.merger.remoteTags).mockImplementationOnce(async () => {
+        hostOwner = 'user-2';
+        return [];
+      });
+
+      await expect(
+        execution.run(
+          {
+            principal: {
+              kind: 'integrator',
+              userId: 'user-1',
+              keyId: 'ikey_test_1',
+              prefix: 'pmi_aaaaaaaa',
+              mode: 'super',
+            },
+            email: OWNER.email,
+            projectKey: 'AR',
+            requestId: 'req-host-transfer',
+          },
+          () => publish({ by: claude }),
+        ),
+      ).rejects.toMatchObject({ code: 'host_only' });
+      expect(git.merger.remoteTags).toHaveBeenCalledOnce();
       refusedWithNothingWritten();
     });
 

@@ -19,6 +19,13 @@ it('rewrites the retired release and Operator approval items to alerts and drops
     item.run('inb_operator', 'approval', '{"operator":{"requestId":"opr_1"}}', 'resolved');
     item.run('inb_email', 'approval', '{"email":{"emailId":"eml_1"}}', 'resolved');
     item.run('inb_question', 'question', '{}', 'open');
+    item.run('inb_asked_by_operator', 'question', '{}', 'open');
+    db.prepare("UPDATE inbox_items SET source = 'operator' WHERE id = 'inb_asked_by_operator'").run();
+    item.run('inb_operator_session', 'decision', '{}', 'screening');
+    item.run('inb_operator_session_done', 'decision', '{}', 'resolved');
+    db.exec(`INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd, state, started_at, last_activity_at)
+      VALUES ('ses_operator', 'AR', 'operator', 'chat', 'x', 'c', '/', 'ended', '2026-01-01', '2026-01-01');
+      UPDATE inbox_items SET session_id = 'ses_operator' WHERE id IN ('inb_operator_session', 'inb_operator_session_done');`);
     db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
       INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, raised_at)
       VALUES ('ops_idle', 'AR', 'idle', 'idle:AR-1', 'resolved', 0, '2026-01-01T00:00:00.000Z'),
@@ -29,8 +36,11 @@ it('rewrites the retired release and Operator approval items to alerts and drops
 
     const items = db.prepare('SELECT id, kind, payload, state FROM inbox_items ORDER BY id').all();
     expect(items).toEqual([
+      { id: 'inb_asked_by_operator', kind: 'question', payload: '{}', state: 'cancelled' },
       { id: 'inb_email', kind: 'approval', payload: '{"email":{"emailId":"eml_1"}}', state: 'resolved' },
       { id: 'inb_operator', kind: 'alert', payload: '{}', state: 'resolved' },
+      { id: 'inb_operator_session', kind: 'decision', payload: '{}', state: 'cancelled' },
+      { id: 'inb_operator_session_done', kind: 'decision', payload: '{}', state: 'resolved' },
       { id: 'inb_question', kind: 'question', payload: '{}', state: 'open' },
       { id: 'inb_release', kind: 'alert', payload: '{}', state: 'resolved' },
       { id: 'inb_release_open', kind: 'alert', payload: '{}', state: 'cancelled' },

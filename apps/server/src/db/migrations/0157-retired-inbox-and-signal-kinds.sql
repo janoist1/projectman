@@ -6,6 +6,12 @@
 UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
   WHERE state IN ('open', 'screening')
     AND (kind = 'release' OR (kind = 'approval' AND json_type(payload, '$.operator') IS NOT NULL));
+-- The retired Operator's own pending items (asked by it, or from one of its sessions) were refused to every
+  -- delegated decider by a special case that is deleted with this version; closing them keeps that protection.
+UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE state IN ('open', 'screening')
+    AND (source = 'operator'
+      OR session_id IN (SELECT id FROM sessions WHERE member = 'operator'));
 UPDATE inbox_items SET kind = 'alert', payload = json_remove(payload, '$.release', '$.operator')
   WHERE kind = 'release' OR (kind = 'approval' AND json_type(payload, '$.operator') IS NOT NULL);
 DELETE FROM operator_signals WHERE kind IN ('idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled', 'nobody');

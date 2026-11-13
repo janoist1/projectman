@@ -1,7 +1,7 @@
 import {
   FeedbackTools,
   SystemFeedbackTools,
-  OperatorTools,
+  ProjectManagerTools,
   MemberTools,
   TaskTools,
   AttachmentTools,
@@ -126,14 +126,14 @@ import { BackgroundTasks } from './kernel';
 import { BoardService } from './core/tasks';
 import {
   CoordinationRequests,
-  OperatorKnowledge,
-  OperatorPreferences,
-  OperatorRequests,
+  ProjectManagerKnowledge,
+  ProjectManagerPreferences,
+  ProjectManagerRequests,
   OperatorSteps,
 } from './services/coordination';
 import {
   LoopTriages,
-  OperatorSignals,
+  ProjectManagerSignals,
   ReviewFollowUps,
   StructuralReviews,
   createAlertPmSignals,
@@ -654,9 +654,9 @@ export function createDomain(opts: DomainOptions) {
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const startQueue = new StartQueue({ ctx, projects, queue: memberQueue });
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts, startQueue);
-  const operatorRequests = new OperatorRequests({ ctx });
+  const operatorRequests = new ProjectManagerRequests({ ctx });
   const coordinationRequests = new CoordinationRequests({ ctx, projects });
-  const operatorPreferences = new OperatorPreferences({
+  const operatorPreferences = new ProjectManagerPreferences({
     ctx,
     projects,
     requests: operatorRequests,
@@ -664,7 +664,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const operatorSteps = new OperatorSteps({ ctx });
   const messages = new MessageService({ ctx, timeline, projects, coordinationRequests });
-  const sharedOperatorKnowledge = new OperatorKnowledge({
+  const sharedOperatorKnowledge = new ProjectManagerKnowledge({
     ctx,
     projects,
     store: opts.operatorKnowledge,
@@ -1431,7 +1431,7 @@ export function createDomain(opts: DomainOptions) {
       obligations.open({ ...input, kind: 'start' });
     },
   });
-  const operatorSignals = new OperatorSignals({
+  const operatorSignals = new ProjectManagerSignals({
     ctx,
     projects,
     sessions,
@@ -1657,7 +1657,7 @@ export function createDomain(opts: DomainOptions) {
       systemFeedback: new SystemFeedbackTools({ calls: toolCaller, projects, systemFeedback }),
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
-      operator: new OperatorTools({
+      operator: new ProjectManagerTools({
         involvements,
         systemFeedback,
         structuralReviews,

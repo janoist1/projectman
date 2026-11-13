@@ -32,9 +32,9 @@ import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
 import type { EmailChannelService } from '../services/email-channel';
 import type {
-  OperatorKnowledge,
-  OperatorPreferences,
-  OperatorSignals,
+  ProjectManagerKnowledge,
+  ProjectManagerPreferences,
+  ProjectManagerSignals,
   ProjectManagerChannels,
   WorkQueues,
 } from '../services/coordination';
@@ -71,9 +71,9 @@ export interface ApiDomain extends AuthDomain {
   readonly messaging: Messaging;
   readonly messageProcessing: MessageProcessingReader;
   readonly sessionMessages: SessionMessages;
-  readonly operatorSignals: OperatorSignals;
-  readonly operatorPreferences: OperatorPreferences;
-  readonly sharedOperatorKnowledge: OperatorKnowledge;
+  readonly operatorSignals: ProjectManagerSignals;
+  readonly operatorPreferences: ProjectManagerPreferences;
+  readonly sharedOperatorKnowledge: ProjectManagerKnowledge;
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;

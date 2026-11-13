@@ -20,12 +20,12 @@ import {
 import type { Session, OperatorDiagnostics } from '@projectman/shared';
 import { z } from 'zod';
 import type { ToolContext } from '../../contracts';
-import type { OperatorRequests } from './requests';
+import type { ProjectManagerRequests } from './requests';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService, TaskWaits } from '../../core/tasks';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerSignals } from './signals';
 import type { WorkQueues } from './work-queues';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
 import { forbidden, invalid, notFound } from '../../kernel';
@@ -40,8 +40,8 @@ export class ProjectState {
     pauses: Pick<OperatorPauses, 'projectView'>;
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
-    operatorSignals: Pick<OperatorSignals, 'active'>;
-    requests: Pick<OperatorRequests, 'openFor'>;
+    operatorSignals: Pick<ProjectManagerSignals, 'active'>;
+    requests: Pick<ProjectManagerRequests, 'openFor'>;
     workQueues: Pick<WorkQueues, 'overview'>;
     diagnostics: OperatorDiagnosticSources;
   };

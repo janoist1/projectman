@@ -6,7 +6,7 @@ import type { AlertPmSignals } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { BackgroundTasks } from '../../kernel';
 import { relationCheckCase } from './signals';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerSignals } from './signals';
 
 /** How long a process cleanup may keep failing before the project manager is told (PM-1204). */
 const PROCESS_CLEANUP_SIGNAL_GRACE_MS = 2 * 60_000;
@@ -17,7 +17,7 @@ const PROCESS_CLEANUP_SIGNAL_GRACE_MS = 2 * 60_000;
  * are idempotent per case, so a repeated alert opens no second signal.
  */
 export function createAlertPmSignals(deps: {
-  operatorSignals: Pick<OperatorSignals, 'raise' | 'deliver'>;
+  operatorSignals: Pick<ProjectManagerSignals, 'raise' | 'deliver'>;
   background: BackgroundTasks;
   logger: DomainContext['logger'];
 }): AlertPmSignals {
@@ -52,7 +52,7 @@ export function wireOperatorSignals(deps: {
   bus: EventBus;
   projects: Pick<ProjectService, 'cachedConfig'>;
   sessions: { find(sessionId: string): Session | null };
-  operatorSignals: Pick<OperatorSignals, 'finish' | 'deliver' | 'raise' | 'resolve' | 'sweep'>;
+  operatorSignals: Pick<ProjectManagerSignals, 'finish' | 'deliver' | 'raise' | 'resolve' | 'sweep'>;
   background: BackgroundTasks;
 }): () => void {
   const { ctx, bus, projects, sessions, operatorSignals, background } = deps;

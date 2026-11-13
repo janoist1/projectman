@@ -9,7 +9,7 @@ import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projec
 import type { ToolContext } from '../src/contracts';
 
 import type { MergeRecord } from '../src/db';
-import { OperatorRequests } from '../src/services/coordination';
+import { ProjectManagerRequests } from '../src/services/coordination';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -163,7 +163,7 @@ describe('level unblock', () => {
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
     const { sessionId } = await operator();
-    expect(new OperatorRequests({ ctx: h.domain.ctx }).openFor(sessionId)).toBeNull();
+    expect(new ProjectManagerRequests({ ctx: h.domain.ctx }).openFor(sessionId)).toBeNull();
     // The round authorizes nothing by itself: a write without a signal is still refused.
     await expect(
       h.domain.teamTools.startMember(await operator(), { member: 'dev-2', text: 'Work' }),

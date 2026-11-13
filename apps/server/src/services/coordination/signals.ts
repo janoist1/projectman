@@ -199,7 +199,7 @@ interface BoardRead {
 }
 
 /** One notice per system problem episode; notices never authorize a write. */
-export class OperatorSignals {
+export class ProjectManagerSignals {
   /** One sweep body per project at a time; a call that arrives while another run still waits for its turn joins that run. */
   private readonly sweepLocks = new KeyedMutex();
   private readonly queuedSweeps = new Map<string, { started: boolean; promise: Promise<void> }>();

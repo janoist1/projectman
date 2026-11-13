@@ -18,7 +18,7 @@ import type {
   ReleaseToolsHandler,
   ComputeJobToolsHandler,
   DocumentToolsHandler,
-  OperatorToolsHandler,
+  ProjectManagerToolsHandler,
   ProjectDocToolsHandler,
   SystemFeedbackToolsHandler,
   HistoryToolsHandler,
@@ -86,7 +86,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async getRoleConfiguration(
     ctx: ToolContext,
-    args: Parameters<OperatorToolsHandler['getRoleConfiguration']>[1],
+    args: Parameters<ProjectManagerToolsHandler['getRoleConfiguration']>[1],
   ) {
     return this.tools.operator.getRoleConfiguration(ctx, args);
   }
@@ -114,7 +114,7 @@ export class TeamToolsService implements TeamToolsHandler {
     releases: ReleaseToolsHandler;
     computeJobs: ComputeJobToolsHandler;
     documents: DocumentToolsHandler;
-    operator: OperatorToolsHandler;
+    operator: ProjectManagerToolsHandler;
     projectDocs: ProjectDocToolsHandler;
     systemFeedback: SystemFeedbackToolsHandler;
     history: HistoryToolsHandler;
@@ -141,7 +141,10 @@ export class TeamToolsService implements TeamToolsHandler {
   async getChecklist(ctx: ToolContext) {
     return this.tools.operator.getChecklist(ctx);
   }
-  async updateChecklist(ctx: ToolContext, args: Parameters<OperatorToolsHandler['updateChecklist']>[1]) {
+  async updateChecklist(
+    ctx: ToolContext,
+    args: Parameters<ProjectManagerToolsHandler['updateChecklist']>[1],
+  ) {
     return this.tools.operator.updateChecklist(ctx, args);
   }
 
@@ -180,7 +183,7 @@ export class TeamToolsService implements TeamToolsHandler {
       releases: ReleaseToolsHandler;
       computeJobs: ComputeJobToolsHandler;
       documents: DocumentToolsHandler;
-      operator: OperatorToolsHandler;
+      operator: ProjectManagerToolsHandler;
       projectDocs: ProjectDocToolsHandler;
       systemFeedback: SystemFeedbackToolsHandler;
       history: HistoryToolsHandler;
@@ -503,7 +506,7 @@ export class TeamToolsService implements TeamToolsHandler {
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.tools.members.saveMemory(ctx, args);
   }
-  async triageLoop(ctx: ToolContext, args: Parameters<OperatorToolsHandler['triageLoop']>[1]) {
+  async triageLoop(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['triageLoop']>[1]) {
     return this.tools.operator.triageLoop(ctx, args);
   }
 
@@ -513,24 +516,27 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
   }
-  async decideSeniorWait(ctx: ToolContext, args: Parameters<OperatorToolsHandler['decideSeniorWait']>[1]) {
+  async decideSeniorWait(
+    ctx: ToolContext,
+    args: Parameters<ProjectManagerToolsHandler['decideSeniorWait']>[1],
+  ) {
     return this.tools.operator.decideSeniorWait(ctx, args);
   }
-  async reassignTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reassignTask']>[1]) {
+  async reassignTask(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['reassignTask']>[1]) {
     return this.tools.operator.reassignTask(ctx, args);
   }
-  async cancelTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['cancelTask']>[1]) {
+  async cancelTask(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['cancelTask']>[1]) {
     return this.tools.operator.cancelTask(ctx, args);
   }
-  async reopenTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reopenTask']>[1]) {
+  async reopenTask(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['reopenTask']>[1]) {
     return this.tools.operator.reopenTask(ctx, args);
   }
-  async involveMember(ctx: ToolContext, args: Parameters<OperatorToolsHandler['involveMember']>[1]) {
+  async involveMember(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['involveMember']>[1]) {
     return this.tools.operator.involveMember(ctx, args);
   }
   async openIntegratorTodo(
     ctx: ToolContext,
-    args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],
+    args: Parameters<ProjectManagerToolsHandler['openIntegratorTodo']>[1],
   ) {
     return this.tools.operator.openIntegratorTodo(ctx, args);
   }
@@ -544,15 +550,18 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.sessions.setCurrentWork(ctx, args);
   }
 
-  async operate(ctx: ToolContext, args: Parameters<OperatorToolsHandler['operate']>[1]) {
+  async operate(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['operate']>[1]) {
     return this.tools.operator.operate(ctx, args);
   }
 
-  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+  async executeOperation(
+    ctx: ToolContext,
+    args: Parameters<ProjectManagerToolsHandler['executeOperation']>[1],
+  ) {
     return this.tools.operator.executeOperation(ctx, args);
   }
 
-  async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
+  async getOperation(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['getOperation']>[1]) {
     return this.tools.operator.getOperation(ctx, args);
   }
 

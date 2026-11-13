@@ -17,8 +17,8 @@ import type {
 } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
-import type { OperatorRequests } from './requests';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerRequests } from './requests';
+import type { ProjectManagerSignals } from './signals';
 import type { WorkQueues } from './work-queues';
 import type { ProjectService } from '../../core/projects';
 
@@ -28,8 +28,8 @@ export class ProjectManagerChannels {
     ctx: DomainContext;
     projects: ProjectService;
     pauses: Pick<OperatorPauses, 'projectView'>;
-    operatorRequests: OperatorRequests;
-    operatorSignals: OperatorSignals;
+    operatorRequests: ProjectManagerRequests;
+    operatorSignals: ProjectManagerSignals;
     workQueues: Pick<WorkQueues, 'pmSummary'>;
   };
 

@@ -28,7 +28,7 @@ import type {
 import { TeamToolError } from '../../contracts';
 import type {
   ChecklistToolView,
-  OperatorToolsHandler,
+  ProjectManagerToolsHandler,
   UpdateChecklistInput,
   UpdateChecklistResult,
   MemberStartResult,
@@ -46,9 +46,9 @@ import type { SeniorDecisions, TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
 import type {
   ProjectState,
-  OperatorSignals,
-  OperatorPreferences,
-  OperatorKnowledge,
+  ProjectManagerSignals,
+  ProjectManagerPreferences,
+  ProjectManagerKnowledge,
   StructuralReviews,
   LoopTriages,
 } from '../../services/coordination';
@@ -69,7 +69,7 @@ type OperatorToolsChecklist = Pick<
   'get' | 'init' | 'add' | 'edit' | 'setCondition' | 'setStateByOperator' | 'applyTemplate' | 'templateBases'
 >;
 
-export class OperatorTools implements OperatorToolsHandler {
+export class ProjectManagerTools implements ProjectManagerToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
@@ -82,9 +82,9 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projectState: ProjectState;
   private readonly taskStarts: TaskStarts;
   private readonly seniorDecisions: Pick<SeniorDecisions, 'decide'>;
-  private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
-  private readonly operatorPreferences: OperatorPreferences;
-  private readonly operatorKnowledge: OperatorKnowledge;
+  private readonly operatorSignals: Pick<ProjectManagerSignals, 'dismissByOperator'>;
+  private readonly operatorPreferences: ProjectManagerPreferences;
+  private readonly operatorKnowledge: ProjectManagerKnowledge;
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
   private readonly superPath: () => SuperPath;
@@ -103,9 +103,9 @@ export class OperatorTools implements OperatorToolsHandler {
     projectState: ProjectState;
     taskStarts: TaskStarts;
     seniorDecisions: Pick<SeniorDecisions, 'decide'>;
-    operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
-    operatorPreferences: OperatorPreferences;
-    operatorKnowledge: OperatorKnowledge;
+    operatorSignals: Pick<ProjectManagerSignals, 'dismissByOperator'>;
+    operatorPreferences: ProjectManagerPreferences;
+    operatorKnowledge: ProjectManagerKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
     checklist: OperatorToolsChecklist;
@@ -611,7 +611,10 @@ export class OperatorTools implements OperatorToolsHandler {
     return toToolError(err);
   }
 
-  async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
+  async executeOperation(
+    ctx: ToolContext,
+    args: Parameters<ProjectManagerToolsHandler['executeOperation']>[1],
+  ) {
     try {
       const caller = await this.appCaller(ctx, 'execute_operation');
       // Commands that need an owner's own message or answer are refused on the shared path (PM-935, PM-1010).
@@ -815,7 +818,7 @@ export class OperatorTools implements OperatorToolsHandler {
     );
     const config = caller.config;
     return this.calls
-      .recorded<Awaited<ReturnType<OperatorToolsHandler['startTask']>>>(
+      .recorded<Awaited<ReturnType<ProjectManagerToolsHandler['startTask']>>>(
         caller,
         { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
         async () => {

@@ -146,7 +146,7 @@ interface OpenOperatorRequest {
  * `OPERATOR_REQUEST_TTL_MS`. The Operator writes only while one is open (`openFor`); the project manager
  * under `outside_owner_only` also writes on its session's own round (`actingRequest`, PM-1287).
  */
-export class OperatorRequests {
+export class ProjectManagerRequests {
   private readonly ctx: DomainContext;
 
   constructor(deps: { ctx: DomainContext }) {
@@ -296,7 +296,7 @@ export class OperatorRequests {
 /** The PM's requests use separate session rows and never inherit an Operator request or signal round. */
 interface OpenCoordinationRequest extends OpenOperatorRequest {}
 
-export class CoordinationRequests extends OperatorRequests {
+export class CoordinationRequests extends ProjectManagerRequests {
   private readonly coordinationCtx: DomainContext;
   private readonly projects: Pick<ProjectService, 'cachedConfig'>;
 

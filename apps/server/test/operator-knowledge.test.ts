@@ -6,7 +6,7 @@ import type { OperatorKnowledgeChange, OperatorOperation, Session } from '@proje
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/coordination';
+import { ProjectManagerRequests } from '../src/services/coordination';
 import {
   createDomainHarness,
   OWNER,
@@ -411,7 +411,7 @@ describe('shared knowledge session boundaries', () => {
   it('never falls back to a normal owner request for a forged approval origin', async () => {
     await setup();
     h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
+    const requests = new ProjectManagerRequests({ ctx: h.domain.ctx });
     requests.closeForSession(ctx.sessionId);
     const message = h.domain.messages.record({
       projectKey: 'AR',
@@ -460,7 +460,7 @@ describe('shared knowledge session boundaries', () => {
 
   it('allows internal PM reads, forbids other members’ writes, and checks actual session and human membership', async () => {
     await setup();
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
+    const requests = new ProjectManagerRequests({ ctx: h.domain.ctx });
     const session = {
       ...h.repos.sessions.get(ctx.sessionId)!,
       id: 'ses_test_dev-1_AR',

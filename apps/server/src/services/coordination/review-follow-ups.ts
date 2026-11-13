@@ -1,7 +1,7 @@
 import { isOpenTask } from '@projectman/shared';
 import type { OperatorSignal, ReviewFollowUpsFacts, Task } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerSignals } from './signals';
 
 /** The most `review_follow_ups` events of one card the signal reads. */
 const EVENTS_READ = 1000;
@@ -45,8 +45,8 @@ export function reviewFollowUpsFacts(
  */
 export class ReviewFollowUps {
   private readonly ctx: DomainContext;
-  private readonly signals: Pick<OperatorSignals, 'raise'>;
-  constructor(deps: { ctx: DomainContext; signals: Pick<OperatorSignals, 'raise'> }) {
+  private readonly signals: Pick<ProjectManagerSignals, 'raise'>;
+  constructor(deps: { ctx: DomainContext; signals: Pick<ProjectManagerSignals, 'raise'> }) {
     this.ctx = deps.ctx;
     this.signals = deps.signals;
   }

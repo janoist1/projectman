@@ -8,14 +8,14 @@ import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import { conflict, forbidden, invalid } from '../../kernel';
 import type { LoopTriageActions } from './ports';
-import type { OperatorSignals } from './signals';
+import type { ProjectManagerSignals } from './signals';
 
 /** PM filtering is report-only: it neither grants an owner request nor resolves a human decision. */
 export class LoopTriages {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    signals: OperatorSignals;
+    signals: ProjectManagerSignals;
     actions: LoopTriageActions;
   };
   constructor(deps: LoopTriages['deps']) {

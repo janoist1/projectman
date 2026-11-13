@@ -1,2 +1,2 @@
-export { OperatorTools } from './handler';
+export { ProjectManagerTools } from './handler';
 export { OPERATOR_TOOL_GROUP } from './tools';

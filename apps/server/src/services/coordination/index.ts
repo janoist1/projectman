@@ -1,8 +1,8 @@
-export { OperatorSignals } from './signals';
+export { ProjectManagerSignals } from './signals';
 export { StructuralReviews } from './structural-review';
 export { LoopTriages } from './loop-triage';
-export { OperatorPreferences } from './preferences';
-export { OperatorKnowledge } from './knowledge';
+export { ProjectManagerPreferences } from './preferences';
+export { ProjectManagerKnowledge } from './knowledge';
 export * from './requests';
 export { ProjectState } from './project-state';
 export { ProjectManagerChannels } from './project-manager';

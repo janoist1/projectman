@@ -4,7 +4,7 @@ import { routes } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { aiActor, DomainError, humanActor } from '../src/kernel';
-import { resolveIntegratorTodo } from '../src/services/super-operator';
+import { resolveIntegratorTodo } from '../src/services/super';
 import {
   addHumanAndLogin,
   createAppHarness,

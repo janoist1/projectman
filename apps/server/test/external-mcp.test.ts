@@ -6,7 +6,7 @@ import { FIX_ANOTHER_ROUND_OPTION, isOwnerReleaseActor, routes } from '@projectm
 import { ingressRules } from '../../../scripts/cloud/cloudflare';
 import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
-import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
+import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
 import {
   addHumanAndLogin,

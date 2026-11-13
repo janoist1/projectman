@@ -53,8 +53,8 @@ import type {
   LoopTriages,
 } from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
-import { appRequestId } from '../../services/super-operator';
-import type { ProjectManagerAppOperations, SuperOperations } from '../../services/super-operator';
+import { appRequestId } from '../../services/super';
+import type { ProjectManagerAppOperations, SuperOperations } from '../../services/super';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the super-operation tools stand on (PM-888). */

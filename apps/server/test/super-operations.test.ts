@@ -8,8 +8,8 @@ import { flush } from './helpers/fakes';
 import { bindSuperPrincipal } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
 import { DomainError, integratorExecution, runIntegratorExecution } from '../src/kernel';
-import { relayOwnerAnswer } from '../src/services/super-operator';
-import type { SuperCommandExecutor, SuperExecutorJob } from '../src/services/super-operator';
+import { relayOwnerAnswer } from '../src/services/super';
+import type { SuperCommandExecutor, SuperExecutorJob } from '../src/services/super';
 
 const SECRET = 'pmi_handoff_fixture';
 const KEY = { id: 'ikey_handoff_1', prefix: 'pmi_handoff1' };
@@ -84,7 +84,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
       { projectKey: 'AR', handle: 'owner', access: 'owner', member: {} } as ProjectAccess,
       principal,
     );
-    return h.domain.superOperator.run(
+    return h.domain.superExecution.run(
       { principal, email: OWNER.email, requestId: randomUUID(), projectKey: 'AR' },
       () => {
         const { requestOrigin } = opts;

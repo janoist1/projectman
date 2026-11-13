@@ -10,7 +10,7 @@ import {
   useRawJsonBody,
 } from './http';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
-import { registerExternalRoutes } from './super-operator/route';
+import { registerExternalRoutes } from './super/route';
 
 export { FeedbackTools } from './feedback';
 export { ProjectManagerTools } from './project-manager';
@@ -35,7 +35,7 @@ export { WatcherTools } from './watchers';
 export { SessionTools } from './sessions';
 export { EmailChannelTools } from './email-channel';
 export { HostRequestTools } from './host-requests';
-export { ExternalTools } from './super-operator/handler';
+export { ExternalTools } from './super/handler';
 
 export { TEAM_TOOLS, TEAM_TOOL_NAMES, toolOutputText } from './tools';
 export { visibleTeamTools } from './server';

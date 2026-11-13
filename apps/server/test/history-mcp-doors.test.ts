@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
-import { EXTERNAL_DENIED, externalToolNamed } from '../src/mcp/super-operator/registry';
+import { EXTERNAL_DENIED, externalToolNamed } from '../src/mcp/super/registry';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 

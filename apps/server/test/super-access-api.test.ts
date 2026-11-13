@@ -667,7 +667,7 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(refused.statusCode, refused.body).toBe(403);
     expect(refused.json().error.code).toBe('owner_approval_required');
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, actor, {
           comment: 'No human approval',
         }),
@@ -684,7 +684,7 @@ describe('credential REST and domain access (PM-759)', () => {
       domain.tasks.changeLabels('AR', task.key, { add: ['plain-tag'] }, actor),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.tasks.create('AR', { title: 'Forged person' }, { kind: 'human', handle: 'owner' }),
       ),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
@@ -721,14 +721,14 @@ describe('credential REST and domain access (PM-759)', () => {
       expect(response.statusCode, `${kind}: ${response.body}`).toBe(403);
       expect(response.json().error.code).toBe('owner_approval_required');
       await expect(
-        domain.superOperator.run(context!, () =>
+        domain.superExecution.run(context!, () =>
           domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, { handle: 'owner', access: 'owner' }),
         ),
       ).rejects.toMatchObject({ code: 'owner_approval_required' });
       expect(domain.inbox.get('AR', item.id).state).toBe('open');
     }
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.inbox.resolveDelegated('AR', 'missing', 'operator', { decision: 'allow', reason: 'Checked' }),
       ),
     ).rejects.toMatchObject({ code: 'owner_approval_required' });
@@ -759,15 +759,15 @@ describe('credential REST and domain access (PM-759)', () => {
     const { domain } = h.app.projectman;
     const actor: Actor = { kind: 'human', handle: 'owner' };
     await expect(
-      domain.superOperator.run(context!, () => domain.tasks.create('AR', { title: 'Forbidden' }, actor)),
+      domain.superExecution.run(context!, () => domain.tasks.create('AR', { title: 'Forbidden' }, actor)),
     ).rejects.toMatchObject({ code: 'integrator_read_only' });
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Forbidden' }),
       ),
     ).rejects.toMatchObject({ code: 'integrator_read_only' });
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, { userId: null, source: 'app' }),
       ),
     ).rejects.toMatchObject({ code: 'integrator_read_only' });
@@ -1001,10 +1001,10 @@ describe('credential REST and domain access (PM-759)', () => {
     const { domain } = h.app.projectman;
     expect(Object.isFrozen(context!.principal)).toBe(true);
     await expect(
-      domain.superOperator.run(context!, () => domain.machine.stopOrphans([], context!.principal.userId)),
+      domain.superExecution.run(context!, () => domain.machine.stopOrphans([], context!.principal.userId)),
     ).rejects.toMatchObject({ code: 'integrator_not_allowed' });
     expect(() =>
-      domain.superOperator.run({ ...context!, principal: { ...context!.principal } }, () => true),
+      domain.superExecution.run({ ...context!, principal: { ...context!.principal } }, () => true),
     ).toThrow(expect.objectContaining({ code: 'integrator_key_invalid' }));
     const actor = connectedActorOf('owner', {
       id: context!.principal.keyId,
@@ -1015,7 +1015,7 @@ describe('credential REST and domain access (PM-759)', () => {
       connectedActorOf('owner', { id: 'wrong', prefix: 'pmi_wrong' }),
     ] as Actor[])
       await expect(
-        domain.superOperator.run(context!, () =>
+        domain.superExecution.run(context!, () =>
           domain.tasks.create('AR', { title: 'Forged actor' }, forged),
         ),
       ).rejects.toMatchObject({ code: 'insufficient_access' });
@@ -1026,7 +1026,7 @@ describe('credential REST and domain access (PM-759)', () => {
     let delayed!: Promise<unknown>;
     const loaded = await domain.projects.load('AR');
     await expect(
-      domain.superOperator.run(context!, () =>
+      domain.superExecution.run(context!, () =>
         domain.projects.patch(
           'AR',
           { baseVersion: loaded.version, project: { name: 'Forged author' } },
@@ -1044,7 +1044,7 @@ describe('credential REST and domain access (PM-759)', () => {
         ),
       ),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
-    await domain.superOperator.run(context!, async () => {
+    await domain.superExecution.run(context!, async () => {
       delayed = wait.then(() => domain.tasks.create('AR', { title: 'Expired scope' }, actor));
     });
     release();
@@ -1063,7 +1063,7 @@ describe('credential REST and domain access (PM-759)', () => {
     const entered = new Promise<void>((resolve) => {
       reached = resolve;
     });
-    domain.superOperator.useMutationAuthorizer({
+    domain.superExecution.useMutationAuthorizer({
       async assertAllowed() {
         reached();
         await wait;
@@ -1091,7 +1091,7 @@ describe('credential REST and domain access (PM-759)', () => {
     const { context } = await credential('super');
     const { domain, repos } = h.app.projectman;
     const actors: unknown[] = [];
-    const result = await domain.superOperator.executeInstance(context!, 'instance_probe', async () => {
+    const result = await domain.superExecution.executeInstance(context!, 'instance_probe', async () => {
       actors.push(integratorExecution()?.actor);
       return 'done';
     });
@@ -1150,14 +1150,14 @@ describe('credential REST and domain access (PM-759)', () => {
     });
     const results = await Promise.all(
       ['AR', 'BR'].map((projectKey) =>
-        domain.superOperator.run({ ...context!, projectKey }, () =>
+        domain.superExecution.run({ ...context!, projectKey }, () =>
           domain.tasks.create(projectKey, { title: `Bound ${projectKey}` }, actor),
         ),
       ),
     );
     expect(results.map((task) => task.projectKey)).toEqual(['AR', 'BR']);
     await expect(
-      domain.superOperator.run(context!, () => domain.tasks.create('BR', { title: 'Wrong project' }, actor)),
+      domain.superExecution.run(context!, () => domain.tasks.create('BR', { title: 'Wrong project' }, actor)),
     ).rejects.toMatchObject({ code: 'insufficient_access' });
     await domain.projects.update(
       'BR',

@@ -56,7 +56,7 @@ export async function requireAccess(
     if (request.method !== 'GET' && request.method !== 'HEAD')
       throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
   }
-  return domain.superOperator.access(
+  return domain.superExecution.access(
     { principal, email: user.email, requestId: request.id },
     access,
     request.method === 'GET' || request.method === 'HEAD' ? 'read' : 'write',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import type { IntegratorCredentialAuthority } from '../../contracts';
-import { createOperatorAppCredentials } from './app';
+import { createProjectManagerAppCredentials } from './app';
 
 describe('the credential authority of the in-app Operator', () => {
   const credentialsOver = (
@@ -11,7 +11,7 @@ describe('the credential authority of the in-app Operator', () => {
       sessionId: string,
     ) => { source: string; fromHandle: string } | null = () => null,
   ) =>
-    createOperatorAppCredentials({
+    createProjectManagerAppCredentials({
       base,
       sessions: { active: () => false },
       actingRequest,

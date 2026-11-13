@@ -339,7 +339,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   machine would be an outbound call to that machine's public name.
 
 - **Connected Claude operations and owner approval (PM-762, PM-1074)** —
-  `services/super-operator/{handoffs,commands,operate,facade,diagnostics}.ts`,
+  `services/super/{handoffs,commands,operate,facade,diagnostics}.ts`,
   `db/super-handoffs.ts`, `packages/shared/src/{api/super-handoff,config/super-command}.ts`.
   The connected Claude uses an owner's `super` key and `super_operate` with a request id.
   The project manager uses `execute_operation` with a server-issued principal bound to
@@ -372,7 +372,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 - **Project and instance knowledge (PM-687, PM-1043, PM-1046)** —
   `config/operator-knowledge-store.ts` implements `ProjectManagerKnowledgeStore`, wired through
   `app.ts` and `assembly.ts`; `services/coordination/{knowledge,preferences}.ts` controls
-  project access and approval; `services/super-operator/instance-knowledge.ts` handles
+  project access and approval; `services/super/instance-knowledge.ts` handles
   instance writes. The hub stores approved agreements, up to 20 learned principles and
   personal preferences in `<server home>/operator-data/<projectKey>/knowledge.json`
   and `preferences/<handle>.json`, outside the public repository and customization history.
@@ -1361,7 +1361,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 
 - **Connected Claude credentials (PM-758, PM-1074)** — `auth/auth-service.ts`,
   `db/integrator-keys.ts`, `db/integrator-key-audit.ts`, `kernel/integrator-execution.ts`,
-  `services/super-operator/`, `mcp/super-operator/`, `scripts/projectman/`.
+  `services/super/`, `mcp/super/`, `scripts/projectman/`.
   An owner with a password creates a `super` or `read` bearer key using their own login.
   The hub stores its hash, expiry and lifecycle audit. Key use requires loopback or HTTPS;
   request protocol trusts proxy headers only from loopback. Revoked/expired keys and

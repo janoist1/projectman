@@ -14,7 +14,7 @@ export const EXTERNAL_TOOLS: readonly ExternalRegisteredTool[] = [
 ];
 
 const SESSION = 'it works through a member session: its folders, working directory, open request or token';
-const OPERATOR =
+const PROJECT_MANAGER =
   'it is a tool of the Operator or of the project manager, bound to the owner request of their own conversation';
 const DECISION =
   'it records a decision, approval or question of a member or an owner; the integrator never decides for them';
@@ -31,30 +31,30 @@ const UNBOUND = 'it has no external binding yet';
  * A test checks that every shared tool is either bound or named here, and never both.
  */
 export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
-  get_checklist: OPERATOR,
-  update_checklist: OPERATOR,
-  get_operator_preference: OPERATOR,
-  get_operator_knowledge: OPERATOR,
-  propose_operator_knowledge: OPERATOR,
-  set_operator_preference: OPERATOR,
-  operate: OPERATOR,
-  execute_operation: OPERATOR,
-  get_operation: OPERATOR,
-  list_decision_candidates: OPERATOR,
-  mark_decision_candidates: OPERATOR,
-  list_system_feedback: OPERATOR,
-  record_system_feedback: OPERATOR,
-  screen_question: OPERATOR,
-  combine_questions: OPERATOR,
-  dismiss_signal: OPERATOR,
-  open_integrator_todo: OPERATOR,
-  triage_loop: OPERATOR,
-  start_task: OPERATOR,
-  start_member: OPERATOR,
-  involve_member: OPERATOR,
-  reassign_task: OPERATOR,
-  cancel_task: OPERATOR,
-  reopen_task: OPERATOR,
+  get_checklist: PROJECT_MANAGER,
+  update_checklist: PROJECT_MANAGER,
+  get_operator_preference: PROJECT_MANAGER,
+  get_operator_knowledge: PROJECT_MANAGER,
+  propose_operator_knowledge: PROJECT_MANAGER,
+  set_operator_preference: PROJECT_MANAGER,
+  operate: PROJECT_MANAGER,
+  execute_operation: PROJECT_MANAGER,
+  get_operation: PROJECT_MANAGER,
+  list_decision_candidates: PROJECT_MANAGER,
+  mark_decision_candidates: PROJECT_MANAGER,
+  list_system_feedback: PROJECT_MANAGER,
+  record_system_feedback: PROJECT_MANAGER,
+  screen_question: PROJECT_MANAGER,
+  combine_questions: PROJECT_MANAGER,
+  dismiss_signal: PROJECT_MANAGER,
+  open_integrator_todo: PROJECT_MANAGER,
+  triage_loop: PROJECT_MANAGER,
+  start_task: PROJECT_MANAGER,
+  start_member: PROJECT_MANAGER,
+  involve_member: PROJECT_MANAGER,
+  reassign_task: PROJECT_MANAGER,
+  cancel_task: PROJECT_MANAGER,
+  reopen_task: PROJECT_MANAGER,
   decide_permission_request: DECISION,
   decide_fix_limit: DECISION,
   decide_senior_wait: DECISION,

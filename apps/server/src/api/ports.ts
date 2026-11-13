@@ -4,7 +4,7 @@ import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
 import type { NtfyService } from '../services/ntfy';
 import type { HostRequestsService } from '../services/host-requests';
-import type { SuperOperations, SuperHandoffService, SuperOperator } from '../services/super-operator';
+import type { SuperOperations, SuperHandoffService, SuperExecution } from '../services/super';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal } from '../core/base';
@@ -45,7 +45,7 @@ export interface ApiDomain extends AuthDomain {
   readonly webPush: WebPushService;
   readonly ntfy: NtfyService;
   readonly hostRequests: HostRequestsService;
-  readonly superOperator: SuperOperator;
+  readonly superExecution: SuperExecution;
   readonly superHandoffs: SuperHandoffService;
   readonly superOperations: SuperOperations;
   readonly structure: StructureService;

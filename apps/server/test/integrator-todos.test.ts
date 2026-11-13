@@ -11,7 +11,7 @@ import {
 import type { InboxItem, ResolveIntegratorTodoRequest } from '@projectman/shared';
 import { projectAccessFor } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
-import { resolveIntegratorTodo } from '../src/services/super-operator';
+import { resolveIntegratorTodo } from '../src/services/super';
 import {
   addHostAsOwnerMember,
   createAppHarness,

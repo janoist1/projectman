@@ -34,15 +34,15 @@ import {
   SUPER_OWNER_YES,
   createOperateExecutor,
   createCommandExecutor,
-  createOperatorAppCredentials,
-  createOperatorAppOperations,
-  createOperatorAppSessions,
+  createProjectManagerAppCredentials,
+  createProjectManagerAppOperations,
+  createProjectManagerAppSessions,
   createSuperOperations,
   createSuperDiagnostics,
   createSuperHandoffService,
-  createSuperOperator,
-} from './services/super-operator';
-import type { ProjectManagerAppOperations, SuperOperations } from './services/super-operator';
+  createSuperExecution,
+} from './services/super';
+import type { ProjectManagerAppOperations, SuperOperations } from './services/super';
 import { createAlertNoticeSink, createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -1269,11 +1269,11 @@ export function createDomain(opts: DomainOptions) {
                     'insufficient_access',
                     'the key holder is no longer an owner of the project',
                   );
-                const bound = await superOperator.access(context, owner, 'write');
+                const bound = await superExecution.access(context, owner, 'write');
                 if (bound.superActor?.handle !== origin.actor.handle)
                   throw forbidden('integrator_not_allowed', 'the project’s Operator changed');
               };
-              return superOperator.run(context, () => action(assertActive));
+              return superExecution.run(context, () => action(assertActive));
             },
           } satisfies DocWriteExternalRunner,
         }
@@ -1945,9 +1945,9 @@ export function createDomain(opts: DomainOptions) {
   // effect passes the mutation checks, and the owner's own answer is the only way the waiting operation goes on.
   // The project manager's operate tool acts on the same path as a super-mode key (PM-888): its credential is the
   // project manager's session while an owner request is open. Stored keys still go to the key authority.
-  const appCredentials = createOperatorAppCredentials({
+  const appCredentials = createProjectManagerAppCredentials({
     base: opts.integratorCredentials,
-    sessions: createOperatorAppSessions({
+    sessions: createProjectManagerAppSessions({
       ctx,
       projects,
       actingRequest: (projectKey, sessionId) => coordinationRequests.actingRequest(projectKey, sessionId),
@@ -1956,12 +1956,12 @@ export function createDomain(opts: DomainOptions) {
     user: (id) => ctx.repos.users.get(id),
     userByEmail: (email) => ctx.repos.users.findByEmail(email),
   });
-  const superOperator = createSuperOperator({
+  const superExecution = createSuperExecution({
     projects,
     audit: superAudit,
     credentials: appCredentials.authority,
   });
-  superOperator.useMutationAuthorizer(superHandoffs.authorizer);
+  superExecution.useMutationAuthorizer(superHandoffs.authorizer);
   const commandDeps = {
     inbox,
     tasks,
@@ -1997,10 +1997,10 @@ export function createDomain(opts: DomainOptions) {
   );
   const superDiagnostics = createSuperDiagnostics({ ctx });
   const superOperations = createSuperOperations({ handoffs: superHandoffs, diagnostics: superDiagnostics });
-  const appOperations = createOperatorAppOperations({
+  const appOperations = createProjectManagerAppOperations({
     ctx,
     credentials: appCredentials,
-    superOperator,
+    superExecution,
     superOperations,
     projects,
   });
@@ -2327,7 +2327,7 @@ export function createDomain(opts: DomainOptions) {
     webPush,
     ntfy,
     hostRequests,
-    superOperator,
+    superExecution,
     superHandoffs,
     superOperations,
     operatorKnowledge: opts.operatorKnowledge,
@@ -2697,7 +2697,7 @@ export function createDomain(opts: DomainOptions) {
       if (!opts.integratorCredentials) return undefined;
       return new ExternalTools({
         credentials: opts.integratorCredentials,
-        superOperator,
+        superExecution,
         accessFor: (projectKey, email) => this.accessFor(projectKey, email),
         projects,
         tasks,

@@ -3,7 +3,7 @@ import { MemberQueueView, WorkQueueDetail, WorkQueuesView, routes } from '@proje
 import type { HumanAccess, InboxItem, ServerEvent, WorkQueueGroup } from '@projectman/shared';
 import { canSeeProjectEvent } from '../src/core/projects';
 import type { ProjectEvent } from '../src/core/projects';
-import { resolveIntegratorTodo } from '../src/services/super-operator';
+import { resolveIntegratorTodo } from '../src/services/super';
 import {
   addHumanAndLogin,
   asSuperIntegrator,

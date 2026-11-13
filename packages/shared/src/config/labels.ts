@@ -4,7 +4,7 @@ import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import { hasBoundOrigin } from '../domain/actor-origin';
-import { dutyMembers, REVIEW_DUTIES, taskAuthors } from './duties';
+import { dutyMembers, REVIEW_DUTIES, stageOwners, taskAuthors } from './duties';
 import { ownerHandles } from './lookup';
 import type { ProjectConfig } from './schema';
 
@@ -153,7 +153,7 @@ export function labelRefusal(
   config: LabelConfig,
   label: LabelDefinition | undefined,
   actor: Actor,
-  task: Pick<Task, 'assignee' | 'links'>,
+  task: Pick<Task, 'assignee' | 'links' | 'stageId' | 'stageOwnerPick'>,
   authority?: LabelAuthority,
 ): LabelRefusal | null {
   if (actor.kind === 'system' || !label) return null;
@@ -167,6 +167,17 @@ export function labelRefusal(
   if (label.setBy === 'system') return 'system_only';
   if (isHumanOnlyLabel(label) && actor.kind !== 'human' && !superDelegated) return 'humans_only';
   if (!holders.includes(actor.handle ?? '') && !delegated) return 'not_holder';
+  if (actor.kind === 'ai') {
+    for (const stage of config.pipeline.stages) {
+      if (
+        stage.smallCards?.owners.includes(actor.handle ?? '') &&
+        !stageOwners(config, stage).includes(actor.handle ?? '') &&
+        stageResultLabels(config, stage).includes(label.id) &&
+        (task.stageId !== stage.id || task.stageOwnerPick?.stageId !== stage.id || !task.stageOwnerPick.small)
+      )
+        return 'small_cards_only';
+    }
+  }
   const authors = labelExcludesAuthors(config, label) ? taskAuthors(task) : [];
   if (authors.includes(actor.handle ?? '') || (authority && authors.includes(authority.authorizedBy)))
     return 'self_review';
@@ -253,7 +264,7 @@ export type LabelChangePlan =
  */
 export function planLabelChange(
   config: LabelConfig,
-  task: Pick<Task, 'labels' | 'assignee' | 'links'>,
+  task: Pick<Task, 'labels' | 'assignee' | 'links' | 'stageId' | 'stageOwnerPick'>,
   change: { add?: readonly string[]; remove?: readonly string[] },
   actor: Actor,
   comment?: string,
@@ -328,7 +339,7 @@ export function approvalRefusal(
     config,
     label,
     { kind: 'human', handle: approver },
-    task ?? { assignee: null, links: [] },
+    { ...task, assignee: task?.assignee ?? null, links: task?.links ?? [], stageId: '' },
   );
   if (refusal === 'self_review')
     return config.team.releaseFourEyes === true && releaseGateLabels(config).has(label.id)

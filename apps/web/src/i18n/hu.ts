@@ -3035,6 +3035,7 @@ export const hu = {
         humans_only: 'csak ember teheti rá',
         owner_approval: 'csak a tulajdonos adhatja meg a saját bejelentkezésével',
         not_holder: 'nem a te feladatköröd',
+        small_cards_only: 'csak a neked jutott, ebben a lépésben álló kis kártyán módosíthatod',
         self_review: 'saját munkádra nem',
       },
     },

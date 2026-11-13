@@ -1,0 +1,49 @@
+{
+  "name": "write_document",
+  "title": "Create or edit a project document",
+  "description": "Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Every write needs message: a one-line reason. Content replaces the whole text: read first. Stale base_version is refused. No delete. No secrets. Answer: doc: link, section anchors.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "slug": {
+        "description": "The document to edit; none: create.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "title": {
+        "description": "Required to create.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "content": {
+        "description": "The whole markdown; required to create.",
+        "type": "string",
+        "maxLength": 200000
+      },
+      "base_version": {
+        "description": "The version you read; required to edit.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      },
+      "message": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[^\\r\\n]*$",
+        "description": "Required: one line saying why you change the document; it shows in the history beside you."
+      }
+    },
+    "required": [
+      "message"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Create or edit a project document",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

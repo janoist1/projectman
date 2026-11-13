@@ -177,6 +177,21 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     expect(h.domain.tasks.get('AR', 'AR-1').reviewPin?.commit).toBe(moved);
   });
 
+  it("checks the moved branch when the assignee's session stops, not when a reviewer's does (PM-1374)", async () => {
+    await setup();
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    await toReview();
+    await startedCount(2);
+    await commitFile(dev1, 'login.txt', 'v2\n');
+    const workItem = { type: 'task' as const, taskKey: 'AR-1' };
+
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'cr', workItem });
+    expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('code_review');
+
+    await h.domain.reviewWatch.sessionStopped({ projectKey: 'AR', member: 'dev-1', workItem });
+    expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+  });
+
   it('pins the new head, with no send-back, when the developer asks the reviewer for a new round (PM-138)', async () => {
     await setup();
     const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');

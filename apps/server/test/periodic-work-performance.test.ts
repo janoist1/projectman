@@ -7,9 +7,12 @@ import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskComplexity } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
+import type { FastifyBaseLogger } from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
+import type { EventBus } from '../src/contracts';
 import { migrate, migrations } from '../src/db';
 import { MemberQueueWorker } from '../src/runtime/member-queue';
+import { PlanUsageMonitor } from '../src/runtime/usage';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
@@ -330,7 +333,7 @@ function paths(h: DomainHarness) {
   };
   const thirty = async () => {
     await h.domain.admission.retryDeferred();
-    await h.domain.reviewWatch.check();
+    await h.domain.reviewWatch.checkDue();
     await h.domain.fullTests.syncAll();
     await h.domain.outages.check();
   };
@@ -869,6 +872,141 @@ describe('periodic work performance protocol (PM-733)', () => {
     } finally {
       await h.cleanup();
     }
+  });
+
+  // P-05, P-06, P-07: the plan usage probe (a Claude CLI process), the review watch's git read over the engine
+  // link and the delegation deadline read were a probe every minute, a read per pinned card every 30 s and a
+  // read of the open permission items every second, whatever happened. Idle, they do none of these.
+  describe('works on demand (PM-1374)', () => {
+    const MINUTE = 60_000;
+    const usage = { weeklyPercent: 10, weeklyResetsAt: null, fetchedAt: NOW };
+
+    async function setup() {
+      const h = await fixture(20, 20, false);
+      const developing: Task = {
+        ...[...tasks(2, true)].find((t) => t.projectKey === 'AR' && t.status === 'active')!,
+        key: 'AR-3000001',
+        id: 'task_perf_pinned',
+        assignee: 'dev-1',
+      };
+      h.repos.tasks.insert(developing);
+      h.repos.reviewPins.save({
+        projectKey: 'AR',
+        taskKey: developing.key,
+        stageId: developing.stageId,
+        commit: 'a'.repeat(40),
+        branch: 'fixture/pinned',
+        pinnedAt: NOW,
+        pinnedBy: 'dev-1',
+      });
+      const live = vi.spyOn(h.repos.sessions, 'listInStates');
+      live.mockReturnValue([]);
+      const sourceHead = vi.spyOn(h.domain.sessions, 'sourceHead').mockResolvedValue(null);
+      const permissionReads = vi.spyOn(h.repos.inbox, 'listOpen');
+      const probe = vi.fn(async () => usage);
+      let clock = Date.parse(NOW);
+      const background = new kernel.BackgroundTasks();
+      const monitor = new PlanUsageMonitor({
+        provider: { get: probe },
+        projects: h.domain.projects,
+        engines: { engineFor: () => LOCAL_ENGINE_ID },
+        bus: { publish: vi.fn() } as unknown as EventBus,
+        logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+        now: () => new Date(clock),
+        background,
+        liveAccounts: () => h.domain.sessions.liveAccounts(),
+        isPaused: () => false,
+      });
+      const developerSession = [
+        {
+          projectKey: 'AR',
+          member: 'dev-1',
+          workItem: { type: 'task', taskKey: developing.key },
+          state: 'working',
+          provider: 'claude',
+        },
+      ] as never;
+      return {
+        h,
+        live,
+        sourceHead,
+        permissionReads,
+        probe,
+        monitor,
+        developerSession,
+        tick: async (minutes = 1) => {
+          clock += minutes * MINUTE;
+          await h.domain.reviewWatch.checkDue();
+          monitor.refresh();
+          await settle();
+        },
+        cleanup: async () => {
+          h.domain.inbox.stopDelegationTimer();
+          await background.stop();
+          await h.cleanup();
+        },
+      };
+    }
+
+    it('makes no probe, no engine read and no permission read in a quiet round', async () => {
+      const s = await setup();
+      try {
+        s.h.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'permission',
+          assignees: ['dev-2'],
+          source: 'dev-1',
+          title: 'Bash: ls',
+          payload: {
+            toolName: 'Bash',
+            toolInput: null,
+            summary: 'ls',
+            delegation: { state: 'pending_lead', leads: ['dev-2'], leadDeadline: '2026-10-17T08:05:00.000Z' },
+          },
+          options: [{ id: 'allow', label: 'allow', style: 'primary' }],
+        });
+        // The start: one probe, one read of every pin, one look at the open delegated questions.
+        s.monitor.refresh({ force: true });
+        s.h.domain.inbox.startDelegationTimer();
+        await s.tick(0);
+        expect(s.probe).toHaveBeenCalled();
+        expect(s.sourceHead).toHaveBeenCalledTimes(1);
+        expect(s.permissionReads).toHaveBeenCalled();
+        for (const mock of [s.probe, s.sourceHead, s.permissionReads]) mock.mockClear();
+
+        // Nine minutes of nothing, under the quarter of an hour of the idle probe and the safety net.
+        for (let minute = 0; minute < 9; minute++) await s.tick();
+        expect(s.probe).not.toHaveBeenCalled();
+        expect(s.sourceHead).not.toHaveBeenCalled();
+        expect(s.permissionReads).not.toHaveBeenCalled();
+      } finally {
+        await s.cleanup();
+      }
+    });
+
+    it('works at today’s pace while a developer session runs, and at the safety net and idle interval without one', async () => {
+      const s = await setup();
+      try {
+        s.monitor.refresh({ force: true });
+        await s.tick(0);
+        for (const mock of [s.probe, s.sourceHead]) mock.mockClear();
+
+        s.live.mockReturnValue(s.developerSession);
+        for (let minute = 0; minute < 3; minute++) await s.tick();
+        expect(s.probe).toHaveBeenCalledTimes(3);
+        expect(s.sourceHead).toHaveBeenCalledTimes(3);
+
+        // The session ended: the card is looked at once more, and the quiet pace comes back.
+        s.live.mockReturnValue([]);
+        await s.h.domain.reviewWatch.sessionStopped(s.developerSession[0]!);
+        expect(s.sourceHead).toHaveBeenCalledTimes(4);
+        for (let minute = 0; minute < 15; minute++) await s.tick();
+        expect(s.probe.mock.calls.length).toBeLessThanOrEqual(5);
+        expect(s.sourceHead.mock.calls.length).toBeLessThanOrEqual(6);
+      } finally {
+        await s.cleanup();
+      }
+    });
   });
 
   it.skipIf(!RUN_BENCHMARK)(

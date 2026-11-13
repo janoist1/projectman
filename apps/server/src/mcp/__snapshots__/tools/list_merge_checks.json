@@ -1,0 +1,63 @@
+{
+  "name": "list_merge_checks",
+  "title": "List merge checks",
+  "description": "Read the project's recorded merge checks (of a merge or a merge train), newest first: run time, workers, scope and each step with its time and result; the queue wait apart. Filter by card, outcome, kind or period; get_task shows the latest checks of one card.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "description": "Only the checks that included this card.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "outcome": {
+        "default": "any",
+        "description": "not_passed: failed, errored, cancelled or still running.",
+        "type": "string",
+        "enum": [
+          "passed",
+          "not_passed",
+          "any"
+        ]
+      },
+      "kind": {
+        "default": "checks",
+        "description": "checks (default): the check of a single merge and of a train. diagnose: the per-card diagnosis of a failed train.",
+        "type": "string",
+        "enum": [
+          "checks",
+          "merge",
+          "train",
+          "diagnose",
+          "any"
+        ]
+      },
+      "since": {
+        "description": "Only checks requested at or after this time.",
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "until": {
+        "description": "Only checks requested before this time.",
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "limit": {
+        "default": 30,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List merge checks",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

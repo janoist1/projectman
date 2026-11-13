@@ -15,6 +15,7 @@ const facts: StaleFacts = {
   fromHuman: false,
   card: { open: true, stageId: 'review' },
   recipientOwnsStage: false,
+  recipientOwnerEscalated: false,
   superseded: false,
   senderResultLabel: null,
   resultCommits: [],
@@ -29,6 +30,7 @@ describe('message validity and wake-up', () => {
   it.each([
     [{ card: { open: false, stageId: 'review' } }, 'card_closed'],
     [{ card: { open: true, stageId: 'dev' } }, 'stage_moved'],
+    [{ recipientOwnerEscalated: true }, 'owner_escalated'],
     [{ superseded: true }, 'superseded'],
     [{ senderResultLabel: 'code-review-ok' }, 'sender_result'],
     [{ resultCommits: ['A'] }, 'result_recorded'],
@@ -39,7 +41,12 @@ describe('message validity and wake-up', () => {
   });
 
   it('never discards old unknown versions or human messages', () => {
-    const obsolete = { ...facts, superseded: true, card: { open: false, stageId: 'done' } };
+    const obsolete = {
+      ...facts,
+      recipientOwnerEscalated: true,
+      superseded: true,
+      card: { open: false, stageId: 'done' },
+    };
     expect(messageStaleReason({}, obsolete)).toBeNull();
     expect(messageWakes({}, wake, null)).toBe(true);
     expect(messageStaleReason(action, { ...obsolete, fromHuman: true })).toBeNull();

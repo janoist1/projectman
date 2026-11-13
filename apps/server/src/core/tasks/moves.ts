@@ -17,6 +17,7 @@ import {
   needsChangedFiles,
   partsClosedWaiver,
   pickStageOwners,
+  repinStageOwners,
   isOpenTask,
   isProjectManagerActor,
   isTheme,
@@ -426,9 +427,23 @@ export class TaskMoves {
     // Strict: an engine that is not connected is `engine_offline`, not a head that did not move.
     const head = await this.sourceHead(config, task, { strict: true });
     if (!head || head.commit === pin.commit) return;
+    const stage = stageOf(config, task.stageId);
+    const changed =
+      task.stageOwnerPick?.stageId === stage?.id &&
+      task.stageOwnerPick?.small &&
+      stage?.smallCards?.centralPaths.length
+        ? await this.changedFiles(config, task, head.commit).catch(() => null)
+        : undefined;
+    const pick = changed !== undefined && stage ? repinStageOwners(stage, changed) : null;
+    let escalatedFrom: string[] | null = null;
     this.store.ctx.unitOfWork(() => {
       const current = this.store.get(projectKey, taskKey);
-      if (current.stageId !== pin.stageId) return;
+      if (
+        current.stageId !== pin.stageId ||
+        !isOpenTask(current) ||
+        this.store.ctx.repos.reviewPins.get(taskKey)?.commit !== pin.commit
+      )
+        return;
       const at = isoNow(this.store.ctx);
       this.store.ctx.repos.reviewPins.save({
         ...pin,
@@ -447,8 +462,30 @@ export class TaskMoves {
           reviewPin: { commit: head.commit, branch: head.branch, previous: pin.commit },
         },
       });
-      this.store.publish(current);
+      let next = current;
+      if (pick && !pick.small && current.stageOwnerPick?.small && stage) {
+        escalatedFrom = cardStageOwners(config, stage, current);
+        next = this.store.write(current, { stageOwnerPick: pick, updatedAt: at });
+        this.store.timeline.append({
+          projectKey,
+          taskKey,
+          actor: SYSTEM_ACTOR,
+          type: 'task_updated',
+          data: {
+            fields: ['stageOwnerPick'],
+            ownerPick: { small: false, reason: pick.reason, owners: cardStageOwners(config, stage, next) },
+          },
+        });
+      }
+      this.store.publish(next);
     });
+    if (escalatedFrom)
+      await this.store.ctx.events.emit('task_owner_escalated', {
+        projectKey,
+        taskKey,
+        stageId: pin.stageId,
+        from: escalatedFrom,
+      });
   }
 
   /**

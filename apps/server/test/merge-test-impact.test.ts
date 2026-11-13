@@ -206,6 +206,12 @@ describe('server test impact', () => {
       'unmapped snapshot: apps/server/test/__snapshots__/missing.test.ts.snap',
     );
   });
+  it('maps per-tool JSON snapshots to the tool definition test', () => {
+    const files = [...tree, file('src/mcp/tools.test.ts')];
+    const result = impact(['apps/server/src/mcp/__snapshots__/tools/get_task.json'], files, files);
+    expect(result.fallback).toBeUndefined();
+    expect(result.tests).toContain('apps/server/src/mcp/tools.test.ts');
+  });
   it.each(['test/helpers/a.ts', 'src/a/test-helpers.ts', 'src/a/tests/helper.ts'])(
     'follows changed helper %s through both trees without selecting its module',
     (path) => {

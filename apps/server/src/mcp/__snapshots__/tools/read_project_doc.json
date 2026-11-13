@@ -1,0 +1,41 @@
+{
+  "name": "read_project_doc",
+  "title": "Read a project document",
+  "description": "Read the decision log, roadmap or lessons from the head of the default branch, fresh from the remote; pass the returned commit as base_commit to write_project_docs. A long file comes in parts (total_lines); exists false: not in the repository yet. Internal conversations only; needs no owner request.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "doc": {
+        "type": "string",
+        "enum": [
+          "decisions",
+          "roadmap",
+          "lessons"
+        ]
+      },
+      "from_line": {
+        "description": "First line to return, from 1 (default 1).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "line_count": {
+        "description": "How many lines to return, at most 2000 (default 2000).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000
+      }
+    },
+    "required": [
+      "doc"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read a project document",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

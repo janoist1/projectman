@@ -135,6 +135,18 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   display, the context) goes through `cardStageOwners`; places that need every possible owner
   use `allStageOwners` or, before entry, `possibleStageOwners`. A stage without the rule behaves
   as before.
+  A small-only AI owner may change a stage's result labels only while the card is in that stage
+  with its matching small pick (`labelRefusal`, `small_cards_only`, PM-1378 B). Repinning a small
+  card reads its changed files again when central patterns exist. A central file or unreadable diff
+  escalates the pick to the main owners, records `task_updated.ownerPick` and emits the internal
+  `task_owner_escalated` event. `StageHandOver` stops the former small owners' sessions and hands
+  the same stage to its main owners; messaging rereads the card before requesting review rounds.
+  Repinning never narrows a main-owner pick.
+  A versioned action to a small-only owner excluded by the current main-owner pick is stale
+  (`owner_escalated`, `messageStaleReason`), including when the developer's send itself repins the
+  card. Delivery and later wake-ups share this check, so that message cannot restart the stopped
+  small owner. Human senders, information messages and messages without a version retain their
+  existing behavior; the recipient list and historical card roles stay intact.
 - **Labels** (decision 17, [design/labels.md](design/labels.md)) — the one way to state facts
   about a task. The pipeline defines each label once: name, colour, meaning (given to AI
   members), group (mutually exclusive states), who may set it, no self-review, comment

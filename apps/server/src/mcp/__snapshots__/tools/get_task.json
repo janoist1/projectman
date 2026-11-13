@@ -1,0 +1,38 @@
+{
+  "name": "get_task",
+  "title": "Get a task",
+  "description": "Get a task: description, stage, status, assignee, labels, links, relations, theme (with its cards), parent, subtasks, attachments (open with read_attachment) and recent timeline. A long description comes in parts and a long timeline text is cut; the result says how to read the rest.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "event_id": {
+        "description": "Id of a timeline event: returns its whole text. Only when a timeline line is cut.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "description_offset": {
+        "description": "Show the description from this character on (default 0), when get_task said it is cut.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Get a task",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

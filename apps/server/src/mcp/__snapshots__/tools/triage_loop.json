@@ -1,0 +1,48 @@
+{
+  "name": "triage_loop",
+  "title": "Assess a suspected loop",
+  "description": "Assess a loop_suspected signal after reading the evidence (role guide): progress keeps observing, loop asks the existing human deciders. Many messages alone do not prove a loop. It never stops work, lets it run, approves anything or resolves a human decision.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "signal_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "progress",
+          "loop"
+        ]
+      },
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "evidence_ids": {
+        "default": [],
+        "description": "Only ids of work, stage, label or check events of this card.",
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "signal_id",
+      "outcome",
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Assess a suspected loop",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

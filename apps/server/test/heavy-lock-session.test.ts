@@ -52,6 +52,7 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     expect(spec.sandbox!.portable).toEqual({
       allowWrite: [lockParent, join(memberDir, 'npm-cache'), join(memberDir, 'projectman-dev')],
       env: {
+        PROJECTMAN_SKIP_PTY_TESTS: '1',
         PROJECTMAN_HEAVY_LOCK_DIR: lockDir,
         npm_config_prefer_offline: 'true',
         npm_config_cache: join(memberDir, 'npm-cache'),

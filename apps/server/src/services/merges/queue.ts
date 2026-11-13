@@ -5,6 +5,7 @@ import { prerequisiteCards } from '../../core/tasks';
 import type { Task } from '@projectman/shared';
 import type { BranchMerger, TaskSchedulingReader } from '../../contracts';
 import type { DomainContext } from '../../core/base';
+import type { MergeRecord } from '../../db';
 import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';
@@ -92,7 +93,11 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
 
     const pump: Effect.Effect<void> = Effect.gen(function* () {
       if (deps.stopped()) return;
-      const queued = deps.ctx.repos.taskMerges.list('queued');
+      // A merge whose push may have landed (it was pushing, with a merge commit) goes first, whatever its rank.
+      const mayHaveLanded = (row: MergeRecord) => (row.step === 'pushing' && row.mergeCommit ? 0 : 1);
+      const queued = deps.ctx.repos.taskMerges
+        .list('queued')
+        .sort((a, b) => mayHaveLanded(a) - mayHaveLanded(b));
       const now = deps.ctx.now();
       // A startup leader must finish the old publication before a new candidate can use this repo.
       const recovering = new Map<string, string>();

@@ -24,7 +24,7 @@ function row(taskKey: string, extra: Partial<MergeRecord> = {}): MergeRecord {
 }
 
 describe('repository merge queue compare-and-swap', () => {
-  it('keeps retry queue rank and priority while ordinary requeues go to the tail', () => {
+  it('keeps queue rank and priority for retries and system requeues; a person-driven requeue goes to the tail', () => {
     const db = new Database(':memory:');
     try {
       migrate(db);
@@ -46,6 +46,10 @@ describe('repository merge queue compare-and-swap', () => {
       expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-2', 'AR-1']);
       expect(queue.get(retrying.id)).toMatchObject({ retry, prioritizedAt: at, queueRank: 0 });
       queue.save({ ...retrying, state: 'running' });
+      queue.save({ ...retrying, state: 'queued' });
+      // A system requeue of a running merge keeps its place.
+      expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-2', 'AR-1']);
+      queue.save({ ...retrying, state: 'failed' });
       queue.save({ ...retrying, state: 'queued' });
       expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-1', 'AR-2']);
     } finally {

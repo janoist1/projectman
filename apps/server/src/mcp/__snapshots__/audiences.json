@@ -22,7 +22,8 @@
         "reask_of",
         "reask_reason",
         "recipient",
-        "response_purpose"
+        "response_purpose",
+        "owner_topic"
       ],
       "update_task": [
         "task_key",

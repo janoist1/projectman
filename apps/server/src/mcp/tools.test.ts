@@ -316,7 +316,7 @@ describe('tool audience', () => {
   describe('field audience (PM-1353)', () => {
     const PM_ONLY_FIELDS = {
       send_message: ['signal_id', 'signal_actionable', 'signal_ids', 'actionable_signal_ids', 'places'],
-      ask_human: ['signal_id', 'owner_topic'],
+      ask_human: ['signal_id'],
       update_task: ['despite_prerequisites'],
     };
     const propertiesOf = async (audience: MemberAudience, name: string) => {

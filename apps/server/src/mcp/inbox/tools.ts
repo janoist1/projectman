@@ -160,7 +160,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
               'it falls under (role guide); refused without one (owner_topic_required).',
           ),
       },
-      fieldAudience: { signal_id: PM_ONLY, owner_topic: PM_ONLY },
+      fieldAudience: { signal_id: PM_ONLY },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
           issue('reask_of', 'reask_of and reask_reason go together: give both or neither.');

@@ -4,13 +4,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
-import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskComplexity } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../src/contracts';
-import { migrate, migrations } from '../src/db';
 import { MemberQueueWorker } from '../src/runtime/member-queue';
 import { PlanUsageMonitor } from '../src/runtime/usage';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
@@ -642,51 +640,6 @@ async function structuralFixture(
   }
 }
 
-function migrationMeasurement(history: number) {
-  const migration = migrations.find((m) => m.name === 'pending message recipients');
-  if (!migration) return null; // The original-source baseline has no pending derivation yet.
-  const db = new Database(':memory:');
-  try {
-    for (const m of migrations.filter((m) => m.version < migration.version)) db.exec(m.sql);
-    db.pragma(`user_version = ${migration.version - 1}`);
-    for (const key of PROJECTS)
-      db.prepare('INSERT INTO projects VALUES (?, ?, NULL, ?, ?, ?)').run(key, key, 'fixture', OLD, OLD);
-    const insert = db.prepare(`INSERT INTO team_messages
-      (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, kind, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    db.transaction(() => {
-      for (const m of messages(history, true))
-        insert.run(
-          m.id,
-          m.projectKey,
-          m.from,
-          JSON.stringify(m.to),
-          m.taskKey,
-          m.body,
-          m.createdAt,
-          m.deliveredAt,
-          JSON.stringify(m.receipts),
-          m.kind,
-          JSON.stringify(m.version),
-        );
-    })();
-    const size = () =>
-      Number(db.pragma('page_count', { simple: true })) * Number(db.pragma('page_size', { simple: true }));
-    const beforeBytes = size();
-    const cpu = process.cpuUsage();
-    const started = performance.now();
-    migrate(db);
-    const wallMs = performance.now() - started;
-    const used = process.cpuUsage(cpu);
-    expect(
-      db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'team_message_pending'").get(),
-    ).toEqual({ n: 0 });
-    return { wallMs, cpuMs: (used.user + used.system) / 1000, beforeBytes, afterBytes: size() };
-  } finally {
-    db.close();
-  }
-}
-
 describe('structural signal performance protocol (PM-783)', () => {
   it.each(['budget', 'admission', 'engine'] as const)(
     'exercises all measured paths while signals wait for %s',
@@ -1088,15 +1041,7 @@ describe('periodic work performance protocol (PM-733)', () => {
             }
           }
         }
-        const migrationResults = [10_000, 100_000].map((history) => ({
-          history,
-          result: migrationMeasurement(history),
-        }));
-        console.log('PM733 migration', JSON.stringify(migrationResults));
-        writeFileSync(
-          reportPath,
-          JSON.stringify({ environment, results, migrationResults, complete: true }, null, 2),
-        );
+        writeFileSync(reportPath, JSON.stringify({ environment, results, complete: true }, null, 2));
         console.log('PM733 report', reportPath);
       } finally {
         meter.restore();

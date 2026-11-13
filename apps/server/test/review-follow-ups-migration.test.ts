@@ -2,10 +2,12 @@ import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import { migrations } from '../src/db/migrations';
+import { BASELINE_SQL } from '../src/db/schema/baseline-0152';
 
 it('carries the operator signals over unchanged and takes the review_follow_ups kind (PM-1362)', () => {
   const db = new Database(':memory:');
   try {
+    db.exec(BASELINE_SQL);
     for (const migration of migrations.filter((m) => m.version < 155)) db.exec(migration.sql);
     db.pragma('user_version = 154');
     db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');

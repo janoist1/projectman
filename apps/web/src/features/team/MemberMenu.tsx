@@ -3,7 +3,7 @@ import type { MemberView } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { MoreMenu } from '../../components/MoreMenu';
 import { t } from '../../i18n/t';
-import { useIsRequiredPm } from '../operator/useRequiredMember';
+import { useIsRequiredPm } from '../project-manager/useRequiredMember';
 import { LeaveButton } from './LeaveButton';
 import styles from './MemberMenu.module.css';
 

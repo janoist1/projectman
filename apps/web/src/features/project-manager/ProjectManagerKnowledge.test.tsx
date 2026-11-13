@@ -9,10 +9,13 @@ import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject, createMockFetch } from '../../test/mockProject';
-import { OperatorKnowledgeView } from './OperatorKnowledgeView';
-import { OperatorPanel } from './OperatorPanel';
+import { ProjectManagerKnowledgeView } from './ProjectManagerKnowledgeView';
+import { ProjectManagerPanel } from './ProjectManagerPanel';
 import { InboxPage } from '../inbox/InboxPage';
-import { OperatorKnowledgeActions, OperatorKnowledgeBody } from './OperatorKnowledgeApproval';
+import {
+  ProjectManagerKnowledgeActions,
+  ProjectManagerKnowledgeBody,
+} from './ProjectManagerKnowledgeApproval';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -21,7 +24,7 @@ afterEach(() => {
 
 function setup() {
   const project = mockProject();
-  project.backend.operatorKnowledge = {
+  project.backend.projectManagerKnowledge = {
     schemaVersion: 1,
     revision: 3,
     appliedProposalIds: [],
@@ -49,7 +52,7 @@ function renderView(project: ReturnType<typeof setup>, overrides = {}) {
   const onBack = vi.fn();
   project.render(
     <ToastProvider>
-      <OperatorKnowledgeView onBack={onBack} onPrefill={onPrefill} />
+      <ProjectManagerKnowledgeView onBack={onBack} onPrefill={onPrefill} />
     </ToastProvider>,
     '/',
     overrides,
@@ -108,7 +111,7 @@ describe('Operator knowledge view', () => {
     const project = setup();
     project.render(
       <ToastProvider>
-        <OperatorPanel returnFocusTo={{ current: null }} />
+        <ProjectManagerPanel returnFocusTo={{ current: null }} />
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole('button', { name: t('knowledge.title') }));
@@ -144,7 +147,7 @@ describe('Operator knowledge view', () => {
     const project = setup();
     const owner = project.backend.config.team.members.find((member) => member.handle === 'owner');
     if (owner?.kind === 'human') owner.access = 'admin';
-    project.backend.operatorPreferences.kata = {
+    project.backend.projectManagerPreferences.kata = {
       schemaVersion: 1,
       revision: 1,
       data: { ...DEFAULT_PROJECT_MANAGER_PREFERENCE, length: 'detailed' },
@@ -257,7 +260,7 @@ describe('Operator knowledge approvals', () => {
     expect(screen.getByText('new-model')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('operator.approval.reject') }));
     await screen.findByText(t('operator.approval.rejected'));
-    expect(project.backend.operatorKnowledge.agreement!.data.summary).toBe('Approved summary');
+    expect(project.backend.projectManagerKnowledge.agreement!.data.summary).toBe('Approved summary');
   });
 
   it('shows a principle being recorded without active decision buttons', async () => {
@@ -268,8 +271,8 @@ describe('Operator knowledge approvals', () => {
     const decide = vi.fn();
     project.render(
       <>
-        <OperatorKnowledgeBody payload={payload} />
-        <OperatorKnowledgeActions
+        <ProjectManagerKnowledgeBody payload={payload} />
+        <ProjectManagerKnowledgeActions
           item={item}
           payload={payload}
           pending={false}
@@ -288,7 +291,7 @@ describe('Operator knowledge approvals', () => {
     const item = proposal(project, { kind: 'principle_remove', id: 'rule-1' });
     const payload = item.payload.operatorKnowledge as ProjectManagerKnowledgeApprovalPayload;
     project.render(
-      <OperatorKnowledgeActions
+      <ProjectManagerKnowledgeActions
         item={item}
         payload={payload}
         pending={false}
@@ -327,31 +330,31 @@ describe('Operator knowledge approvals', () => {
       expect(project.requests.filter((request) => request.path.endsWith('/resolve'))).toHaveLength(1),
     );
     await screen.findByText(t('knowledge.proposal.approvedPrinciple'));
-    expect(project.backend.operatorKnowledge.principles[0]!.principle).toBe('New principle');
+    expect(project.backend.projectManagerKnowledge.principles[0]!.principle).toBe('New principle');
   });
 
   it('shows a stale reason and requests a new proposal through the composer path', async () => {
     const project = setup();
     project.backend.inbox = [proposal(project, { kind: 'principle_remove', id: 'rule-1' })];
-    const openOperator = vi.fn();
+    const openProjectManager = vi.fn();
     project.render(
       <ToastProvider>
         <InboxPage />
       </ToastProvider>,
       '/p/AC/inbox',
-      { openOperator },
+      { openProjectManager },
     );
     const approve = await screen.findByRole('button', { name: t('operator.approval.approve') });
-    project.backend.operatorKnowledge.revision++;
+    project.backend.projectManagerKnowledge.revision++;
     fireEvent.click(approve);
     expect((await screen.findByRole('alert')).textContent).toContain(
       t('knowledge.proposal.knowledge_changed'),
     );
     fireEvent.click(screen.getByRole('button', { name: t('knowledge.proposal.retry') }));
-    expect(openOperator).toHaveBeenCalledWith(
+    expect(openProjectManager).toHaveBeenCalledWith(
       expect.anything(),
       t('knowledge.proposal.retryPrompt', { title: 'Knowledge proposal' }),
     );
-    expect(project.backend.operatorKnowledge.principles).toHaveLength(1);
+    expect(project.backend.projectManagerKnowledge.principles).toHaveLength(1);
   });
 });

@@ -18,7 +18,7 @@ import { formatDayRange, formatStamp } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
 import { ownerTopicLabel } from '../../lib/ownerTopics';
 import { useOwnerQuestions } from './useOwnerQuestions';
-import styles from './OperatorWeekly.module.css';
+import styles from './ProjectManagerWeekly.module.css';
 
 /** A topic's name: the unknown topic's text, otherwise the owner topic's name. */
 function topicLabel(id: string, config: Pick<ProjectConfig, 'team'> | undefined): string {
@@ -188,7 +188,7 @@ function WeekRow({
  * weeks, by route and topic, and how many of them the integrator answered for them. A subview of the panel,
  * like the knowledge view and the queue; only for an owner's own login.
  */
-export function OperatorWeeklyView({ onBack }: { onBack: () => void }) {
+export function ProjectManagerWeeklyView({ onBack }: { onBack: () => void }) {
   const { key } = useProject();
   const report = useOwnerQuestions(key);
   const config = useConfig(key);

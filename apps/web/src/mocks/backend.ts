@@ -686,18 +686,18 @@ export class MockBackend {
   readonly push = new MockPush();
   readonly owners = new MockOwners();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
-  operatorRequests: ProjectManagerRequestView[] = [];
+  projectManagerRequests: ProjectManagerRequestView[] = [];
   checklist: ProjectChecklist | null = null;
-  operatorKnowledge: ProjectManagerKnowledgeDocument = {
+  projectManagerKnowledge: ProjectManagerKnowledgeDocument = {
     schemaVersion: 1,
     revision: 0,
     agreement: null,
     principles: [],
     appliedProposalIds: [],
   };
-  operatorPreferences: Record<string, ProjectManagerPreferenceDocument> = {};
+  projectManagerPreferences: Record<string, ProjectManagerPreferenceDocument> = {};
   /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
-  operatorSignals: ProjectManagerSignal[] = [];
+  projectManagerSignals: ProjectManagerSignal[] = [];
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
   /** What the queued items wait on (the stored wait details), by item id: the work queue view shows these facts. */
@@ -3039,7 +3039,7 @@ export class MockBackend {
         for (const item of this.checklist.items)
           item.conditionHolds = item.condition
             ? checklistConditionHolds(item.condition, this.config, {
-                agreementApproved: this.operatorKnowledge.agreement !== null,
+                agreementApproved: this.projectManagerKnowledge.agreement !== null,
                 taskCount: this.tasks.filter((task) => task.status !== 'cancelled').length,
                 engineConnected: this.projectEngineHolds(this.config.project.key),
               })
@@ -3058,7 +3058,7 @@ export class MockBackend {
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
-          this.operatorPreferences[this.viewerHandle] ?? {
+          this.projectManagerPreferences[this.viewerHandle] ?? {
             schemaVersion: 1,
             revision: 0,
             data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
@@ -3070,14 +3070,14 @@ export class MockBackend {
       if (!canReadProjectManagerKnowledge({ access: this.viewerAccess() }))
         return error(403, 'operator_owner_only', 'Owner or admin access required');
       return rest === '/operator/knowledge'
-        ? ok(clone(this.operatorKnowledge))
+        ? ok(clone(this.projectManagerKnowledge))
         : ok({
             items: this.config.team.members
               .filter((member) => member.kind === 'human')
               .map(({ handle }) => ({
                 handle,
                 preference: clone(
-                  this.operatorPreferences[handle] ?? {
+                  this.projectManagerPreferences[handle] ?? {
                     schemaVersion: 1,
                     revision: 0,
                     data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
@@ -6903,7 +6903,7 @@ export class MockBackend {
     if (busy) return error(409, 'card_busy', 'The card already has a worker of the same role', busy);
     // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
     const signal = input.operatorSignal
-      ? this.operatorSignals.find((entry) => entry.id === input.operatorSignal)
+      ? this.projectManagerSignals.find((entry) => entry.id === input.operatorSignal)
       : undefined;
     if (input.operatorSignal) {
       if (!signal) return error(404, 'not_found', 'Unknown signal');
@@ -6969,9 +6969,9 @@ export class MockBackend {
       : undefined;
     const sessionId = session?.id ?? null;
     const readOnly = viewer.role !== 'owner';
-    const signals = this.operatorSignals.filter((signal) => !isCoordinatorOnlySignal(signal.kind));
+    const signals = this.projectManagerSignals.filter((signal) => !isCoordinatorOnlySignal(signal.kind));
     const rest = {
-      requests: clone(this.operatorRequests),
+      requests: clone(this.projectManagerRequests),
       readOnly,
       signals: readOnly ? [] : clone(signals),
       openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
@@ -7167,7 +7167,7 @@ export class MockBackend {
   private dismissOperatorSignal(id: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
     if (viewer?.role !== 'owner') return error(403, 'operator_owner_only', 'Only the owner may decide');
-    const signal = this.operatorSignals.find((entry) => entry.id === id);
+    const signal = this.projectManagerSignals.find((entry) => entry.id === id);
     if (!signal) return error(404, 'not_found', 'Unknown signal');
     if (signal.state !== 'open') return error(409, 'operator_signal_closed', 'The signal is no longer open');
     signal.state = 'dismissed';
@@ -7523,7 +7523,7 @@ export class MockBackend {
       if (knowledge.applying) return error(409, 'operator_approval_used', 'Proposal is being recorded');
       const reason =
         knowledge.stale?.reason ??
-        (knowledge.baseRevision !== this.operatorKnowledge.revision
+        (knowledge.baseRevision !== this.projectManagerKnowledge.revision
           ? 'knowledge_changed'
           : knowledge.baseConfigVersion !== null && knowledge.baseConfigVersion !== this.configVersion
             ? 'config_changed'
@@ -7537,7 +7537,7 @@ export class MockBackend {
         return error(409, 'operator_knowledge_stale', 'Proposal is out of date');
       }
       if (input.optionId === 'approve') {
-        const document = this.operatorKnowledge;
+        const document = this.projectManagerKnowledge;
         const change = knowledge.change;
         if (change.kind === 'agreement_replace')
           document.agreement = {
@@ -7556,7 +7556,7 @@ export class MockBackend {
         document.revision++;
         document.appliedProposalIds.push(knowledge.id);
       }
-      const step = this.operatorRequests
+      const step = this.projectManagerRequests
         .flatMap((request) => request.steps)
         .find((entry) => entry.id === knowledge.stepId);
       if (step)

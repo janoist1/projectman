@@ -7,14 +7,14 @@ import { ButtonLink } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import { placeLabel, placePath, placeState, useUiLocation } from './places';
-import styles from './OperatorPlaces.module.css';
+import styles from './ProjectManagerPlaces.module.css';
 
 /**
  * The places the project manager offers in a message (PM-1071), one button each. A click only follows the
  * link: the page where the reader is stays as it is until then. The state is the reader's own: a part they
  * do not see is not a button, and the place they are at is marked as such.
  */
-export function OperatorPlaces({ places }: { places: readonly UiPlace[] }) {
+export function ProjectManagerPlaces({ places }: { places: readonly UiPlace[] }) {
   const { key, me } = useProject();
   const board = useBoard(key);
   const { members } = useProjectIndexes(key);

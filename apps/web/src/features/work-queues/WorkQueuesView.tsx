@@ -13,7 +13,7 @@ import { t } from '../../i18n/t';
 import { errorCode } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import { parseWorkQueueRef, sameWorkQueue, workQueueRefId } from '../../lib/workQueues';
-import { useOperator } from '../operator/useOperator';
+import { useProjectManager } from '../project-manager/useProjectManager';
 import { RestrictedWorkQueueGroup, WorkQueueGroup } from './WorkQueueGroup';
 import { WorkQueueClosed } from './WorkQueueClosed';
 import { useMinuteClock } from './useMinuteClock';
@@ -31,7 +31,7 @@ import styles from './WorkQueuesView.module.css';
 
 /** What the Operator panel hands to the view when it sends the viewer here (`location.state`). */
 interface FromProjectManagerState {
-  fromOperator?: { path: string };
+  fromProjectManager?: { path: string };
 }
 
 /** The search debounce before the text goes into the URL. */
@@ -59,11 +59,11 @@ export function WorkQueuesView() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const nowMs = useMinuteClock();
-  const operator = useOperator();
+  const operator = useProjectManager();
   const query = useWorkQueues(key, scope !== null);
   const heading = useRef<HTMLHeadingElement>(null);
   const filter = parseWorkQueueFilter(params);
-  const fromOperator = (location.state as FromProjectManagerState | null)?.fromOperator;
+  const fromProjectManager = (location.state as FromProjectManagerState | null)?.fromProjectManager;
   const [text, setText] = useState(filter.q);
 
   // The filters go into the URL with `replace`; the state of the page (the way back to the panel) stays.
@@ -90,8 +90,8 @@ export function WorkQueuesView() {
 
   // Arriving from the panel puts the focus on the title.
   useEffect(() => {
-    if (fromOperator) heading.current?.focus();
-  }, [fromOperator]);
+    if (fromProjectManager) heading.current?.focus();
+  }, [fromProjectManager]);
 
   const forbidden = scope === null || errorCode(query.error) === 'work_queues_forbidden';
   const view = forbidden ? undefined : query.data;
@@ -298,8 +298,8 @@ export function WorkQueuesView() {
 
   return (
     <div className={styles.view}>
-      {fromOperator ? (
-        <Link to={fromOperator.path} state={{ operatorOpen: true }} className={styles.back}>
+      {fromProjectManager ? (
+        <Link to={fromProjectManager.path} state={{ projectManagerOpen: true }} className={styles.back}>
           {t('workQueues.back')}
         </Link>
       ) : null}

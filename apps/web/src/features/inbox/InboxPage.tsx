@@ -60,9 +60,9 @@ import { DrawerBaseContext } from '../board/drawerBase';
 import { hasCommentDraft } from '../board/useCardCommentDraft';
 import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
-import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
+import { isStaleError, projectManagerDecisionToast } from '../project-manager/ProjectManagerApproval';
 import { InboxCard } from './InboxCard';
-import { OperatorTrail } from './OperatorTrail';
+import { ProjectManagerTrail } from './ProjectManagerTrail';
 import { WaitingBand } from './WaitingBand';
 import { FoldedCommand } from './PermissionParts';
 import { QuestionSources } from './QuestionSources';
@@ -530,7 +530,7 @@ export function InboxPage() {
               const text = ownerCommandOf(operation)
                 ? t(body.optionId === 'yes' ? 'ownerCommand.approved' : 'ownerCommand.refused')
                 : projectManagerKnowledgeApprovalOf(target) !== null
-                  ? operatorDecisionToast(target, body.optionId)
+                  ? projectManagerDecisionToast(target, body.optionId)
                   : target.kind === 'hand_on'
                     ? handOnToast(target, pipeline)
                     : ((target.askerStart ? askerStartToast(target, members, myHandle) : null) ??
@@ -649,7 +649,7 @@ export function InboxPage() {
               pipeline={pipeline}
             />
             {can.manageTeam ? (
-              <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+              <ProjectManagerTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
             ) : null}
           </>
         ) : null}
@@ -664,7 +664,7 @@ export function InboxPage() {
             pipeline={pipeline}
           />
           {can.manageTeam ? (
-            <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+            <ProjectManagerTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
           ) : null}
         </aside>
       )}

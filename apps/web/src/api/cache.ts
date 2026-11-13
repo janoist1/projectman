@@ -234,7 +234,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         invalidate(['project', key, 'super-handoffs']);
         invalidate(['project', key, 'super-operation']);
       }
-      if (entry.type === 'operator_knowledge_changed') invalidate(queryKeys.operatorKnowledge(key));
+      if (entry.type === 'operator_knowledge_changed') invalidate(queryKeys.projectManagerKnowledge(key));
       if (entry.type === 'session_started' || entry.type === 'session_ended')
         invalidate(queryKeys.involvements(key));
       if (!entry.taskKey) return;
@@ -377,8 +377,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The feed, its unread count, the threads and the unread list all change: refetch them.
       // An updated message (a file of it deleted, PM-516) shows in the same places.
       invalidate(queryKeys.messages(event.projectKey));
-      invalidate(queryKeys.operatorPreferenceMeAll(event.projectKey));
-      invalidate(queryKeys.operatorPreferences(event.projectKey));
+      invalidate(queryKeys.projectManagerPreferenceMeAll(event.projectKey));
+      invalidate(queryKeys.projectManagerPreferences(event.projectKey));
       return;
     }
     case 'message_processing_changed': {

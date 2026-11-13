@@ -59,7 +59,7 @@ import { MessageComposer } from '../messages/MessageComposer';
 import { useContacts } from '../messages/useContacts';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
-import { useIsRequiredPm } from '../operator/useRequiredMember';
+import { useIsRequiredPm } from '../project-manager/useRequiredMember';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { ProviderWarning } from './ProviderWarning';

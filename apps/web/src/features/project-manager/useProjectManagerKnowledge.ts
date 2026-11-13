@@ -4,23 +4,23 @@ import { api } from '../../api/endpoints';
 import { queryKeys } from '../../api/queryKeys';
 import { useProject } from '../../app/contexts';
 
-export function useOperatorKnowledge() {
+export function useProjectManagerKnowledge() {
   const { key, me, myHandle } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const readable = !me.via && canReadProjectManagerKnowledge({ access });
   const knowledge = useQuery({
-    queryKey: queryKeys.operatorKnowledge(key),
-    queryFn: () => api.operatorKnowledge(key),
+    queryKey: queryKeys.projectManagerKnowledge(key),
+    queryFn: () => api.projectManagerKnowledge(key),
     enabled: readable,
   });
   const preference = useQuery({
-    queryKey: queryKeys.operatorPreferenceMe(key, myHandle),
-    queryFn: () => api.operatorPreferenceMe(key),
+    queryKey: queryKeys.projectManagerPreferenceMe(key, myHandle),
+    queryFn: () => api.projectManagerPreferenceMe(key),
     enabled: myHandle !== null && !me.via,
   });
   const preferences = useQuery({
-    queryKey: queryKeys.operatorPreferences(key),
-    queryFn: () => api.operatorPreferences(key),
+    queryKey: queryKeys.projectManagerPreferences(key),
+    queryFn: () => api.projectManagerPreferences(key),
     enabled: readable,
   });
   return { knowledge, preference, preferences, readable };

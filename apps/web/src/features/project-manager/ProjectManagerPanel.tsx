@@ -22,18 +22,18 @@ import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
 import { transferToCardDraft } from '../board/useCardCommentDraft';
 import type { DraftFile } from '../board/useCardCommentDraft';
 import { Composer } from '../session/Composer';
-import { OperatorThread } from './OperatorThread';
-import { OperatorChecklist } from './OperatorChecklist';
-import { OperatorKnowledgeView } from './OperatorKnowledgeView';
-import { OperatorQueueStrip } from './OperatorQueueStrip';
-import type { FailedProjectManagerMessage } from './OperatorThread';
-import { OperatorWaitBanner } from './OperatorWaitBanner';
-import { OperatorWeeklyView } from './OperatorWeeklyView';
-import { operatorStatusText } from './operatorChannel';
-import { useOperatorUploads } from './operatorUploads';
+import { ProjectManagerThread } from './ProjectManagerThread';
+import { ProjectManagerChecklist } from './ProjectManagerChecklist';
+import { ProjectManagerKnowledgeView } from './ProjectManagerKnowledgeView';
+import { ProjectManagerQueueStrip } from './ProjectManagerQueueStrip';
+import type { FailedProjectManagerMessage } from './ProjectManagerThread';
+import { ProjectManagerWaitBanner } from './ProjectManagerWaitBanner';
+import { ProjectManagerWeeklyView } from './ProjectManagerWeeklyView';
+import { projectManagerStatusText } from './projectManagerChannel';
+import { useProjectManagerUploads } from './projectManagerUploads';
 import { placePath, useUiLocation } from './places';
-import { useOperator } from './useOperator';
-import styles from './OperatorPanel.module.css';
+import { useProjectManager } from './useProjectManager';
+import styles from './ProjectManagerPanel.module.css';
 
 /** The panel's width on a desktop screen (the same as in OperatorPanel.module.css): an open card makes room for it. */
 const PANEL_WIDTH = 440;
@@ -46,17 +46,25 @@ const FOCUSABLE =
  * person of the project has their own conversation in it; on a read-only channel (not an owner) the
  * project manager only reads and answers.
  */
-export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, me, can, isOwner, closeOperator, operatorPrefill, operatorChecklistRequest, operatorDraft } =
-    useProject();
+export function ProjectManagerPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
+  const {
+    key,
+    me,
+    can,
+    isOwner,
+    closeProjectManager,
+    projectManagerPrefill,
+    projectManagerChecklistRequest,
+    projectManagerDraft,
+  } = useProject();
   const isMobile = useIsMobile();
   const { pathname, search, hash } = useLocation();
   const navigate = useNavigate();
   const openedAt = useRef(pathname);
   const board = useBoard(key);
-  const { channel, state, handle, member } = useOperator();
+  const { channel, state, handle, member } = useProjectManager();
   const send = useSendTeamMessage(key);
-  const uploads = useOperatorUploads();
+  const uploads = useProjectManagerUploads();
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const panel = useRef<HTMLElement>(null);
@@ -67,21 +75,21 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const weeklyButton = useRef<HTMLButtonElement>(null);
   const [weeklyLeft, setWeeklyLeft] = useState(0);
   // The message being written outlives the subviews that replace the composer for a while, and the panel itself.
-  const [hasText, setHasText] = useState(() => operatorDraft.current.trim() !== '');
+  const [hasText, setHasText] = useState(() => projectManagerDraft.current.trim() !== '');
   const keepDraft = useCallback(
     (text: string) => {
-      operatorDraft.current = text;
+      projectManagerDraft.current = text;
       setHasText(text.trim() !== '');
     },
-    [operatorDraft],
+    [projectManagerDraft],
   );
   // Keep handled checklist requests across the conversation view's unmounts.
   const appliedChecklistRequest = useRef<number | null>(null);
   useEffect(() => {
-    if (!operatorChecklistRequest) return;
+    if (!projectManagerChecklistRequest) return;
     setKnowledgeOpen(false);
     setWeeklyOpen(false);
-  }, [operatorChecklistRequest]);
+  }, [projectManagerChecklistRequest]);
   // Back from the weekly measure the focus returns to its entry, which is drawn again only then; the
   // composer drawn with it does not take the focus (its own effect may run after this one).
   useEffect(() => {
@@ -97,10 +105,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   // The project manager's queue is a view of the Team page (PM-1297): the panel closes and the page takes over;
   // its "back" link brings the panel and this conversation back.
   const queuePath = handle ? `/p/${key}/team?view=queues&queue=member:${handle}` : null;
-  const queueState = { fromOperator: { path: pathname + search + hash } };
+  const queueState = { fromProjectManager: { path: pathname + search + hash } };
   const openQueue = () => {
     if (!queuePath) return;
-    closeOperator();
+    closeProjectManager();
     void navigate(queuePath, { state: queueState });
   };
   const sessionVisible = access !== undefined && canSeeProjectManagerSessions({ access });
@@ -120,11 +128,11 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   // An example from the introduction goes into the box to be edited and sent.
   const [prefill, setPrefill] = useState<{ text: string; id: number; quiet?: boolean } | null>(null);
   useEffect(() => {
-    if (!operatorPrefill) return;
+    if (!projectManagerPrefill) return;
     setKnowledgeOpen(false);
     setWeeklyOpen(false);
-    setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
-  }, [operatorPrefill]);
+    setPrefill((previous) => ({ text: projectManagerPrefill.text, id: (previous?.id ?? 0) + 1 }));
+  }, [projectManagerPrefill]);
 
   const [failed, setFailed] = useState<FailedProjectManagerMessage | null>(null);
   const post = (
@@ -177,10 +185,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       setMoving(false);
       return;
     }
-    transferToCardDraft(key, openCard, { text: operatorDraft.current, attachments: moved });
+    transferToCardDraft(key, openCard, { text: projectManagerDraft.current, attachments: moved });
     await Promise.allSettled(uploads.items.map((item) => uploads.remove(item.id)));
     uploads.clear();
-    operatorDraft.current = '';
+    projectManagerDraft.current = '';
     setHasText(false);
     // The focus goes to the card's box, so the emptied field does not take it.
     setPrefill((previous) => ({ text: '', id: (previous?.id ?? 0) + 1, quiet: true }));
@@ -188,7 +196,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     movedToCard.current = isMobile;
     // The panel stays beside a desktop page; on a phone the sheet covers the card, so it closes (the draft stays).
     void navigate(placePath(key, { page: 'card', taskKey: openCard, view: 'thread' }, location));
-    if (isMobile) closeOperator();
+    if (isMobile) closeProjectManager();
   };
 
   // The focus goes into the panel on open and back to the button on close.
@@ -213,14 +221,14 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
 
   // On a phone the sheet covers the page: following a link (a card, the full session) leaves it.
   useEffect(() => {
-    if (isMobile && pathname !== openedAt.current) closeOperator();
-  }, [isMobile, pathname, closeOperator]);
+    if (isMobile && pathname !== openedAt.current) closeProjectManager();
+  }, [isMobile, pathname, closeProjectManager]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
     if (event.key === 'Escape') {
       event.stopPropagation();
-      closeOperator();
+      closeProjectManager();
     }
     // On a phone the sheet covers the page and is modal: Tab goes round inside it, never to the card beneath.
     if (event.key === 'Tab' && isMobile && panel.current) {
@@ -242,7 +250,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   };
 
   const name = state?.member?.displayName ?? t('operator.name');
-  const status = operatorStatusText(state);
+  const status = projectManagerStatusText(state);
   const missing = state?.state === 'missing';
 
   return (
@@ -326,7 +334,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
               state={queueState}
               aria-label={t('operator.queue.strip.label')}
               title={t('operator.queue.strip.label')}
-              onClick={closeOperator}
+              onClick={closeProjectManager}
             />
             {queueLength > 0 ? (
               <span className={styles.queueCount} aria-hidden="true">
@@ -358,7 +366,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           iconOnly
           icon="close"
           aria-label={t('operator.panel.close')}
-          onClick={closeOperator}
+          onClick={closeProjectManager}
         />
       </header>
 
@@ -380,10 +388,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         </button>
       ) : null}
 
-      {!subviewOpen ? <OperatorChecklist key={key} appliedRequest={appliedChecklistRequest} /> : null}
+      {!subviewOpen ? <ProjectManagerChecklist key={key} appliedRequest={appliedChecklistRequest} /> : null}
 
       {weeklyOpen && weeklyVisible ? (
-        <OperatorWeeklyView
+        <ProjectManagerWeeklyView
           key={key}
           onBack={() => {
             setWeeklyOpen(false);
@@ -391,7 +399,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           }}
         />
       ) : knowledgeOpen ? (
-        <OperatorKnowledgeView
+        <ProjectManagerKnowledgeView
           onBack={() => {
             setKnowledgeOpen(false);
             knowledgeButton.current?.focus();
@@ -422,15 +430,15 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           <p>{t('operator.missing.title')}</p>
           <p>{t('operator.missing.hint')}</p>
           {can.manageTeam ? (
-            <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closeOperator}>
+            <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closeProjectManager}>
               {t('operator.missing.team')} →
             </ButtonLink>
           ) : null}
         </div>
       ) : (
         <>
-          {queueVisible ? <OperatorQueueStrip channel={state} onOpen={openQueue} /> : null}
-          <OperatorThread
+          {queueVisible ? <ProjectManagerQueueStrip channel={state} onOpen={openQueue} /> : null}
+          <ProjectManagerThread
             handle={handle}
             channel={state}
             failed={failed}
@@ -448,7 +456,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             }
             onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />
-          <OperatorWaitBanner channel={state} />
+          <ProjectManagerWaitBanner channel={state} />
           {openCard ? (
             <div className={styles.contextBlock}>
               {contextCard ? (
@@ -496,7 +504,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           ) : null}
           <div className={styles.composer}>
             <Composer
-              autoFocus={!operatorChecklistRequest?.focus && weeklyLeft === 0}
+              autoFocus={!projectManagerChecklistRequest?.focus && weeklyLeft === 0}
               label={t('operator.composer.label')}
               placeholder={
                 readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')
@@ -504,7 +512,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
               disabled={send.isPending}
               attachments={uploads}
               prefill={prefill}
-              initialText={operatorDraft.current}
+              initialText={projectManagerDraft.current}
               onTextChange={keepDraft}
               onSend={(text) =>
                 post(

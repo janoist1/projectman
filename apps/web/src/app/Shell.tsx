@@ -12,8 +12,8 @@ import type { IconName } from '../components/Icon';
 import { useDocumentAccess } from '../features/documents/access';
 import { useFeedbackNav } from '../features/feedback/useFeedbackNav';
 import { openPauses } from '../features/pause/pauseView';
-import { OperatorButton } from '../features/operator/OperatorButton';
-import { ChecklistIndicator } from '../features/operator/ChecklistIndicator';
+import { ProjectManagerButton } from '../features/project-manager/ProjectManagerButton';
+import { ChecklistIndicator } from '../features/project-manager/ChecklistIndicator';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
 import { useMediaQuery } from '../lib/hooks';
@@ -396,7 +396,7 @@ export function TopBar({
         </Button>
       ) : null}
       <ChecklistIndicator />
-      <OperatorButton variant="bar" />
+      <ProjectManagerButton variant="bar" />
       <InboxPill count={inboxCount} />
       {can.newCards ? (
         <Button
@@ -468,7 +468,7 @@ export function MobileHeader({
       <EngineIndicator phone />
       <MachineIndicator phone />
       <ChecklistIndicator />
-      <OperatorButton variant="phone" />
+      <ProjectManagerButton variant="phone" />
       {can.newCards ? (
         <Button
           variant="primary"

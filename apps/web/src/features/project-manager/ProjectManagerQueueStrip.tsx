@@ -3,11 +3,11 @@ import { useId } from 'react';
 import type { ProjectManagerCorner } from '@projectman/shared';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
-import { operatorStripOf } from './operatorChannel';
-import styles from './OperatorQueueStrip.module.css';
+import { projectManagerStripOf } from './projectManagerChannel';
+import styles from './ProjectManagerQueueStrip.module.css';
 
 /** The strip under the panel's head: what the project manager does now and how many wait; it opens the queue view. */
-export function OperatorQueueStrip({
+export function ProjectManagerQueueStrip({
   channel,
   onOpen,
 }: {
@@ -15,7 +15,7 @@ export function OperatorQueueStrip({
   onOpen: () => void;
 }) {
   const hintId = useId();
-  const strip = operatorStripOf(channel);
+  const strip = projectManagerStripOf(channel);
   if (!strip) return null;
   const text =
     strip.kind === 'now'

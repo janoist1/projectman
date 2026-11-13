@@ -16,7 +16,7 @@ export const queryKeys = {
   hostRequests: (state: 'open' | 'all') => ['host-requests', state] as const,
   checklist: (key: string) => ['project', key, 'checklist'] as const,
   serverVersion: ['server-version'] as const,
-  operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  projectManagerKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
   ownerQuestions: (key: string) => ['project', key, 'owner-questions'] as const,
   /** The work queues overview (PM-1294), and one queue in full: `member:<handle>` or `integrator` and `closedSince`. */
   workQueues: (key: string) => ['project', key, 'workQueues'] as const,
@@ -24,10 +24,10 @@ export const queryKeys = {
   workQueue: (key: string, queue: string, closedSince: string | null) =>
     ['project', key, 'workQueue', queue, closedSince] as const,
   /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
-  operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
-  operatorPreferenceMe: (key: string, handle: string | null) =>
+  projectManagerPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
+  projectManagerPreferenceMe: (key: string, handle: string | null) =>
     ['project', key, 'operator-preference', handle] as const,
-  operatorPreferences: (key: string) => ['project', key, 'operator-preferences'] as const,
+  projectManagerPreferences: (key: string) => ['project', key, 'operator-preferences'] as const,
   profiles: (key: string) => ['project', key, 'profile'] as const,
   profile: (key: string, handle: string) => ['project', key, 'profile', handle] as const,
   memories: (key: string, handle: string) => ['project', key, 'memory', handle] as const,

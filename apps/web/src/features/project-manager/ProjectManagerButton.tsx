@@ -4,9 +4,9 @@ import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { t } from '../../i18n/t';
 import { useContacts } from '../messages/useContacts';
-import { operatorDotOf, operatorStatusWithQueue } from './operatorChannel';
-import { useOperator } from './useOperator';
-import styles from './OperatorButton.module.css';
+import { projectManagerDotOf, projectManagerStatusWithQueue } from './projectManagerChannel';
+import { useProjectManager } from './useProjectManager';
+import styles from './ProjectManagerButton.module.css';
 
 /** The longest display name the wide top bar shows before it cuts the name with an ellipsis. */
 const NAME_MAX = 18;
@@ -18,9 +18,9 @@ const NAME_MAX = 18;
  * avatar-only icon button; `drawer` is the same icon in a card's head, where the open card covers the top bar's
  * button. The owner's open signals show as a number on it; it wins over the dot of a new reply.
  */
-export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer' }) {
-  const { myHandle, operatorOpen, openOperator, closeOperator } = useProject();
-  const { state, member, handle, unread, openSignals } = useOperator();
+export function ProjectManagerButton({ variant }: { variant: 'bar' | 'phone' | 'drawer' }) {
+  const { myHandle, projectManagerOpen, openProjectManager, closeProjectManager } = useProject();
+  const { state, member, handle, unread, openSignals } = useProjectManager();
   const button = useRef<HTMLButtonElement>(null);
   const contacts = useContacts();
   if (!myHandle) return null;
@@ -30,10 +30,10 @@ export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer
 
   const displayName = state?.member?.displayName ?? t('operator.name');
   const shortName = displayName.length > NAME_MAX ? `${displayName.slice(0, NAME_MAX - 1)}…` : displayName;
-  const dot = operatorDotOf(state);
+  const dot = projectManagerDotOf(state);
   const queued = state?.queue.open ?? 0;
-  const status = operatorStatusWithQueue(state);
-  const newReply = unread > 0 && !operatorOpen && openSignals === 0 && queued === 0;
+  const status = projectManagerStatusWithQueue(state);
+  const newReply = unread > 0 && !projectManagerOpen && openSignals === 0 && queued === 0;
   const extra =
     openSignals > 0
       ? t('operator.button.signals', { count: openSignals })
@@ -50,14 +50,14 @@ export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer
         styles.button,
         variant === 'phone' && styles.phone,
         variant === 'drawer' && styles.drawer,
-        operatorOpen && styles.open,
+        projectManagerOpen && styles.open,
       )}
       aria-label={label}
       aria-haspopup="dialog"
-      aria-expanded={operatorOpen}
+      aria-expanded={projectManagerOpen}
       aria-controls="operator-panel"
       data-operator-button={variant}
-      onClick={() => (operatorOpen ? closeOperator() : openOperator(button.current))}
+      onClick={() => (projectManagerOpen ? closeProjectManager() : openProjectManager(button.current))}
     >
       <span className={styles.avatar}>
         <Avatar member={member} handle={handle ?? 'pm'} size="sm" />

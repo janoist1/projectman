@@ -4,14 +4,14 @@ import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUpl
 
 export type ProjectManagerUploads = ReturnType<typeof useMessageAttachmentUploads>;
 
-const OperatorUploadsContext = createContext<ProjectManagerUploads | null>(null);
+const ProjectManagerUploadsContext = createContext<ProjectManagerUploads | null>(null);
 
 /**
  * The files attached to the message being written in the project manager's panel (PM-1305). They live above the
  * panel, so closing it (on a phone it closes whenever the page changes) does not lose or abort them; the project
  * layout keys this by project, so another project starts empty.
  */
-export function OperatorUploadsProvider({
+export function ProjectManagerUploadsProvider({
   projectKey,
   children,
 }: {
@@ -19,11 +19,13 @@ export function OperatorUploadsProvider({
   children: ReactNode;
 }) {
   const uploads = useMessageAttachmentUploads(projectKey);
-  return <OperatorUploadsContext.Provider value={uploads}>{children}</OperatorUploadsContext.Provider>;
+  return (
+    <ProjectManagerUploadsContext.Provider value={uploads}>{children}</ProjectManagerUploadsContext.Provider>
+  );
 }
 
-export function useOperatorUploads(): ProjectManagerUploads {
-  const value = useContext(OperatorUploadsContext);
+export function useProjectManagerUploads(): ProjectManagerUploads {
+  const value = useContext(ProjectManagerUploadsContext);
   if (!value) throw new Error('useOperatorUploads must be used inside the project layout');
   return value;
 }

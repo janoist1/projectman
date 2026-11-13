@@ -15,8 +15,8 @@ import {
   inboxHeading,
   isRecentDecision,
   obligationTodoMeta,
-  operatorTrailMark,
-  operatorTrailNote,
+  projectManagerTrailMark,
+  projectManagerTrailNote,
   questionExtras,
   resolutionLabel,
   resolutionMark,
@@ -196,15 +196,15 @@ describe('the screened question helpers (PM-561)', () => {
   });
 
   it('marks the Operator trail rows and notes what it held', () => {
-    expect(operatorTrailMark(asked({}, { state: 'screening' }))).toBe('at');
-    expect(operatorTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
-    expect(operatorTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
-    expect(operatorTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
+    expect(projectManagerTrailMark(asked({}, { state: 'screening' }))).toBe('at');
+    expect(projectManagerTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
+    expect(projectManagerTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
+    expect(projectManagerTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
     const members = new Map();
-    expect(operatorTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner')).toBe(
+    expect(projectManagerTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner')).toBe(
       'Not needed.',
     );
-    expect(operatorTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
+    expect(projectManagerTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
   });
 
   it('says a question waits for the Operator’s machine instead of naming a time (PM-708)', () => {
@@ -212,17 +212,17 @@ describe('the screened question helpers (PM-561)', () => {
       { queue: { reason: 'engine_offline', since: '2026-09-30T10:00:00.000Z', remainingMs: 600_000 } },
       { state: 'screening' },
     );
-    expect(operatorTrailNote(queued, new Map(), 'owner')).toBe(t('inbox.operatorTrail.queued'));
+    expect(projectManagerTrailNote(queued, new Map(), 'owner')).toBe(t('inbox.operatorTrail.queued'));
   });
 
   it('names who a forwarded question went to', () => {
     const members = new Map();
     const forwarded = (note?: string) =>
       screened({ outcome: 'forwarded', forwardedTo: 'claude', ...(note ? { note } : {}) });
-    expect(operatorTrailNote(forwarded('Ez a vezetőre tartozik'), members, 'owner')).toBe(
+    expect(projectManagerTrailNote(forwarded('Ez a vezetőre tartozik'), members, 'owner')).toBe(
       t('inbox.operatorTrail.forwardedTo', { name: 'claude', note: 'Ez a vezetőre tartozik' }),
     );
-    expect(operatorTrailNote(forwarded(), members, 'owner')).toBe(
+    expect(projectManagerTrailNote(forwarded(), members, 'owner')).toBe(
       t('inbox.operatorTrail.forwardedToPlain', { name: 'claude' }),
     );
   });

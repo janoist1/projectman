@@ -26,12 +26,12 @@ import { STICK_PX } from '../messages/ConversationThread';
 import { useReadWhenVisible } from '../messages/useReadWhenVisible';
 import { ProcessingLines } from '../messages/ProcessingLines';
 import { TaskChip } from '../messages/TaskChip';
-import { OperatorPlaces } from './OperatorPlaces';
-import { OperatorSignalCard } from './OperatorSignalCard';
-import { OperatorSignalList } from './OperatorSignalList';
-import { OperatorSignalGroup } from './OperatorSignalGroup';
-import { OperatorSteps } from './OperatorSteps';
-import styles from './OperatorThread.module.css';
+import { ProjectManagerPlaces } from './ProjectManagerPlaces';
+import { ProjectManagerSignalCard } from './ProjectManagerSignalCard';
+import { ProjectManagerSignalList } from './ProjectManagerSignalList';
+import { ProjectManagerSignalGroup } from './ProjectManagerSignalGroup';
+import { ProjectManagerSteps } from './ProjectManagerSteps';
+import styles from './ProjectManagerThread.module.css';
 
 /** A message that did not go out: the text stays visible so it can be sent again. */
 export interface FailedProjectManagerMessage {
@@ -49,7 +49,10 @@ type ProjectManagerEntry =
   | { type: 'signals'; id: string; at: string; day: string | null; signals: ProjectManagerSignal[] };
 
 /** Keep signal runs within a calendar day and break message runs around them. */
-function operatorEntries(messages: TeamMessage[], signals: ProjectManagerSignal[]): ProjectManagerEntry[] {
+function projectManagerEntries(
+  messages: TeamMessage[],
+  signals: ProjectManagerSignal[],
+): ProjectManagerEntry[] {
   const items: ProjectManagerEntry[] = [
     ...layoutThread(threadItems(messages, [], []), null).map((entry): ProjectManagerEntry => ({
       type: 'message',
@@ -116,7 +119,7 @@ function stepAnchors(
 }
 
 /** The viewer's conversation with the Operator: bubbles, day separators, steps and signal cards (PM-429, PM-447). */
-export function OperatorThread({
+export function ProjectManagerThread({
   handle,
   channel,
   failed,
@@ -133,7 +136,7 @@ export function OperatorThread({
   /** An example of the introduction was picked: it goes into the message box. */
   onExample: (text: string) => void;
 }) {
-  const { key, myHandle, operatorScroll } = useProject();
+  const { key, myHandle, projectManagerScroll } = useProject();
   const isMobile = useIsMobile();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
@@ -162,7 +165,7 @@ export function OperatorThread({
       (signal.state === 'open' || dismissedHere.has(signal.id)) &&
       (!signal.messageId || !messages.some((message) => message.id === signal.messageId)),
   );
-  const entries = operatorEntries(messages, unanchoredSignals);
+  const entries = projectManagerEntries(messages, unanchoredSignals);
   const retainSignal = (id: string) =>
     setDismissedHere((previous) => (previous.has(id) ? previous : new Set([...previous, id])));
 
@@ -176,15 +179,15 @@ export function OperatorThread({
     const box = scroller.current;
     if (!box) return;
     stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
-    operatorScroll.current = { top: box.scrollTop, stick: stick.current };
-  }, [operatorScroll]);
+    projectManagerScroll.current = { top: box.scrollTop, stick: stick.current };
+  }, [projectManagerScroll]);
   const ready = Boolean(conversation.data);
   useLayoutEffect(() => {
     const box = scroller.current;
     if (!box || !ready) return;
     if (!restored.current) {
       restored.current = true;
-      const saved = operatorScroll.current;
+      const saved = projectManagerScroll.current;
       if (saved && !saved.stick) {
         stick.current = false;
         box.scrollTop = saved.top;
@@ -192,7 +195,7 @@ export function OperatorThread({
       }
     }
     if (stick.current) box.scrollTop = box.scrollHeight;
-  }, [entries.length, ready, failed, channel.state, channel.requests, channel.signals, operatorScroll]);
+  }, [entries.length, ready, failed, channel.state, channel.requests, channel.signals, projectManagerScroll]);
 
   if (conversation.isPending) {
     return (
@@ -237,18 +240,18 @@ export function OperatorThread({
           </div>
         ) : null}
         {signal && signal.length > 1 ? (
-          <OperatorSignalList
+          <ProjectManagerSignalList
             signals={signal}
             message={message}
-            operatorHandle={handle}
+            projectManagerHandle={handle}
             readOnly={readOnly}
             unreadMark={unreadMark}
           />
         ) : signal?.[0] ? (
-          <OperatorSignalCard
+          <ProjectManagerSignalCard
             signal={signal[0]}
             message={message}
-            operatorHandle={handle}
+            projectManagerHandle={handle}
             readOnly={readOnly}
             unreadMark={unreadMark}
           />
@@ -274,7 +277,7 @@ export function OperatorThread({
                 ) : null}
                 <MessageAttachments files={message.attachments ?? []} from={message.from} />
               </div>
-              {!mine && message.places?.length ? <OperatorPlaces places={message.places} /> : null}
+              {!mine && message.places?.length ? <ProjectManagerPlaces places={message.places} /> : null}
               <div className={styles.meta}>
                 {message.relayed ? <span>{t('pm.relayed')}</span> : null}
                 <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
@@ -293,7 +296,7 @@ export function OperatorThread({
         )}
         {steps.map((request) => (
           <div key={request.id} className={styles.extra}>
-            <OperatorSteps request={request} titles={titles} />
+            <ProjectManagerSteps request={request} titles={titles} />
           </div>
         ))}
       </div>
@@ -368,18 +371,18 @@ export function OperatorThread({
                 </div>
               ) : null}
               {entry.signals.length > 1 ? (
-                <OperatorSignalGroup
+                <ProjectManagerSignalGroup
                   onResize={measureStick}
                   signals={entry.signals}
-                  operatorHandle={handle}
+                  projectManagerHandle={handle}
                   readOnly={readOnly}
                   onDismiss={retainSignal}
                 />
               ) : (
-                <OperatorSignalCard
+                <ProjectManagerSignalCard
                   signal={entry.signals[0]!}
                   message={null}
-                  operatorHandle={handle}
+                  projectManagerHandle={handle}
                   readOnly={readOnly}
                   onDismiss={retainSignal}
                 />
@@ -390,7 +393,7 @@ export function OperatorThread({
       )}
       {anchors.trailing.map((request) => (
         <div key={request.id} className={styles.extra}>
-          <OperatorSteps request={request} titles={titles} />
+          <ProjectManagerSteps request={request} titles={titles} />
         </div>
       ))}
       {failed ? (

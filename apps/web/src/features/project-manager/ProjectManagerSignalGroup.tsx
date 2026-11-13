@@ -9,19 +9,19 @@ import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { SignalRow } from './OperatorSignalList';
-import styles from './OperatorSignalCard.module.css';
+import { SignalRow } from './ProjectManagerSignalList';
+import styles from './ProjectManagerSignalCard.module.css';
 
 /** Consecutive signals without a presenting message, with decisions scoped to this group. */
-export function OperatorSignalGroup({
+export function ProjectManagerSignalGroup({
   signals,
-  operatorHandle,
+  projectManagerHandle,
   readOnly,
   onDismiss,
   onResize,
 }: {
   signals: ProjectManagerSignal[];
-  operatorHandle: string;
+  projectManagerHandle: string;
   readOnly: boolean;
   onDismiss: (id: string) => void;
   onResize?: () => void;
@@ -208,7 +208,7 @@ export function OperatorSignalGroup({
               key={signal.id}
               signal={signal}
               time={formatTime(signal.raisedAt)}
-              operatorHandle={operatorHandle}
+              projectManagerHandle={projectManagerHandle}
               readOnly={readOnly}
               disabled={busy}
               onDecide={() => {

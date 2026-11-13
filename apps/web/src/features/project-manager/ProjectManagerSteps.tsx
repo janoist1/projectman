@@ -11,10 +11,13 @@ import { t } from '../../i18n/t';
 import { codeMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import { TaskChip } from '../messages/TaskChip';
-import { useOperatorDecision } from './OperatorApproval';
-import { OperatorChanges } from './OperatorChanges';
-import { OperatorKnowledgeBody, OperatorKnowledgeActions } from './OperatorKnowledgeApproval';
-import styles from './OperatorSteps.module.css';
+import { useProjectManagerDecision } from './ProjectManagerApproval';
+import { ProjectManagerChanges } from './ProjectManagerChanges';
+import {
+  ProjectManagerKnowledgeBody,
+  ProjectManagerKnowledgeActions,
+} from './ProjectManagerKnowledgeApproval';
+import styles from './ProjectManagerSteps.module.css';
 
 type Group = 'done' | 'queued' | 'awaiting' | 'refused';
 
@@ -103,7 +106,7 @@ function StepRow({
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
-  const decision = useOperatorDecision();
+  const decision = useProjectManagerDecision();
   const group = GROUP_OF[step.status];
   const knowledge =
     inboxItem && inboxItem.state === 'open' ? projectManagerKnowledgeApprovalOf(inboxItem) : null;
@@ -131,13 +134,13 @@ function StepRow({
         </div>
         {group === 'done' && step.changes.length > 0 ? (
           <div className={styles.doneChanges}>
-            <OperatorChanges changes={step.changes} />
+            <ProjectManagerChanges changes={step.changes} />
           </div>
         ) : null}
         {inboxItem && knowledge ? (
           <div className={styles.approval}>
-            <OperatorKnowledgeBody payload={knowledge} stale={decision.staleFor(inboxItem)} />
-            <OperatorKnowledgeActions
+            <ProjectManagerKnowledgeBody payload={knowledge} stale={decision.staleFor(inboxItem)} />
+            <ProjectManagerKnowledgeActions
               item={inboxItem}
               payload={knowledge}
               pending={decision.pending(inboxItem)}
@@ -156,7 +159,7 @@ function StepRow({
  * its steps, in three groups. A step that waits for approval shows the proposal inline, when its inbox item is the
  * viewer's to decide.
  */
-export function OperatorSteps({
+export function ProjectManagerSteps({
   request,
   titles,
 }: {

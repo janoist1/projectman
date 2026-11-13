@@ -4,7 +4,7 @@ import { Fold } from '../../components/Fold';
 import { Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
 
-export function OperatorHandoff({ handoff, cardHref }: { handoff: Handoff; cardHref: string | null }) {
+export function ProjectManagerHandoffView({ handoff, cardHref }: { handoff: Handoff; cardHref: string | null }) {
   return (
     <div>
       <p>

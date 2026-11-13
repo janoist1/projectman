@@ -8,7 +8,7 @@ import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from '../board/TaskDrawer';
-import { OperatorPanel } from './OperatorPanel';
+import { ProjectManagerPanel } from './ProjectManagerPanel';
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -43,13 +43,13 @@ function setup(drawer = false) {
           element={
             <>
               <TaskDrawer />
-              <OperatorPanel returnFocusTo={{ current: null }} />
+              <ProjectManagerPanel returnFocusTo={{ current: null }} />
             </>
           }
         />
       </Routes>
     ) : (
-      <OperatorPanel returnFocusTo={{ current: null }} />
+      <ProjectManagerPanel returnFocusTo={{ current: null }} />
     ),
     drawer ? '/p/AC/tasks/AC-20/attachments' : '/',
   );
@@ -218,7 +218,7 @@ describe('Operator message attachments', () => {
     const pdf = seed(project, 'report.pdf', 'application/pdf');
     const other = seed(project, 'data.csv', 'text/csv');
     sentMessage(project, [...images, pdf, other]);
-    project.render(<OperatorPanel returnFocusTo={{ current: null }} />);
+    project.render(<ProjectManagerPanel returnFocusTo={{ current: null }} />);
     const more = await screen.findByRole('button', {
       name: t('messageAttachments.moreLabel', { count: 2, fileName: 'image-3.png' }),
     });
@@ -262,7 +262,7 @@ describe('Operator message attachments', () => {
     const project = mockProject();
     const attachment = seed(project, 'screen.png');
     const message = sentMessage(project, [attachment]);
-    const { client } = project.render(<OperatorPanel returnFocusTo={{ current: null }} />);
+    const { client } = project.render(<ProjectManagerPanel returnFocusTo={{ current: null }} />);
     fireEvent.click(
       await screen.findByRole('button', { name: t('attachments.previewLabel', { fileName: 'screen.png' }) }),
     );
@@ -353,7 +353,7 @@ describe('Operator message attachments', () => {
     );
     project.backend.viewerHandle = 'kata';
     project.backend.config.team.contacts = ['pm'];
-    project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/', {
+    project.render(<ProjectManagerPanel returnFocusTo={{ current: null }} />, '/', {
       myHandle: 'kata',
       isOwner: false,
       me: {

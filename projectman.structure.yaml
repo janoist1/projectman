@@ -502,12 +502,12 @@ modules:
     summary: A böngészőértesítések oldala (eszközök, tételfajták, csendes órák) és a Postafiók bekapcsoló sávja.
     paths:
       - apps/web/src/features/notifications/
-  - id: web/operator
+  - id: web/project-manager
     area: ui
-    name: Operátor
-    summary: Az Operátor beszélgetése, jelzései és kérései.
+    name: Projektmenedzser
+    summary: A projektmenedzser beszélgetése, jelzései és kérései.
     paths:
-      - apps/web/src/features/operator/
+      - apps/web/src/features/project-manager/
   - id: web/owner-onboarding
     area: ui
     name: Új tulajdonos indulása

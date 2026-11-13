@@ -43,19 +43,19 @@ export interface ProjectContextValue {
   /** Opens the details of the open pause in its bar, where it can be resumed (PM-429). */
   openPauseDetails: () => void;
   /** Whether the Operator's conversation panel is open (PM-429, PM-447). */
-  operatorOpen: boolean;
+  projectManagerOpen: boolean;
   /** Opens the panel; `trigger` is the control the focus returns to when it closes. */
-  openOperator: (trigger?: HTMLElement | null, prefill?: string, options?: { checklist: true }) => void;
-  operatorChecklistRequest?: { id: number; focus: boolean; intro: boolean } | null;
-  operatorPrefill?: { text: string; id: number } | null;
-  closeOperator: () => void;
+  openProjectManager: (trigger?: HTMLElement | null, prefill?: string, options?: { checklist: true }) => void;
+  projectManagerChecklistRequest?: { id: number; focus: boolean; intro: boolean } | null;
+  projectManagerPrefill?: { text: string; id: number } | null;
+  closeProjectManager: () => void;
   /**
    * The message being written in the panel (PM-1297): it outlives the panel's subviews and its closing, and goes
    * with the project, so leaving for the work queues and coming back finds it.
    */
-  operatorDraft: { current: string };
+  projectManagerDraft: { current: string };
   /** Where the panel's conversation was scrolled to when it closed (PM-1305), so reopening finds the same place. */
-  operatorScroll: { current: { top: number; stick: boolean } | null };
+  projectManagerScroll: { current: { top: number; stick: boolean } | null };
   /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */
   openNewTask: (options?: { kind?: 'theme' }) => void;
   /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */

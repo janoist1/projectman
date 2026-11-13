@@ -15,7 +15,7 @@ export function isStaleError(error: unknown): boolean {
 }
 
 /** What the toast says after a knowledge approval was decided; dismissing a stale one says nothing. */
-export function operatorDecisionToast(item: InboxItem, optionId: string): string | null {
+export function projectManagerDecisionToast(item: InboxItem, optionId: string): string | null {
   const knowledge = projectManagerKnowledgeApprovalOf(item);
   if (optionId === 'approve' && knowledge)
     return t(
@@ -33,7 +33,7 @@ export function operatorDecisionToast(item: InboxItem, optionId: string): string
  * Deciding an Operator knowledge approval (PM-447) from the Operator's steps. Approve and reject say so in a toast;
  * a stale answer (409) is not a toast: `staleFor` makes the card show its stale bar.
  */
-export function useOperatorDecision() {
+export function useProjectManagerDecision() {
   const { key, myHandle } = useProject();
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
@@ -44,7 +44,7 @@ export function useOperatorDecision() {
         { item, body },
         {
           onSuccess: () => {
-            const text = operatorDecisionToast(item, body.optionId);
+            const text = projectManagerDecisionToast(item, body.optionId);
             if (text) toast.show(text, 'ok');
           },
           onError: (error) => {

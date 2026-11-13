@@ -473,16 +473,16 @@ export const api = {
       { schema: WorkQueueDetail },
     ),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
-  operatorKnowledge: (key: string) =>
+  projectManagerKnowledge: (key: string) =>
     apiRequest(routes.projectManagerKnowledge(key), { schema: ProjectManagerKnowledgeDocument }),
   /** The weekly owner question measure of the last eight weeks (PM-1192); the owner's own login only. */
   ownerQuestions: (key: string) =>
     apiRequest(`${routes.projectManagerOwnerQuestions(key)}?weeks=${OWNER_QUESTION_WEEKS_DEFAULT}`, {
       schema: OwnerQuestionsReport,
     }),
-  operatorPreferenceMe: (key: string) =>
+  projectManagerPreferenceMe: (key: string) =>
     apiRequest(routes.projectManagerPreferenceMe(key), { schema: ProjectManagerPreferenceDocument }),
-  operatorPreferences: (key: string) =>
+  projectManagerPreferences: (key: string) =>
     apiRequest<{ items: { handle: string; preference: ProjectManagerPreferenceDocument }[] }>(
       routes.projectManagerPreferences(key),
     ),

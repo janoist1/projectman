@@ -1106,6 +1106,7 @@ describe('projectman CLI (PM-765)', () => {
         const result = await connectWithAccess();
         expect(result.code).toBe(CLIENT_EXIT.auth);
         expect(result.stderr.join('')).toContain('credential_owner');
+        expect(result.stderr.join('')).toContain(path.join(configDir(), 'cloud'));
         expect(mode(configDir())).toBe(0o755);
         expect(fs.readdirSync(configDir())).toEqual(['cloud']);
         expect(fs.readdirSync(path.join(configDir(), 'cloud'))).toEqual([]);

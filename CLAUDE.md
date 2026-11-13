@@ -102,8 +102,9 @@ need no entry. Add web feature/top-level folders to YAML (`structure-map.test.ts
   (`npx vitest related <files> --run`) and `npm run typecheck -w <workspace>`. For central
   files (shared, server contracts/kernel/assembly/helpers, web locales/mocks), run changed
   behavior's test files instead of broad `related`. Never run the full suite; merge runs it.
-- `npm run handover-check` at root before hand-over/in fixes: nearest workspace tests,
-  typechecks, dead-code (`-- --dry-run` lists them). Fix new dead-code; never extend baseline.
+- Before hand-over and in fixes: commit, then `npm run handover-check` at root (the step names
+  it; the move into review needs its green result): nearest workspace tests, typechecks,
+  dead-code (`-- --dry-run` lists them). Fix new dead-code; never extend baseline.
   SQL/metadata migrations have no import edge; this selects schema tests.
 - Removed capabilities: search tests for retired tools, inbox kinds and route/file paths;
   run their boundary tests too (HTTP/string fixtures escape import selection).

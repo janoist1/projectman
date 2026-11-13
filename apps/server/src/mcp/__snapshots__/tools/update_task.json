@@ -71,6 +71,12 @@
           "maxLength": 500
         }
       },
+      "handover_check_exception": {
+        "description": "Why the hand-over check could not run on your committed work (e.g. the sandbox refused it). With stage_id the move into review goes on; alone it covers your current commit for the next hand-over or review round. Not for a failing check.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
       "reply_to": {
         "description": "Comment event id: reply to it.",
         "type": "string",

@@ -478,6 +478,8 @@ export interface TaskToolsHandler {
       note?: string;
       /** Non-blocking review remarks for a later card (PM-1351). */
       followUps?: string[];
+      /** PM-1380: why the repository's hand-over check could not run on the developer's commit. */
+      handoverCheckException?: string;
       /** PM-1290: the note answers this comment of the card. */
       replyTo?: string;
       title?: string;

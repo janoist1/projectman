@@ -407,6 +407,7 @@ export class TeamToolsService implements TeamToolsHandler {
       removeLabels?: string[];
       note?: string;
       followUps?: string[];
+      handoverCheckException?: string;
       replyTo?: string;
       title?: string;
       description?: string;

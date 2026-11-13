@@ -623,6 +623,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'workspace.ensure': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.status': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.sourceHead': ([key, branch]) => [{ ...key, project: bind(key.project, key.repoName) }, branch],
+    'workspace.handoverCheck': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.fetchBase': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.prepareDependencies': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.findTaskBranch': ([key, taskKey, ref]) => [

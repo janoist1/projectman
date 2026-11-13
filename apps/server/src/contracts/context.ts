@@ -6,6 +6,7 @@ import type {
   AiMemberConfig,
   Attachment,
   DocumentSummary,
+  HandoverCheckRead,
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
@@ -552,6 +553,12 @@ export interface MemberWorkspaceManager {
    * null when the workspace lacks the branch.
    */
   sourceHead(key: MemberWorkspaceKey, branch: string): Promise<SourceHead | null>;
+  /**
+   * The result the workspace's hand-over check left behind (PM-1380, `HANDOVER_CHECK_RECORD_PATH` under the
+   * workspace's git directory); null when there is none, or it is unreadable or not a record; `'unsupported'`
+   * when the engine is older than the method (only a remote engine answers so).
+   */
+  handoverCheck(key: MemberWorkspaceKey): Promise<HandoverCheckRead>;
   /**
    * Fetches the default branch fresh (the project repository's `origin` first, when it has one)
    * and returns its commit; `workspace_fetch_failed` when a fetch fails.

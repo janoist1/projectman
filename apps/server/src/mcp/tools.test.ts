@@ -338,6 +338,17 @@ describe('tool audience', () => {
       },
     );
 
+    it.each([
+      { duties: [] as const, visible: false },
+      { duties: ['implementation'] as const, visible: true },
+    ])(
+      'lists handover_check_exception of update_task only for implementers ($duties)',
+      async ({ duties, visible }) => {
+        const fields = await propertiesOf({ ...developerAudience, duties: new Set(duties) }, 'update_task');
+        expect(fields.includes('handover_check_exception')).toBe(visible);
+      },
+    );
+
     it('shows the fields and the narrow tools each audience gets in a snapshot', async () => {
       const audiences = {
         developer: developerAudience,

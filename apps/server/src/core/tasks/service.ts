@@ -98,6 +98,7 @@ import { seniorWaitDecisionFor } from './senior-decision';
 import { planComplexity } from './complexity';
 import type { ComplexityChange } from './complexity';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
+import type { HandoverCheckReader } from './handover-check';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type {
   MergeGate,
@@ -165,6 +166,11 @@ interface TaskUpdate {
   /** A comment for the timeline; with a label change it is the labels' comment. */
   note?: string;
   followUps?: string[];
+  /**
+   * PM-1380: why the repository's hand-over check could not run on the committed work. With a stage move into review
+   * the move goes on; alone it covers the commit checked out. MCP only.
+   */
+  handoverCheckException?: string;
   /** PM-1290: the note is a reply to this comment of the card (it then needs a note and no label change). */
   replyTo?: string;
   stageId?: string;
@@ -225,6 +231,8 @@ export class TaskService implements TaskSchedulingReader {
     startOffer?: (task: Task) => TaskStartOffer | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    /** The hand-over check's result in the developer's workspace (PM-1380). */
+    handoverCheck: HandoverCheckReader;
     changedFiles: ChangedFilesReader;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
     /** The fix round limit hold on a card (PM-262), shown on it. */
@@ -247,6 +255,7 @@ export class TaskService implements TaskSchedulingReader {
       labels: this.labels,
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
+      handoverCheck: deps.handoverCheck,
       changedFiles: deps.changedFiles,
       order: this.order,
       notifyHandOn: deps.notifyHandOn,
@@ -544,6 +553,14 @@ export class TaskService implements TaskSchedulingReader {
           ...(change.assignee !== undefined ? { assignee: change.assignee } : {}),
         },
         change.stageId,
+        change.handoverCheckException,
+      );
+    } else if (change.handoverCheckException !== undefined) {
+      await this.moves.recordHandoverCheckException(
+        config,
+        this.get(projectKey, taskKey),
+        change.handoverCheckException,
+        actor,
       );
     }
     const result = this.ctx.unitOfWork(() =>

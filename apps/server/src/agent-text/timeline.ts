@@ -93,6 +93,8 @@ export function describeEvent(
       const why = text('note') ? `: ${text('note')}` : '';
       return (text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it') + why;
     }
+    case 'handover_check_exception':
+      return `handed over commit ${text('commit')?.slice(0, 12) ?? '?'} without a green hand-over check: ${oneLine(text('reason') ?? '', textLimit)}`;
     case 'review_follow_ups':
       return `left follow-ups for a later card${text('label') ? ` (${text('label')})` : ''}: ${oneLine(
         list('items')

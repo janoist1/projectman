@@ -50,11 +50,13 @@ import type { SourceHead, TaskSchedulingQuery } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../base';
 import { requireHuman } from '../members';
-import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../../kernel';
+import { conflict, DomainError, invalid, projectManagerMoveRefused, themeRefused } from '../../kernel';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
 import { actorHandle, attributedActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { BoardOrder } from './board-order';
+import { assertHandoverCheck, handoverCheckOf } from './handover-check';
+import type { HandoverCheckException, HandoverCheckReader } from './handover-check';
 import type { TaskLabels } from './labels';
 import { prerequisiteCards } from './scheduling-context';
 import { requireStage, runEffects } from './store';
@@ -121,9 +123,14 @@ export interface Handover {
   /** Whose head it is: the stage and assignee the task had when it was read. A move of a card that changed since is refused. */
   stageId: string;
   assignee: string | null;
+  /** The developer gave a reason for a commit without a green hand-over check (PM-1380); the move records it. */
+  exception?: HandoverCheckException;
   /** The files the head changes, read only when the target stage's small-card rule needs them (PM-1378); null: unreadable. */
   changed?: ChangedFiles;
 }
+
+/** Why a hand-over was refused before the approver's decision could carry it out. */
+type HandoverRefusal = 'handover_uncommitted' | 'handover_check_missing';
 
 /** What `prepareMove` read before the unit of work. */
 export interface PreparedMove {
@@ -217,6 +224,7 @@ export class TaskMoves {
   private readonly labels: TaskLabels;
   private readonly inbox: InboxService;
   private readonly sourceHead: SourceHeadReader;
+  private readonly handoverCheck: HandoverCheckReader;
   private readonly changedFiles: ChangedFilesReader;
   private readonly order: BoardOrder;
   private readonly notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
@@ -226,6 +234,7 @@ export class TaskMoves {
     labels: TaskLabels;
     inbox: InboxService;
     sourceHead: SourceHeadReader;
+    handoverCheck: HandoverCheckReader;
     changedFiles: ChangedFilesReader;
     order: BoardOrder;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
@@ -236,6 +245,7 @@ export class TaskMoves {
     this.labels = deps.labels;
     this.inbox = deps.inbox;
     this.sourceHead = deps.sourceHead;
+    this.handoverCheck = deps.handoverCheck;
     this.changedFiles = deps.changedFiles;
     this.inbox.registerDecider('hand_on', async (item, by) => {
       const request = handOnRequestOf(item)!;
@@ -310,7 +320,12 @@ export class TaskMoves {
    * reviewers only ever see committed work. The hand-over is null for any other move, and for a task
    * without a repository or a branch.
    */
-  async prepareMove(config: ProjectConfig, task: Task, stageId: string): Promise<PreparedMove> {
+  async prepareMove(
+    config: ProjectConfig,
+    task: Task,
+    stageId: string,
+    handoverCheckException?: string,
+  ): Promise<PreparedMove> {
     assertIntegratorAccess(config, 'write');
     const target = stageOf(config, stageId);
     if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task))
@@ -332,7 +347,14 @@ export class TaskMoves {
       await this.mergeGate.checkGate(config, task, target.id);
       mergeChecked = true;
     }
-    return { handover: await this.readHandover(config, task, target), mergeChecked };
+    return { handover: await this.readHandover(config, task, target, handoverCheckException), mergeChecked };
+  }
+
+  /** The commits a developer gave a reason for instead of a green hand-over check (PM-1380). */
+  private exceptionCommits(task: Task): string[] {
+    return this.store.ctx.repos.timeline
+      .listOfTypes(task.projectKey, task.key, ['handover_check_exception'], 50)
+      .flatMap((event) => (typeof event.data.commit === 'string' ? [event.data.commit] : []));
   }
 
   /**
@@ -390,7 +412,12 @@ export class TaskMoves {
     return canSkipCollectingMerge(waiver, collectingSourceStateOf(task, evidence));
   }
 
-  private async readHandover(config: ProjectConfig, task: Task, target: Stage): Promise<Handover | null> {
+  private async readHandover(
+    config: ProjectConfig,
+    task: Task,
+    target: Stage,
+    handoverCheckException?: string,
+  ): Promise<Handover | null> {
     if (!stageHandsOverForReview(config, target)) return null;
     // A card with no source here has no hand-over; a card whose engine cannot be reached is refused
     // (`engine_offline`), not handed over with no pin that nothing could tell from "no source".
@@ -408,11 +435,64 @@ export class TaskMoves {
           changes: head.changes,
         },
       );
-    const handover: Handover = { head, stageId: task.stageId, assignee: task.assignee ?? null };
+    const exception = await assertHandoverCheck({
+      config,
+      task,
+      head,
+      what: `enter ${target.name}`,
+      stageId: target.id,
+      read: this.handoverCheck,
+      exceptionCommits: (t) => this.exceptionCommits(t),
+      reason: handoverCheckException,
+    });
+    const handover: Handover = {
+      head,
+      stageId: task.stageId,
+      assignee: task.assignee ?? null,
+      ...(exception ? { exception } : {}),
+    };
     // A read that fails never stops the move: the card goes to the stage's main owners (PM-1378).
     if (needsChangedFiles(config, target, task))
       handover.changed = await this.changedFiles(config, task, head.commit).catch(() => null);
     return handover;
+  }
+
+  /**
+   * The developer's reason for a commit the hand-over check could not run on (PM-1380), recorded on its own:
+   * the next hand-over of that commit passes. The head is read strictly, and only a clean, committed head counts.
+   */
+  async recordHandoverCheckException(
+    config: ProjectConfig,
+    task: Task,
+    reason: string,
+    actor: Actor,
+  ): Promise<void> {
+    if (!handoverCheckOf(config, task))
+      throw invalid('invalid_request', `task ${task.key}: this repository has no hand-over check`);
+    const head = await this.sourceHead(config, task, { strict: true });
+    if (!head)
+      throw invalid('invalid_request', `task ${task.key} has no branch whose commit the reason could cover`);
+    if (head.dirty)
+      throw conflict(
+        'handover_uncommitted',
+        `task ${task.key}: ${head.path} has ${head.changes} uncommitted ${head.changes === 1 ? 'change' : 'changes'} on ${head.branch}; commit them first, the reason covers a commit`,
+        {
+          taskKey: task.key,
+          stageId: task.stageId,
+          path: head.path,
+          branch: head.branch,
+          changes: head.changes,
+        },
+      );
+    this.store.ctx.unitOfWork(() => {
+      this.store.timeline.append({
+        projectKey: task.projectKey,
+        taskKey: task.key,
+        actor,
+        type: 'handover_check_exception',
+        data: { commit: head.commit, reason },
+      });
+    });
   }
 
   /**
@@ -427,6 +507,16 @@ export class TaskMoves {
     // Strict: an engine that is not connected is `engine_offline`, not a head that did not move.
     const head = await this.sourceHead(config, task, { strict: true });
     if (!head || head.commit === pin.commit) return;
+    // A new review round needs the same green hand-over check as the move into review (PM-1380).
+    await assertHandoverCheck({
+      config,
+      task,
+      head,
+      what: 'start a new review round',
+      stageId: task.stageId,
+      read: this.handoverCheck,
+      exceptionCommits: (t) => this.exceptionCommits(t),
+    });
     const stage = stageOf(config, task.stageId);
     const changed =
       task.stageOwnerPick?.stageId === stage?.id &&
@@ -529,6 +619,15 @@ export class TaskMoves {
     if (handover && (task.stageId !== handover.stageId || (task.assignee ?? null) !== handover.assignee))
       throw conflict('board_stale', `${task.key} changed while its hand-over was read`, {
         taskKey: task.key,
+      });
+    // The reason for a commit without a green hand-over check is recorded with the move, in the same unit of work (PM-1380).
+    if (handover?.exception)
+      this.store.timeline.append({
+        projectKey: task.projectKey,
+        taskKey: task.key,
+        actor,
+        type: 'handover_check_exception',
+        data: handover.exception,
       });
     // A decision may have closed while this system move was preparing. Its human handler owns
     // the approval labels and move; do not open a replacement request during that async work.
@@ -729,7 +828,7 @@ export class TaskMoves {
     const config = await this.store.projects.config(item.projectKey);
     // An approved move into a review or test stage hands the branch over like any other (PM-183).
     let prepared: PreparedMove = { handover: null, mergeChecked: false };
-    let refused = false;
+    let refused: HandoverRefusal | null = null;
     let mergeMissing = false;
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (
@@ -751,7 +850,8 @@ export class TaskMoves {
       } catch (err) {
         if (!(err instanceof DomainError)) throw err;
         if (err.code === 'task_not_merged') mergeMissing = true;
-        else if (err.code === 'handover_uncommitted') refused = true;
+        else if (err.code === 'handover_uncommitted' || err.code === 'handover_check_missing')
+          refused = err.code;
         else throw err;
       }
     }
@@ -779,7 +879,7 @@ export class TaskMoves {
     gate: GateRequestPayload,
     actor: Actor,
     effects: Effect[],
-    handed: PreparedMove & { refused: boolean; mergeMissing: boolean },
+    handed: PreparedMove & { refused: HandoverRefusal | null; mergeMissing: boolean },
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
@@ -802,8 +902,8 @@ export class TaskMoves {
       return;
     }
     if (handed.refused) {
-      // Uncommitted work in the developer's working directory: the approved move does not happen.
-      this.settleWaiting(task, actor, { gateBlocked: { to: target.id, reason: 'handover_uncommitted' } });
+      // Uncommitted work or no green hand-over check on the developer's commit: the approved move does not happen.
+      this.settleWaiting(task, actor, { gateBlocked: { to: target.id, reason: handed.refused } });
       return;
     }
     // Approving puts each requested human-only label on the task in the approver's name.

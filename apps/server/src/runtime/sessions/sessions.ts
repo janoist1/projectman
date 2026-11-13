@@ -42,6 +42,7 @@ import type {
   ChatItem,
   EngineId,
   HandoffSummary,
+  HandoverCheckRead,
   MemberConfig,
   MemberContextPreview,
   MemberHandle,
@@ -809,6 +810,19 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
       return null;
     }
+  }
+
+  /**
+   * The result the task's hand-over check left in the developer's workspace (PM-1380), read from the engine the
+   * card runs on, like the strict `sourceHead`: a missing engine is `engine_offline`. Null when there is no
+   * member workspace to read (the older task worktree path) or no record; `'unsupported'` for an older engine.
+   */
+  async handoverCheck(config: ProjectConfig, task: Task): Promise<HandoverCheckRead> {
+    if (!effectiveRepo(config, task)) return null;
+    const engineId = this.cardEngineId(config.project.key, task);
+    if (!this.deps.engines.get(engineId))
+      throw conflict('engine_offline', 'the card engine is not connected', { engine: engineId });
+    return (await this.workspacesOf(engineId)?.handoverCheck(config, task)) ?? null;
   }
 
   /**

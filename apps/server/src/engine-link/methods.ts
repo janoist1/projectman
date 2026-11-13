@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TaskKey } from '@projectman/shared';
+import { HandoverCheckRecord, TaskKey } from '@projectman/shared';
 import {
   AgentProvider,
   COMPUTE_JOB_COMMAND_MAX,
@@ -522,6 +522,8 @@ const workspaces = {
     }),
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
+  // Its own method and not a field of `head`: the head schema is strict, so a newer engine's extra field would fail an older hub's sourceHead.
+  handoverCheck: method(z.tuple([key]), HandoverCheckRecord.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
   prepareDependencies: method(
     z.tuple([key]),
@@ -626,6 +628,7 @@ export const methods = {
   'workspace.ensure': workspaces.ensure,
   'workspace.status': workspaces.status,
   'workspace.sourceHead': workspaces.sourceHead,
+  'workspace.handoverCheck': workspaces.handoverCheck,
   'workspace.fetchBase': workspaces.fetchBase,
   'workspace.prepareDependencies': workspaces.prepareDependencies,
   'workspace.findTaskBranch': workspaces.findTaskBranch,

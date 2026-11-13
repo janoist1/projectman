@@ -45,6 +45,7 @@ export function heldReason(
         return merger ? t('task.merge.refused.group', { merger }) : t('board.groupMove.reason.notMerged');
       }
       if (item.code === 'handover_uncommitted') return t('board.groupMove.reason.uncommitted');
+      if (item.code === 'handover_check_missing') return t('board.groupMove.reason.handoverCheck');
       if (item.code === 'no_approver') {
         const label = item.approvals[0]?.label;
         return label

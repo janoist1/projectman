@@ -82,6 +82,7 @@ export const TimelineEventType = z.enum([
   'task_check_changed',
   'task_labels_changed',
   'review_follow_ups',
+  'handover_check_exception',
   'acceptance_item_changed',
   'task_link_added',
   'task_relation_added',
@@ -187,6 +188,11 @@ export interface CommentRevision {
 export interface TimelineEventData {
   /** Non-blocking remarks for a later card; the actor is the reviewer (PM-1351). */
   review_follow_ups: { items: string[]; label?: string };
+  /**
+   * The developer gave a reason why the repository's hand-over check could not run on `commit` (PM-1380, sandbox:
+   * exit 78, a local port, a pseudo-terminal); the actor is the developer. The gate accepts that commit without a green result.
+   */
+  handover_check_exception: { commit: string; reason: string };
   /** The project manager opened a request to the instance's host (PM-1064); on the card when it names one. */
   host_request_opened: { requestId: string; title: string };
   /** The host answered or declined a request (PM-1064); the actor is the system, the answer text stays out. */

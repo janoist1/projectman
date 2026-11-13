@@ -153,6 +153,8 @@ export const ERROR_CODES = [
   'hand_on_requested',
   'handle_taken',
   'handoff_not_open',
+  // The repository's hand-over check has no green result on the handed-over commit (PM-1380)
+  'handover_check_missing',
   // The handed-over work has uncommitted changes (PM-183)
   'handover_uncommitted',
   // The document copy changed since the search that named the commit; search again (409).

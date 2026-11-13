@@ -93,6 +93,7 @@ export * from './domain/fix-limit';
 export * from './domain/full-test';
 export * from './domain/github-refs';
 export * from './domain/handoff';
+export * from './domain/handover-check';
 export * from './domain/history';
 export * from './domain/host-request';
 export * from './domain/inbox';

@@ -407,6 +407,16 @@ export const HeavyChecks = z.object({
 export type HeavyChecks = z.infer<typeof HeavyChecks>;
 
 /**
+ * The repository's hand-over check (PM-1380): the command a developer runs in the workspace before the card
+ * enters review. It must write the result record of `domain/handover-check.ts` (`HandoverCheckRecord`, to
+ * `HANDOVER_CHECK_RECORD_PATH` under the workspace's git directory); the server never runs it, it reads the record.
+ */
+export const HandoverCheckConfig = z.object({
+  command: z.string().trim().min(1).max(500),
+});
+export type HandoverCheckConfig = z.infer<typeof HandoverCheckConfig>;
+
+/**
  * How a repository takes screenshots for the members whose own sandbox cannot start a browser (PM-1353).
  * Absent: the repository has none, and the screenshot tools are not offered.
  */
@@ -423,6 +433,8 @@ export const RepoConfig = z.object({
   heavyChecks: HeavyChecks.optional(),
   /** The screenshot command of the repository (PM-1353); absent: the repository takes none. */
   screenshots: ScreenshotsConfig.optional(),
+  /** Absent: no hand-over gate (the default). Set: the move into review needs the check's green result (PM-1380). */
+  handoverCheck: HandoverCheckConfig.optional(),
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** Path relative to the workspace root ("." for the root itself). */

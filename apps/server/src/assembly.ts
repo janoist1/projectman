@@ -684,6 +684,7 @@ export function createDomain(opts: DomainOptions) {
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
+    handoverCheck: (config, task) => sessions.handoverCheck(config, task),
     changedFiles: (config, task, commit) => sessions.changedFiles(config, task, commit),
     notifyHandOn: async (config, task, request) => {
       const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);

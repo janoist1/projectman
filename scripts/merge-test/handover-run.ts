@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { HANDOVER_CHECK_RECORD_PATH, type HandoverCheckRecord } from '@projectman/shared';
 import { readGitTree, runGit } from './git-tree';
 import { handoverSelection, PROXIMITIES } from './handover';
 import type { HandoverSelection, Proximity } from './handover';
@@ -31,6 +32,32 @@ interface HandoverIo {
   deadCode?: () => Promise<StepRun>;
   /** Runs `npm <args>`. */
   npm?: (args: string[]) => Promise<StepRun>;
+  /** Writes the result record where the server reads it (PM-1380); throws when it cannot. */
+  writeRecord?: (record: HandoverCheckRecord) => void;
+  /** The time now. */
+  now?: () => Date;
+}
+
+/** The commit and cleanliness of the work tree at one moment of the run (PM-1380). */
+interface TreeState {
+  commit: string;
+  clean: boolean;
+}
+
+function treeState(git: (args: string[]) => string): TreeState {
+  return {
+    commit: git(['rev-parse', 'HEAD']).trim(),
+    clean: git(['status', '--porcelain', '--untracked-files=normal']).trim() === '',
+  };
+}
+
+/** Writes the record atomically (temp file and rename) to the git-path the server's reader resolves the same way. */
+function writeRecordFile(git: (args: string[]) => string, record: HandoverCheckRecord): void {
+  const path = resolve(git(['rev-parse', '--git-path', HANDOVER_CHECK_RECORD_PATH]).trim());
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(record)}\n`);
+  renameSync(temp, path);
 }
 
 function parseArgs(argv: readonly string[]): { base?: string; dryRun: boolean } | { error: string } {
@@ -153,22 +180,55 @@ export async function runHandoverCheck(argv: readonly string[], io: HandoverIo =
     for (const line of footer(selection)) console.log(line);
     return 0;
   }
+  const now = io.now ?? (() => new Date());
+  const startedAt = now().toISOString();
+  let before: TreeState | null = null;
   try {
-    const checked = await (io.deadCode ?? (() => runNpm(['run', 'dead-code'])))();
-    if (checked.signaled || checked.code !== 0) return 1;
-    // The working tree is no commit, so there is no step cache and no rerun of a failed file.
-    const code = await runSteps(list, {
-      spawn: io.npm ?? runNpm,
-      changed: null,
-      tree: '',
-      noCache: true,
-      log: (text) => console.log(text),
-    });
-    return code === 0 ? 0 : 1;
+    before = treeState(git);
   } catch (error) {
-    console.error(`handover-check: ${error instanceof Error ? error.message : String(error)}`);
-    return 1;
-  } finally {
-    for (const line of footer(selection)) console.log(line);
+    console.error(
+      `handover-check: no result record: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+  const run = async (): Promise<number> => {
+    try {
+      const checked = await (io.deadCode ?? (() => runNpm(['run', 'dead-code'])))();
+      if (checked.signaled || checked.code !== 0) return 1;
+      // The working tree is no commit, so there is no step cache and no rerun of a failed file.
+      const code = await runSteps(list, {
+        spawn: io.npm ?? runNpm,
+        changed: null,
+        tree: '',
+        noCache: true,
+        log: (text) => console.log(text),
+      });
+      return code === 0 ? 0 : 1;
+    } catch (error) {
+      console.error(`handover-check: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+  };
+  const exitCode = await run();
+  // The result the server reads (PM-1380); a record that cannot be written changes neither the output nor the exit code.
+  if (before) {
+    try {
+      const after = treeState(git);
+      (io.writeRecord ?? ((record) => writeRecordFile(git, record)))({
+        version: 1,
+        commit: before.commit,
+        clean: before.clean && after.clean && after.commit === before.commit,
+        outcome: exitCode === 0 ? 'passed' : 'failed',
+        exitCode,
+        startedAt,
+        finishedAt: now().toISOString(),
+        summary: header(selection, count).slice(0, 500),
+      });
+    } catch (error) {
+      console.error(
+        `handover-check: the result record was not written: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  for (const line of footer(selection)) console.log(line);
+  return exitCode;
 }

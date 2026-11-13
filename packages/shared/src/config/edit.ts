@@ -11,6 +11,7 @@ import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
 import type { RuleReasons } from './schema';
 import {
   AutoCompactWindowTokens,
+  HandoverCheckConfig,
   HeavyChecks,
   ContactHandles,
   MaxConcurrentAi,
@@ -116,6 +117,11 @@ export const PatchConfigRequest = z
     /** Repository-specific prompt conventions; null removes the setting (PM-1112). */
     repoHeavyChecks: z
       .array(z.object({ repo: z.string(), heavyChecks: HeavyChecks.nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Per repository: the hand-over check the move into review needs (`handoverCheck`, PM-1380); null removes it. */
+    repoHandoverCheck: z
+      .array(z.object({ repo: z.string(), handoverCheck: HandoverCheckConfig.nullable() }).strict())
       .max(20)
       .optional(),
     /** Per repository: the screenshot command the server runs (`screenshots`, PM-1353); null removes it. Owner-only (`review_test`). */
@@ -224,8 +230,8 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoScreenshots`, `repoReviewTest`, `repoFullTestAtMerge` or
- * `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoHandoverCheck`, `repoScreenshots`, `repoReviewTest`,
+ * `repoFullTestAtMerge` or `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
   config: Pick<ProjectConfig, 'project'>,
@@ -236,6 +242,7 @@ export function unknownPatchRepo(
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoHandoverCheck?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoScreenshots?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
@@ -280,6 +287,9 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
   const repoHeavyChecks =
     patch.repoHeavyChecks && new Map(patch.repoHeavyChecks.map((e) => [e.repo, e.heavyChecks] as const));
+  const repoHandoverCheck =
+    patch.repoHandoverCheck &&
+    new Map(patch.repoHandoverCheck.map((e) => [e.repo, e.handoverCheck] as const));
   const repoScreenshots =
     patch.repoScreenshots && new Map(patch.repoScreenshots.map((e) => [e.repo, e.screenshots] as const));
   const repoReviewTest =
@@ -309,6 +319,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
         repoMerge ||
         repoDocs ||
         repoHeavyChecks ||
+        repoHandoverCheck ||
         repoScreenshots ||
         repoReviewTest ||
         repoFullTestAtMerge ||
@@ -330,6 +341,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
               if (heavyChecks !== undefined) {
                 const { heavyChecks: _previous, ...rest } = changed;
                 changed = heavyChecks === null ? rest : { ...rest, heavyChecks };
+              }
+              const handoverCheck = repoHandoverCheck?.get(repo.name);
+              if (handoverCheck !== undefined) {
+                const { handoverCheck: _previous, ...rest } = changed;
+                changed = handoverCheck === null ? rest : { ...rest, handoverCheck };
               }
               if (docs !== undefined) {
                 const { docs: _previous, ...rest } = changed;

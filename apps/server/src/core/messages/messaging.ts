@@ -372,11 +372,16 @@ export class Messaging {
       const fromAi = memberOf(config, from)?.kind === 'ai';
       // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
       // testers who were asked: that is a new round, not a branch that moved behind their back.
-      // It comes first: an offline engine (`engine_offline`) refuses the request before any round starts.
+      // It comes first: an offline engine (`engine_offline`) or a commit without a green hand-over check
+      // (`handover_check_missing`, PM-1380) refuses the request before any round starts.
       const stage = stageOf(config, task.stageId);
       if (stage && cardStageOwners(config, stage, task).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
-          if (err instanceof DomainError && err.code === 'engine_offline') throw err;
+          if (
+            err instanceof DomainError &&
+            (err.code === 'engine_offline' || err.code === 'handover_check_missing')
+          )
+            throw err;
           this.ctx.logger.warn({ err, taskKey }, 'could not pin the commit of the new review round');
         });
       const previousOwners = stage ? cardStageOwners(config, stage, task) : [];

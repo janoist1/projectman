@@ -61,6 +61,11 @@ export function errorMessage(error: unknown): string {
         if (typeof details.path === 'string' && typeof details.changes === 'number')
           return `${known} ${t('errors.handoverUncommitted', { path: details.path, count: details.changes })}`;
       }
+      if (error.code === 'handover_check_missing' && error.details && typeof error.details === 'object') {
+        const details = error.details as { command?: unknown; commit?: unknown };
+        if (typeof details.command === 'string' && typeof details.commit === 'string')
+          return `${known} ${t('errors.handoverCheckMissing', { command: details.command, commit: details.commit.slice(0, 7) })}`;
+      }
       return known;
     }
     if (error.code === 'invalid_response') return t('errors.invalidResponse');

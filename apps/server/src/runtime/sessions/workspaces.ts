@@ -10,7 +10,7 @@ import {
   stageOf,
   allStageOwners,
 } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Session, Task } from '@projectman/shared';
+import type { AiMemberConfig, HandoverCheckRead, ProjectConfig, Session, Task } from '@projectman/shared';
 import type {
   ProcessProbe,
   SessionCleanup,
@@ -361,6 +361,17 @@ export class MemberWorkspaces {
     if (!work?.binding.branch) return null;
     const key = { project: config, repoName: work.record.repo, member: work.record.member };
     return this.manager.sourceHead(key, work.binding.branch);
+  }
+
+  /** The result of the hand-over check in the developer's workspace of the task (PM-1380); null when nobody has worked on it here. */
+  async handoverCheck(config: ProjectConfig, task: Task): Promise<HandoverCheckRead> {
+    const work = this.workOf(config.project.key, task.key);
+    if (!work?.binding.branch) return null;
+    return this.manager.handoverCheck({
+      project: config,
+      repoName: work.record.repo,
+      member: work.record.member,
+    });
   }
 
   /**

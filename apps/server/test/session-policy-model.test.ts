@@ -201,7 +201,7 @@ describe('provider-neutral session policy', () => {
     ).toThrow(/file-changing duty/);
   });
   it.each(['codex', 'nanogpt'] as const)(
-    'renders the member cache and development data for %s sandboxed commands',
+    'renders the member cache, development data and sandbox test signal for %s commands',
     (provider) => {
       // A file-rule test: the closed network keeps the profile independent of the machine's platform.
       const p = development(false);
@@ -229,6 +229,7 @@ describe('provider-neutral session policy', () => {
       expect(c.get('shell_environment_policy.set.PROJECTMAN_HOME')).toBe(
         tomlValue(`${memberDir}/projectman-dev`),
       );
+      expect(c.get('shell_environment_policy.set.PROJECTMAN_SKIP_PTY_TESTS')).toBe(tomlValue('1'));
       expect(sandbox.allowWrite).toEqual(sandbox.portable!.allowWrite);
       expect(c.get('permissions.projectman')).not.toContain('/fictional/user/.npm');
       expect(c.has('shell_environment_policy.set.GIT_CONFIG_SYSTEM')).toBe(false);
@@ -276,7 +277,7 @@ describe('provider-neutral session policy', () => {
     const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
     expect(sandbox.portable).toEqual({
       allowWrite: [`${memberDir}/projectman-dev`],
-      env: { PROJECTMAN_HOME: `${memberDir}/projectman-dev` },
+      env: { PROJECTMAN_SKIP_PTY_TESTS: '1', PROJECTMAN_HOME: `${memberDir}/projectman-dev` },
     });
     expect(sessionSandbox(review(), { memberDir })!.portable).toBeUndefined();
     p.filesystem.deniedPaths = [memberDir];

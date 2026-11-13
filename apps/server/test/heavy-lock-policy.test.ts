@@ -41,7 +41,11 @@ describe('the heavy-run queue in the sandbox of a worktree session', () => {
     const sandbox = sessionSandbox(developer(), { ...paths, heavyLockDir })!;
     expect(sandbox.portable).toEqual({
       allowWrite: ['/fictional/tmp/projectman-501'],
-      env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir, npm_config_prefer_offline: 'true' },
+      env: {
+        PROJECTMAN_SKIP_PTY_TESTS: '1',
+        PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir,
+        npm_config_prefer_offline: 'true',
+      },
     });
   });
 
@@ -83,7 +87,11 @@ describe('the heavy-run queue in the sandbox of a reader', () => {
     const sandbox = sessionSandbox(reader(), { heavyLockDir })!;
     expect(sandbox.portable).toEqual({
       allowWrite: ['/fictional/tmp/projectman-501'],
-      env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir, npm_config_prefer_offline: 'true' },
+      env: {
+        PROJECTMAN_SKIP_PTY_TESTS: '1',
+        PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir,
+        npm_config_prefer_offline: 'true',
+      },
     });
   });
 

@@ -162,6 +162,7 @@ function portableShared(
       ...(own.sessionDir ? [own.sessionDir] : []),
     ],
     env: {
+      ...SANDBOX_PTY_ENV,
       ...heavy.env,
       ...Object.fromEntries((own.memberDirs ?? []).map((dir) => [dir.variable, dir.path])),
       ...(own.sessionDir ? { [SESSION_DIR_VARIABLE]: own.sessionDir } : {}),

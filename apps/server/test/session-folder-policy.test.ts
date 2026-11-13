@@ -137,6 +137,7 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
       expect(sandbox.portable).toEqual({
         allowWrite: ['/fictional/tmp/projectman-501', sessionDir],
         env: {
+          PROJECTMAN_SKIP_PTY_TESTS: '1',
           PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir,
           npm_config_prefer_offline: 'true',
           PROJECTMAN_SESSION_DIR: sessionDir,
@@ -151,11 +152,11 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     it('makes `portable` for a folder alone, and for a tmp alone', () => {
       expect(sessionSandbox(developer(), { ...paths, sessionDir })!.portable).toEqual({
         allowWrite: [sessionDir],
-        env: { PROJECTMAN_SESSION_DIR: sessionDir },
+        env: { PROJECTMAN_SKIP_PTY_TESTS: '1', PROJECTMAN_SESSION_DIR: sessionDir },
       });
       expect(sessionSandbox(developer(), { ...paths, tmpDir })!.portable).toEqual({
         allowWrite: [],
-        env: {},
+        env: { PROJECTMAN_SKIP_PTY_TESTS: '1' },
         tmpDir,
       });
     });
@@ -169,7 +170,11 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
       const sandbox = sessionSandbox(reader(), { sessionDir, browsersDir: browsers, tmpDir })!;
       expect(sandbox.portable).toEqual({
         allowWrite: [sessionDir],
-        env: { PROJECTMAN_SESSION_DIR: sessionDir, PLAYWRIGHT_BROWSERS_PATH: browsers },
+        env: {
+          PROJECTMAN_SKIP_PTY_TESTS: '1',
+          PROJECTMAN_SESSION_DIR: sessionDir,
+          PLAYWRIGHT_BROWSERS_PATH: browsers,
+        },
         tmpDir,
       });
       expect(sessionSandbox(reader(), { tmpDir: `${source}/tmp` })!.portable).toBeUndefined();

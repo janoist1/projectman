@@ -111,11 +111,24 @@ describe('merge-test file watchdog at the process boundary', () => {
     });
 
     it('prints no facts line by default, so the output stays as it was', async () => {
-      // A hand-over run that executes this test has the variable set for its own children.
-      vi.stubEnv(RUN_FACTS_VARIABLE, undefined);
       const run = await runNpm(refused(), { fileTimeoutMs: 20_000, forwardOutput: false });
       expect(run.code).not.toBe(0);
       expect(factsLines(run.output)).toEqual([]);
+    });
+
+    it('removes inherited run facts from the child environment when disabled', async () => {
+      vi.stubEnv(RUN_FACTS_VARIABLE, '1');
+      const vitest = resolve(import.meta.dirname, '../../../node_modules/vitest/dist/index.js');
+      const run = await runNpm(
+        fixture(
+          `import { test, expect } from ${JSON.stringify(vitest)};\n` +
+            `test("has no run facts variable", () => { expect(process.env).not.toHaveProperty(${JSON.stringify(RUN_FACTS_VARIABLE)}); });`,
+        ),
+        { fileTimeoutMs: 20_000, forwardOutput: false, runFacts: false },
+      );
+      expect(run).toMatchObject({ code: 0, signaled: false });
+      expect(factsLines(run.output)).toEqual([]);
+      expect(process.env[RUN_FACTS_VARIABLE]).toBe('1');
     });
   });
 });

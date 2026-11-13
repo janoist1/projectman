@@ -668,7 +668,11 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     allowWrite: memberDirs(),
     portable: {
       allowWrite: memberDirs(),
-      env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1] },
+      env: {
+        ...SANDBOX_PTY_ENV,
+        npm_config_cache: memberDirs()[0],
+        PROJECTMAN_HOME: memberDirs()[1],
+      },
     },
     env: {
       npm_config_cache: memberDirs()[0],

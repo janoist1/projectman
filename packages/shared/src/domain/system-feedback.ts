@@ -3,7 +3,7 @@ import type { HumanAccess } from './member';
 import { PROJECTMAN_REPOSITORY } from './upstream';
 
 /**
- * System feedback (PM-472): a gap in projectman the Operator found, recorded per installation. The host
+ * System feedback (PM-472): a gap in projectman the project manager found, recorded per installation. The host
  * turns it into a card or sends it to projectman's public GitHub repository. This is the shared contract
  * and the pure rules; nothing here reads the environment, a file or a secret store. The screen-mark
  * feedback of PM-506 lives in `feedback` and is unrelated.

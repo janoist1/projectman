@@ -1,4 +1,4 @@
-/** PM-517: attachment states in the real Operator UI, with controlled HTTP answers. */
+/** PM-517: attachment states in the real project manager UI, with controlled HTTP answers. */
 const WIDTHS = [1512, 390];
 
 export default async ({ instance, open, shoot, step }) => {
@@ -85,8 +85,8 @@ export default async ({ instance, open, shoot, step }) => {
     return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
   });
   const showPanel = async () => {
-    await page.getByRole('button', { name: /^Beszélgetés az Operátorral/ }).click();
-    await page.getByRole('textbox', { name: 'Üzenet az Operátornak' }).waitFor();
+    await page.getByRole('button', { name: /^Beszélgetés a projektmenedzserrel/ }).click();
+    await page.getByRole('textbox', { name: 'Üzenet a projektmenedzsernek' }).waitFor();
   };
   const reset = async () => {
     await page.reload();

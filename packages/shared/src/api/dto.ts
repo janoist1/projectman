@@ -143,9 +143,9 @@ export const ProjectManagerChannel = z.object({
 });
 export type ProjectManagerChannel = z.infer<typeof ProjectManagerChannel>;
 
-/* ---------- the Operator (PM-447, PM-463) ---------- */
+/* ---------- the project manager (PM-447, PM-463) ---------- */
 
-/** What the Operator did on an owner's request; one step per tool call. */
+/** What the project manager did on an owner's request; one step per tool call. */
 export const ProjectManagerAction = z.enum([
   'task_create',
   'task_update',
@@ -195,7 +195,7 @@ export const ProjectManagerStep = z.object({
   changes: z.array(ConfigChangeRow),
   configVersion: z.string().nullable(),
   inboxItemId: z.string().nullable(),
-  /** The system signal the Operator acted on without an owner's request (PM-545). */
+  /** The system signal the project manager acted on without an owner's request (PM-545). */
   signalId: z.string().nullable(),
   /** The super operation an `operation` step started on the shared path (PM-888). */
   operationId: z.string().nullable().optional(),
@@ -1491,7 +1491,7 @@ export const ConfigVersionEntry = z.object({
   request: z.string().optional(),
   approvedBy: MemberHandle.optional(),
   via: z.literal('integrator').optional(),
-  /** The full origin of a change made in the Operator's super mode (PM-757), read back from the commit trailers. */
+  /** The full origin of a change made in the connected Claude's super mode (PM-757), read back from the commit trailers. */
   actor: Actor.optional(),
   /** The audit entry that began this super-mode commit (PM-757): how a lost response is settled from the commit. */
   superAuditId: z.string().optional(),
@@ -1660,7 +1660,7 @@ export const AcceptInviteRequest = z.object({
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
 
-/* ---------- system feedback (PM-472): the Operator's findings about projectman itself ---------- */
+/* ---------- system feedback (PM-472): the project manager's findings about projectman itself ---------- */
 
 const SystemFeedbackOccurrence = z.object({ at: z.string(), version: z.string() });
 type SystemFeedbackOccurrence = z.infer<typeof SystemFeedbackOccurrence>;

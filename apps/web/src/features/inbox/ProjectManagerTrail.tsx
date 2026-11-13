@@ -56,7 +56,7 @@ function TrailRow({
 }
 
 /**
- * "Az Operátor intézte · ma N" (PM-556): a folded row of the questions the Operator settled with no person
+ * "A projektmenedzser intézte · ma N" (PM-556): a folded row of the questions the project manager settled with no person
  * involved, for owners and admins only. The list is read when the row opens; the count is read with the page.
  */
 export function ProjectManagerTrail({

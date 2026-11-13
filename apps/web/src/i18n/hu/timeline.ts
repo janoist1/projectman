@@ -316,7 +316,7 @@ export const timeline = {
     question_answered: 'Válasz: {answer}',
     question_answered_grouped: 'Válasz a közös kérdésre: {answer}',
     question_grouped: 'Közös kérdésbe vonta: {count} kérdés, egy válasz',
-    // The Operator's screening of a question (PM-556); the row names who acted.
+    // The project manager's screening of a question (PM-556); the row names who acted.
     question_screened_answered: 'Megválaszolta {asker} kérdését: „{answer}”',
     question_screened_forwarded: 'Továbbadta {to} részére {asker} kérdését: {note}',
     question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',

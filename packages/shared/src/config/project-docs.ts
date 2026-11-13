@@ -1,18 +1,18 @@
 import { z } from 'zod';
 import type { ProjectConfig, RepoConfig } from './schema';
 
-/** The project documents the Operator keeps (PM-388, PM-1004). */
+/** The project documents the project manager keeps (PM-388, PM-1004). */
 export const ProjectDoc = z.enum(['decisions', 'roadmap', 'lessons']);
 export type ProjectDoc = z.infer<typeof ProjectDoc>;
 
-/** Only a nonempty batch of lessons edits has the Operator's autonomous writing permission. */
+/** Only a nonempty batch of lessons edits has the project manager's autonomous writing permission. */
 export function isLessonsOnly(edits: readonly { doc: ProjectDoc }[]): boolean {
   return edits.length > 0 && edits.every((edit) => edit.doc === 'lessons');
 }
 
 /**
  * Why a write of the project documents did not go up (PM-495). `authorization_revoked` (PM-784): the
- * bearer key or its holder's ownership ended, or an autonomous lessons write lost its Operator/configuration
+ * bearer key or its holder's ownership ended, or an autonomous lessons write lost its project manager/configuration
  * authorization before publication.
  */
 export const DocWriteFailure = z.enum([

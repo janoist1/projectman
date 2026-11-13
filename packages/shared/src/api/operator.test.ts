@@ -10,7 +10,7 @@ import {
   SendTeamMessageRequest,
 } from './dto';
 
-describe('Operator operation contracts', () => {
+describe('project manager operation contracts', () => {
   it('accepts targeted role resets and validates the full role read response', () => {
     expect(
       ProjectManagerOperation.parse({ op: 'config_patch', patch: { roleOverrides: { developer: null } } }),

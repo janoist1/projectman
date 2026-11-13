@@ -25,7 +25,7 @@ export const SessionStartCauseKind = z.enum([
   'pause_resume',
   /** The card changed assignee (PM-342): the old session is asked for its note, or the new one takes over. */
   'handoff',
-  /** The Operator is asked to screen an AI member's question (PM-556). */
+  /** The project manager is asked to screen an AI member's question (PM-556). */
   'question_screening',
   /** The member's work queue woke it (PM-925): an item of a lane other than the messages. */
   'member_queue',
@@ -57,9 +57,9 @@ export const MessageOrigin = z.discriminatedUnion('kind', [
     ownerAnswerRelayed: z.literal(true).optional(),
     integratorTodo: z.literal(true).optional(),
   }),
-  /** The Operator passed a screened question to the recipient (PM-556). */
+  /** The project manager passed a screened question to the recipient (PM-556). */
   z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
-  /** A server-generated continuation after a human approved shared Operator knowledge. */
+  /** A server-generated continuation after a human approved shared project manager knowledge. */
   z.object({ kind: z.literal('operator_knowledge_approval'), inboxItemId: z.string() }),
   /** Information from the system, drawn in the interface's language from `notice` and `params` (PM-1250). */
   z.object({ kind: z.literal('system_notice'), notice: SystemNoticeKind, params: SystemNoticeParams }),

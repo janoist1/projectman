@@ -378,7 +378,7 @@
   color: var(--c-blocked-text);
 }
 
-/* What the Operator wrote about a question that came to the viewer (PM-556): a quiet bar under the question. */
+/* What the project manager wrote about a question that came to the viewer (PM-556): a quiet bar under the question. */
 .operatorNote {
   display: flex;
   gap: 8px;
@@ -465,7 +465,7 @@
   margin-bottom: 6px;
 }
 
-/* A quiet line under the question: the Operator did not look, the answer waits for the asker, the asker asks again. */
+/* A quiet line under the question: the project manager did not look, the answer waits for the asker, the asker asks again. */
 .note {
   margin: 0;
   display: flex;

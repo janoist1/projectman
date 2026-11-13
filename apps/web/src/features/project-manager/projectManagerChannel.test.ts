@@ -21,8 +21,11 @@ describe('operatorStripOf without an item in work', () => {
     expect(projectManagerStripOf(corner('starting', 2))).toEqual({ kind: 'starting' });
   });
 
-  // PM-1269: an open item that wakes nobody stays in the queue while the Operator is idle.
-  it.each(['available', 'working', 'on_leave'] as const)('has no strip while the Operator is %s', (state) => {
-    expect(projectManagerStripOf(corner(state, 2))).toBeNull();
-  });
+  // PM-1269: an open item that wakes nobody stays in the queue while the project manager is idle.
+  it.each(['available', 'working', 'on_leave'] as const)(
+    'has no strip while the project manager is %s',
+    (state) => {
+      expect(projectManagerStripOf(corner(state, 2))).toBeNull();
+    },
+  );
 });

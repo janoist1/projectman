@@ -35,7 +35,7 @@ import type { TaskPriority, TaskStartWaiting } from './task';
 
 /**
  * Who did something. Every step is attributed to a human, an AI member or the system.
- * `operatorMode` and `credential` (PM-757) mark the Operator's super mode: the project's Operator
+ * `operatorMode` and `credential` (PM-757) mark the old super mode: the retired built-in member
  * (`handle`, computed by the server) acting through the integrator, with the credential's id and prefix.
  * `through` and `approvedBy` (decision 66) mark a connected Claude's step: who acted (`handle`: the holder
  * in person, or the issuer of the queue item worked on), through whose Claude and key, and who approved it.
@@ -544,7 +544,7 @@ export interface TimelineEventData {
     reason?: string;
   };
   /**
-   * `screening`: the Operator screens the question first (PM-556); `unscreened`: it was asked again
+   * `screening`: the project manager screens the question first (PM-556); `unscreened`: it was asked again
    * without screening, replacing `previousItemId`, for `reason`.
    */
   question_asked: {
@@ -580,7 +580,7 @@ export interface TimelineEventData {
     to: 'owner';
     openedAt: string;
     reason: 'integrator_timeout' | 'integrator_passed_on' | 'integrator_unavailable';
-    /** The Operator's hand-off action (PM-885). */
+    /** The connected Claude's hand-off action (PM-885). */
     note?: string;
   };
   /**
@@ -597,7 +597,7 @@ export interface TimelineEventData {
     note?: string;
   };
   question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
-  /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
+  /** The project manager decided about a question of `asker` (PM-556); `note` is its reason or background. */
   question_screened: {
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
@@ -612,7 +612,7 @@ export interface TimelineEventData {
     /** The owner topic a decision or an owner's todo went to the owner under (PM-1190). */
     ownerTopic?: string;
   };
-  /** A question of `asker` went to the people with no Operator outcome (PM-556). */
+  /** A question of `asker` went to the people with no project manager outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
   /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. No responsible (PM-1225): the system kicked its own step again. */
   obligation_woken: {

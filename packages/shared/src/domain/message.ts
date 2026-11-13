@@ -85,8 +85,8 @@ export const TeamMessage = z.object({
   email: z.object({ emailId: z.string(), subject: z.string(), direct: z.boolean().optional() }).optional(),
   via: z.literal('integrator').optional(),
   /**
-   * The full origin of a message sent in the Operator's super mode (PM-757); absent on every other message.
-   * `from` stays the Operator's handle and `via` stays `integrator`.
+   * The full origin of a message sent through the connected Claude's super mode (PM-757); absent on other messages.
+   * `from` keeps the acting member's handle and `via` stays `integrator`.
    */
   actor: Actor.optional(),
   origin: MessageOrigin.optional(),
@@ -108,7 +108,7 @@ export const TeamMessage = z.object({
   /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
   answer: TeamMessageAnswer.optional(),
   relayed: RelayedReply.optional(),
-  /** Set on a message the Operator sent during an owner's request (PM-463): the request's id. */
+  /** Set on a message the project manager sent during an owner's request (PM-463): the request's id. */
   operatorRequest: z.string().optional(),
   operatorSignal: z.string().optional(),
   /** Where the sender was in the app when they wrote it (PM-1071); the project manager gets it as background. */
@@ -163,8 +163,8 @@ export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boole
 }
 
 /**
- * Whether the viewer sees the Operator's sessions (their list, detail, terminal and live events, PM-475): the
- * same people who see every team message, so the owner and the admin keep sight of what the Operator tells
+ * Whether the viewer sees the project manager's sessions (their list, detail, terminal and live events, PM-475): the
+ * same people who see every team message, so the owner and the admin keep sight of what the project manager tells
  * the project's other people.
  */
 export function canSeeProjectManagerSessions(viewer: Pick<TaskViewer, 'access'>): boolean {

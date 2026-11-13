@@ -115,10 +115,10 @@ export type InboxOption = z.infer<typeof InboxOption>;
 export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled', 'screening']);
 export type InboxState = z.infer<typeof InboxState>;
 
-/** A question waits for its answer in these states; screening: the Operator looks at it first (PM-556). */
+/** A question waits for its answer in these states; screening: the project manager looks at it first (PM-556). */
 export const PENDING_INBOX_STATES = ['open', 'screening'] as const;
 
-/** True for a question that still waits for its answer: open, or with the Operator for screening. */
+/** True for a question that still waits for its answer: open, or with the project manager for screening. */
 export function isPendingQuestion(
   item: Pick<InboxItem, 'kind' | 'state'> & Partial<Pick<InboxItem, 'payload'>>,
 ): boolean {
@@ -150,11 +150,11 @@ export const InboxResolutionRule = z.enum([
   'approval_given',
   /** A feedback mark that waited for the owner was handled (PM-506): nothing is left to see. */
   'feedback_handled',
-  /** The Operator answered an AI member's question itself while screening it (PM-556). */
+  /** The project manager answered an AI member's question itself while screening it (PM-556). */
   'operator_answered',
-  /** The Operator passed a screened question to another member (PM-556). */
+  /** The project manager passed a screened question to another member (PM-556). */
   'operator_forwarded',
-  /** The Operator found a screened question moot (PM-556): nothing is left to answer. */
+  /** The project manager found a screened question moot (PM-556): nothing is left to answer. */
   'operator_moot',
   /** The card a question asked about was done (PM-556): nothing is left to answer. */
   'task_done',
@@ -209,9 +209,9 @@ export const InboxItem = z.object({
   resolution: z
     .object({
       via: z.literal('integrator').optional(),
-      /** The full origin when the Operator's super mode resolved it (PM-757); older resolutions have none. */
+      /** The full origin when the connected Claude's super mode resolved it (PM-757); older resolutions have none. */
       actor: Actor.optional(),
-      /** The Operator decided this on the owner's authority (PM-875). */
+      /** The project manager decided this on the owner's authority (PM-875). */
       superDecision: z.literal(true).optional(),
       /**
        * True when the integrator relayed the owner's answer to a simple information question (PM-762):
@@ -221,7 +221,7 @@ export const InboxItem = z.object({
       integratorTodo: z.literal(true).optional(),
       /** The integrator decided a fix round limit item through the dedicated endpoint (PM-714). */
       integratorFixLimit: z.literal(true).optional(),
-      /** The Operator closed it from its queue item (PM-885): `by` is the Operator member, no person decided. */
+      /** A legacy queue handoff (PM-885): `by` is the retired built-in member; no person decided. */
       operatorQueue: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
@@ -721,10 +721,10 @@ export const QuestionAttachment = z.object({
 });
 export type QuestionAttachment = z.infer<typeof QuestionAttachment>;
 
-/** How long the Operator may screen a question before it goes to the people (PM-556). */
+/** How long the project manager may screen a question before it goes to the people (PM-556). */
 export const QUESTION_SCREENING_MINUTES = 10;
 
-/** What the Operator decided about a screened question: it answered, passed it on, found it moot, or asked a person. */
+/** What the project manager decided about a screened question: it answered, passed it on, found it moot, or asked a person. */
 export const ScreeningOutcome = z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']);
 export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
 
@@ -737,7 +737,7 @@ export const QuestionRecipientRefusal = z.enum([
 ]);
 export type QuestionRecipientRefusal = z.infer<typeof QuestionRecipientRefusal>;
 
-/** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
+/** A task for a person that the project manager made out of a question: what to do, where, and what is expected. */
 export const QuestionTodo = z.object({
   what: z.string().min(1).max(2000),
   where: z.string().min(1).max(500),
@@ -788,7 +788,7 @@ const QuestionScreeningWaiting = z.object({
   overdue: z.boolean().optional(),
 });
 
-/** `payload.screening` of a question: the Operator looks at it first (PM-556). */
+/** `payload.screening` of a question: the project manager looks at it first (PM-556). */
 export const QuestionScreening = z.object({
   /**
    * ISO: when it was asked plus `QUESTION_SCREENING_MINUTES`; set again from the delivery receipt. While
@@ -801,13 +801,13 @@ export const QuestionScreening = z.object({
   waiting: QuestionScreeningWaiting.optional(),
   /** ISO: when the asking member was told once that its question waits for the screening. */
   askerInformedAt: z.string().optional(),
-  /** The Operator got it. */
+  /** The project manager got it. */
   deliveredAt: z.string().optional(),
   outcome: ScreeningOutcome.optional(),
-  /** The Operator's handle. */
+  /** The project manager's handle. */
   by: z.string().optional(),
   at: z.string().optional(),
-  /** The Operator's reason or background. */
+  /** The project manager's reason or background. */
   note: z.string().max(2000).optional(),
   /** Outcome `forwarded`. */
   forwardedTo: z.string().optional(),
@@ -826,7 +826,7 @@ const clampScreeningMs = (ms: number): number =>
 
 /**
  * Whether a screened question's ten minutes are up (PM-708); the server and the web fake use this one rule.
- * The clock runs only for a question the Operator got (`deliveredAt`), while its machine is online and the
+ * The clock runs only for a question the project manager got (`deliveredAt`), while its machine is online and the
  * question is not held in a `queue`; otherwise it is stopped and `remainingMs` is what is left of it. An
  * unreadable `until` counts as no time left, so a broken record goes to the people and never waits unseen.
  */
@@ -860,7 +860,7 @@ export const AnswerDelivery = z.discriminatedUnion('state', [
 ]);
 export type AnswerDelivery = z.infer<typeof AnswerDelivery>;
 
-/** The options of a todo the Operator made out of a question. The web app translates the ids. */
+/** The options of a todo the project manager made out of a question. The web app translates the ids. */
 export const TODO_DONE_OPTION: InboxOption = { id: 'todo_done', label: 'Done', style: 'primary' };
 export const TODO_CANNOT_OPTION: InboxOption = {
   id: 'todo_cannot',
@@ -868,7 +868,7 @@ export const TODO_CANNOT_OPTION: InboxOption = {
   style: 'secondary',
 };
 
-/** The questions the Operator screened, newest first, and how many of them today. */
+/** The questions the project manager screened, newest first, and how many of them today. */
 export const ScreenedQuestionsResponse = z.object({
   items: z.array(InboxItem),
   today: z.number().int().nonnegative(),
@@ -1022,7 +1022,7 @@ export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestio
 
 /**
  * True when the answer to this question may be relayed by the integrator: an explicit information question
- * only. A question that asks for an approval label, or that the Operator made a todo of, is an owner's
+ * only. A question that asks for an approval label, or that the project manager made a todo of, is an owner's
  * action whatever its declared purpose, and so is one bound to a super operation.
  */
 function isRelayableQuestion(
@@ -1063,7 +1063,7 @@ export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload'
   );
 }
 
-/** `payload.operatorHandoff` of an item the Operator passed on (PM-885). */
+/** `payload.operatorHandoff` of an item the connected Claude passed on (PM-885). */
 export const ProjectManagerHandoff = z.object({
   queueItemId: z.string(),
   reason: ProjectManagerHandoffReason,
@@ -1097,7 +1097,7 @@ export const QuestionPayload = z.object({
   autoLabel: z.boolean().optional(),
   /** The files the question names (PM-498); absent on older questions and on questions without files. */
   attachments: z.array(QuestionAttachment).optional(),
-  /** Present while the Operator screens the question and after it did (PM-556). */
+  /** Present while the project manager screens the question and after it did (PM-556). */
   screening: QuestionScreening.optional(),
   /** The question was asked again without screening: why, and the item it replaces (PM-556). */
   unscreened: z.object({ reason: z.string().min(1).max(1000), previousItemId: z.string() }).optional(),
@@ -1125,7 +1125,7 @@ export const QuestionPayload = z.object({
   externalAnswerMessageId: z.string().optional(),
   /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
   obligation: ObligationRef.optional(),
-  /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
+  /** Why the connected Claude gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
   operatorHandoff: ProjectManagerHandoff.optional(),
   /** The system signal this question was asked about (PM-455): the question closes when the signal's case ends. */
   signalId: z.string().optional(),

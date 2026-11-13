@@ -51,9 +51,9 @@ export function closedText(signal: ProjectManagerSignal): string | null {
 }
 
 /**
- * A signal the Operator raised on its own (PM-447): an outage, a card nobody can carry, a session waiting for
+ * A signal the project manager raised on its own (PM-447): an outage, a card nobody can carry, a session waiting for
  * input or one that went silent. Open signals can be dismissed in an editable thread; actionable signals
- * also offer acceptance, which sends the Operator a message naming the signal.
+ * also offer acceptance, which sends the project manager a message naming the signal.
  */
 export function ProjectManagerSignalCard({
   signal,
@@ -64,7 +64,7 @@ export function ProjectManagerSignalCard({
   unreadMark,
 }: {
   signal: ProjectManagerSignal;
-  /** The Operator's message that presented the signal, if the thread holds it. */
+  /** The project manager's message that presented the signal, if the thread holds it. */
   message: TeamMessage | null;
   projectManagerHandle: string;
   readOnly: boolean;

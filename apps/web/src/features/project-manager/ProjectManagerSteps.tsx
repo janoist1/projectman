@@ -52,7 +52,7 @@ function iconLabel(group: Group): string {
   }
 }
 
-/** The note after a step's title: how the owner decided, or why the Operator did not do it. */
+/** The note after a step's title: how the owner decided, or why the project manager did not do it. */
 function StepNote({ step, ownerHandle }: { step: ProjectManagerStep; ownerHandle: string | null }) {
   const { key } = useProject();
   if (step.status === 'approved') return <span className={styles.note}>{t('operator.steps.approved')}</span>;
@@ -155,7 +155,7 @@ function StepRow({
 }
 
 /**
- * "Lépések" under the owner's message (PM-447): what the Operator did on the request, from the server's record of
+ * "Lépések" under the owner's message (PM-447): what the project manager did on the request, from the server's record of
  * its steps, in three groups. A step that waits for approval shows the proposal inline, when its inbox item is the
  * viewer's to decide.
  */

@@ -281,7 +281,7 @@ modules:
   - id: services/project-docs
     area: service
     name: Projektdokumentumok
-    summary: Az Operátor dokumentumírásai és a döntésjelöltek.
+    summary: A projektmenedzser és a csatlakoztatott Claude dokumentumírásai, valamint a döntésjelöltek.
     paths:
       - apps/server/src/services/project-docs/
   - id: services/schedules

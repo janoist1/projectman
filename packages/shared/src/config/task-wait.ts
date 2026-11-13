@@ -313,7 +313,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
   if (task.status === 'done' || task.status === 'cancelled' || stage?.kind === 'done' || isTheme(task))
     return null;
 
-  // A question the Operator still screens (PM-556) is a pending question too: the card waits for its answer.
+  // A question the project manager still screens (PM-556) is a pending question too: the card waits for its answer.
   const items = input.openItems.filter((item) => {
     if (item.kind === 'question' && item.payload.groupWithdrawn === true) return false;
     // Legacy completion notices ask for acknowledgement, not an action on the card.

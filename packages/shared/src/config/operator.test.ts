@@ -522,7 +522,7 @@ describe('superConfigVerdict', () => {
     });
   });
 
-  it('judges the Operator’s own member by the handle given, not by its role', () => {
+  it('judges the project manager’s own member by the handle given, not by its role', () => {
     const previous = config();
     const next = structuredClone(previous);
     ai(next, 'writer').model = 'sonnet';

@@ -30,7 +30,7 @@ export function projectManagerDecisionToast(item: InboxItem, optionId: string): 
 }
 
 /**
- * Deciding an Operator knowledge approval (PM-447) from the Operator's steps. Approve and reject say so in a toast;
+ * Deciding a project manager knowledge approval (PM-447) from the project manager's steps. Approve and reject say so in a toast;
  * a stale answer (409) is not a toast: `staleFor` makes the card show its stale bar.
  */
 export function useProjectManagerDecision() {

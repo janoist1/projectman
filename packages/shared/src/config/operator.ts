@@ -26,7 +26,7 @@ export {
 } from './operator-member';
 
 /**
- * What the Operator may do with a configuration change (PM-447):
+ * What the project manager may do with a configuration change (PM-447):
  * - `now`: it makes the change on the owner's request, no further approval;
  * - `approval`: it prepares the change and the owner approves it first (closed by default);
  * - `never`: it does not make the change; the owner does it in the settings.
@@ -73,7 +73,7 @@ export interface ProjectManagerConfigVerdict {
 
 const LEVEL_RANK: Record<ProjectManagerLevel, number> = { now: 0, approval: 1, never: 2 };
 
-/** An AI member's fields the Operator changes without approval, on any member but itself. */
+/** An AI member's fields the project manager changes without approval, on any member but itself. */
 const NOW_MEMBER_FIELDS: readonly string[] = ['model', 'effort', 'capacity', 'onLeave', 'schedule'];
 
 type Entity = Record<string, unknown>;
@@ -82,7 +82,7 @@ type InvitationBinding = NonNullable<
 >;
 
 /**
- * What the Operator may do with the change from `previous` to `next`, by its end result (so a revert is
+ * What the project manager may do with the change from `previous` to `next`, by its end result (so a revert is
  * judged by what it would change). `level` is the highest of the rows (never > approval > now); no
  * change is `{ level: 'now', changes: [] }`.
  *
@@ -142,10 +142,10 @@ export function superConfigVerdict(
 }
 
 /**
- * What the Operator may do with a change the owner asked for in the app (decision 55): the owner's request
+ * What the project manager may do with a change the owner asked for in the app (decision 55): the owner's request
  * is the approval, so a change the verdict holds for approval goes straight through, except what stays the
  * owner's own call. `approval` becomes `now` unless
- * - a row is about the Operator's own member or its own role (it does not rewrite itself), or
+ * - a row is about the project manager's own member or its own role (it does not rewrite itself), or
  * - the change has an owner-reserved effect (deletion, security, cost: `ownerReservedEffect`).
  * `never` stays `never`, and a `now` stays `now`.
  */

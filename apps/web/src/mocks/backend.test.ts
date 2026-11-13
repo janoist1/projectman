@@ -103,7 +103,7 @@ describe('integrator credential policy in the fake (PM-759)', () => {
     expect(errorCode(refused)).toBe('integrator_read_only');
     backend.integratorMode = 'super';
     const publication = backend.handle('POST', `${base}/tasks`, {
-      title: 'Shared by the Operator',
+      title: 'Shared by the project manager',
     });
     expect(publication.status).toBe(201);
     const imported = backend.handle('POST', `${base}/tasks`, {

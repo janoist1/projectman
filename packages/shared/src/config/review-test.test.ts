@@ -12,7 +12,13 @@ function config(repos: object[]): ProjectConfig {
       limits: {},
       members: [
         { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner' },
-        { kind: 'ai', handle: 'operator', displayName: 'Operator', role: 'ai_operator', sponsor: 'owner' },
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Legacy coordinator',
+          role: 'ai_operator',
+          sponsor: 'owner',
+        },
       ],
     },
     pipeline: {
@@ -260,7 +266,7 @@ describe('review_test owner-only change', () => {
   });
 });
 
-describe('the Operator changing a full test', () => {
+describe('the project manager changing a full test', () => {
   it('needs the approval and shows before and after', () => {
     const before = two();
     const next = applyConfigPatch(

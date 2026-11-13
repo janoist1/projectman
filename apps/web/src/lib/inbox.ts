@@ -38,7 +38,7 @@ import type { PipelineIndex } from './pipeline';
 import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
-/** Operator-origin requests use the same sender in the inbox and in task status lines. */
+/** Project manager requests use the same sender in the inbox and in task status lines. */
 export function isProjectManagerInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
   const payload = questionPayloadOf(item);
   return !!payload?.operatorHandoff || !!payload?.superOperation;
@@ -856,8 +856,8 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
 
 /**
  * Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member.
- * A question that closed by itself (the card finished, the asker handed it off) says so; one the Operator
- * closed names the Operator, and a withdrawn one the asker.
+ * A question that closed by itself (the card finished, the asker handed it off) says so; one the project manager
+ * closed names the project manager, and a withdrawn one the asker.
  */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
@@ -904,7 +904,7 @@ export function isPositiveResolution(item: InboxItem): boolean {
   );
 }
 
-/** A question closed without an answer (PM-556): the card finished, the asker left it, or the Operator found it moot. */
+/** A question closed without an answer (PM-556): the card finished, the asker left it, or the project manager found it moot. */
 export function isClosedWithoutAnswer(item: InboxItem): boolean {
   return QuestionCloseRule.safeParse(item.resolution?.rule).success;
 }
@@ -919,8 +919,8 @@ export function resolutionMark(item: InboxItem): ResolutionMark {
 }
 
 /**
- * Whether the history ("Mostanában döntöttél") lists an item. What the Operator settled with no person
- * involved is in its trail ("Az Operátor intézte") instead. A question the Operator closed as moot only
+ * Whether the history ("Mostanában döntöttél") lists an item. What the project manager settled with no person
+ * involved is in its trail ("A projektmenedzser intézte") instead. A question the project manager closed as moot only
  * counts when it had gone to the people first (it was a todo, or released by the fallback): the record
  * does not keep a plain decision released and closed later, so that case stays in the trail.
  */
@@ -951,12 +951,12 @@ export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] 
   return (items ?? []).filter((item) => item.state === 'open' && !isLinkedQuestion(item));
 }
 
-/** What the Operator recorded about a question (PM-556), or null. */
+/** What the project manager recorded about a question (PM-556), or null. */
 export function screeningOf(item: InboxItem): QuestionScreening | null {
   return item.kind === 'question' ? (questionPayloadOf(item)?.screening ?? null) : null;
 }
 
-/** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
+/** A question the project manager made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
 export function isTodo(item: InboxItem): boolean {
   return (
     item.kind === 'question' &&
@@ -971,14 +971,14 @@ export function displayKindOf(item: InboxItem): DisplayKind {
   return isTodo(item) ? 'todo' : item.kind;
 }
 
-/** What the Operator said about a question that went to the people (a decision or a todo), or null. */
+/** What the project manager said about a question that went to the people (a decision or a todo), or null. */
 export function projectManagerNoteOf(item: InboxItem): string | null {
   const screening = screeningOf(item);
   if (!screening || (screening.outcome !== 'decision' && screening.outcome !== 'todo')) return null;
   return screening.note?.trim() || null;
 }
 
-/** Why the Operator did not look at a question: it did not answer in time, or could not be started. */
+/** Why the project manager did not look at a question: it did not answer in time, or could not be started. */
 export function projectManagerFallbackOf(item: InboxItem): 'timeout' | 'unavailable' | null {
   return screeningOf(item)?.fallback ?? null;
 }
@@ -988,7 +988,7 @@ export function rerouteReasonOf(item: InboxItem): string | null {
   return item.kind === 'question' ? (questionPayloadOf(item)?.unscreened?.reason.trim() ?? null) : null;
 }
 
-/** The rows of a todo's step box, in order; those the Operator left empty are skipped. */
+/** The rows of a todo's step box, in order; those the project manager left empty are skipped. */
 export function todoRows(item: InboxItem): { label: string; value: string }[] {
   const todo = screeningOf(item)?.todo;
   if (!todo) return [];
@@ -1083,7 +1083,7 @@ export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): b
   return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
 }
 
-/** The Operator's part in a question the viewer did not see (the trail "Az Operátor intézte"). */
+/** The project manager's part in a question the viewer did not see (the trail "A projektmenedzser intézte"). */
 export type ProjectManagerTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
 
 export function projectManagerTrailMark(item: InboxItem): ProjectManagerTrailMark {
@@ -1109,8 +1109,8 @@ export function waitingNote(item: InboxItem, now: Date = new Date()): string | n
 }
 
 /**
- * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
- * still with the Operator when it goes to the people.
+ * The line under a trail row: the project manager's note (for a forwarded question, who got it), or for a question
+ * still with the project manager when it goes to the people.
  */
 export function projectManagerTrailNote(
   item: InboxItem,

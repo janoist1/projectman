@@ -24,7 +24,7 @@ import { ProjectManagerSignalList } from './ProjectManagerSignalList';
 import { ProjectManagerSignalGroup } from './ProjectManagerSignalGroup';
 
 /**
- * The Operator in the top right corner (PM-447), against the fake backend: who has the button and the badge of
+ * The project manager in the top right corner (PM-447), against the fake backend: who has the button and the badge of
  * open signals, the panel with the viewer's own conversation, the server's steps, the signal cards, the Rád vár
  * approvals, the history entry and the Team restrictions of the built-in member.
  */
@@ -129,7 +129,7 @@ const CHANGE: ConfigChangeRow = {
   level: 'approval',
 };
 
-describe('the Operator button', () => {
+describe('the project manager button', () => {
   it('shows who can answer in its name, for an owner', async () => {
     const project = mockProject();
     renderLayout(project);
@@ -175,7 +175,7 @@ describe('the Operator button', () => {
     expect(within(panel).queryByRole('heading', { name: /elakadt a beolvasztás/ })).toBeNull();
   });
 
-  it('is not there for a client while the Operator is not a contact (PM-985)', async () => {
+  it('is not there for a client while the project manager is not a contact (PM-985)', async () => {
     const project = mockProject();
     renderLayout(project, '/p/AC', { viewer: 'kata', contacts: ['fe-1'] });
     await screen.findByText('board');
@@ -214,7 +214,7 @@ describe('the project manager on leave', () => {
   });
 });
 
-describe('the Operator panel', () => {
+describe('the project manager panel', () => {
   it('opens beside the page with the focus in the composer and closes with Escape, back to the button', async () => {
     const project = mockProject();
     renderLayout(project);
@@ -250,7 +250,7 @@ describe('the Operator panel', () => {
     await waitFor(() => expect(markOf()).toBeNull());
   });
 
-  it('has no call-back button: the Operator is never on leave', async () => {
+  it('has no call-back button: the project manager is never on leave', async () => {
     const project = mockProject();
     renderLayout(project);
     fireEvent.click(await button());
@@ -259,7 +259,7 @@ describe('the Operator panel', () => {
     expect(within(panel).queryByRole('button', { name: /Visszahív/ })).toBeNull();
   });
 
-  it('sends the message to the Operator and shows it in the thread', async () => {
+  it('sends the message to the project manager and shows it in the thread', async () => {
     const project = mockProject();
     renderLayout(project);
     fireEvent.click(await button());
@@ -343,7 +343,7 @@ describe('the Operator panel', () => {
     expect(within(panel).getByText(t('operator.context.hint'))).toBeTruthy();
   });
 
-  describe('the places the Operator offers (PM-1071)', () => {
+  describe('the places the project manager offers (PM-1071)', () => {
     const offer = (project: Project, places: UiPlace[]) =>
       project.backend.sendTeamMessage(
         'pm',
@@ -453,7 +453,7 @@ describe('the Operator panel', () => {
     expect(posted(project, '/pause/resume')).toHaveLength(0);
   });
 
-  it('says there is no Operator when the project has none', async () => {
+  it('says there is no project manager when the project has none', async () => {
     const project = mockProject();
     const config = project.backend.config;
     config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
@@ -492,7 +492,7 @@ describe('the Operator panel', () => {
 });
 
 describe('the steps of a request', () => {
-  it('lists what the Operator did in three groups under the request, with the server reason of a refusal', async () => {
+  it('lists what the project manager did in three groups under the request, with the server reason of a refusal', async () => {
     const project = mockProject();
     const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Állítsd át a szövegírót');
     project.backend.projectManagerRequests = [
@@ -582,7 +582,7 @@ describe('the steps of a request', () => {
   );
 });
 
-describe('unanchored Operator signals', () => {
+describe('unanchored project manager signals', () => {
   function setup(count = 55) {
     const project = mockProject();
     project.backend.projectManagerSignals = Array.from({ length: count }, (_, index) =>
@@ -776,7 +776,7 @@ describe('unanchored Operator signals', () => {
   });
 });
 
-describe('a signal the Operator raised', () => {
+describe('a signal the project manager raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
     project.backend.sendTeamMessage('pm', ['owner'], 'AC-20', body);
 
@@ -1035,7 +1035,7 @@ describe('a signal the Operator raised', () => {
     },
   );
 
-  it('keeps historical and Operator dismissals without messages out of the thread', async () => {
+  it('keeps historical and project manager dismissals without messages out of the thread', async () => {
     const project = mockProject();
     project.backend.projectManagerSignals = [
       signal({ id: 'sig_old', kind: 'silent', actionable: false, state: 'dismissed', decidedBy: 'owner' }),
@@ -1130,14 +1130,14 @@ describe('a signal the Operator raised', () => {
   });
 });
 
-describe('the Operator in the history of the settings', () => {
-  it('shows the Operator as the author, who approved and the request it came from', async () => {
+describe('the project manager in the history of the settings', () => {
+  it('shows the project manager as the author, who approved and the request it came from', async () => {
     const project = mockProject();
     const quote = 'A szövegíró legyen Sonnet, mert a jelenlegi túl lassú';
     project.backend.history.unshift({
       version: 'abc1234',
       message: 'Szövegíró: Sonnet',
-      author: 'Operátor',
+      author: 'Legacy coordinator',
       at: '2026-10-10T09:00:00.000Z',
       operator: 'operator',
       request: quote,
@@ -1154,7 +1154,7 @@ describe('the Operator in the history of the settings', () => {
   });
 });
 
-describe('the Operator on a card and on its profile', () => {
+describe('the project manager on a card and on its profile', () => {
   it('stands in the card head and opens the panel', async () => {
     const project = mockProject();
     const openProjectManager = vi.fn();

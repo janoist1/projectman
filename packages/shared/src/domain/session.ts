@@ -17,7 +17,7 @@ export const WorkItemRef = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('general'),
     /**
-     * Whom the Operator's conversation is with (PM-475): set only on the Operator's conversation with a
+     * Whom the project manager's conversation is with (PM-475): set only on the project manager's conversation with a
      * person who is not an owner; the owners share the one without it.
      */
     with: MemberHandle.optional(),

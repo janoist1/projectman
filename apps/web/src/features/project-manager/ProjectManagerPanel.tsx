@@ -35,7 +35,7 @@ import { placePath, useUiLocation } from './places';
 import { useProjectManager } from './useProjectManager';
 import styles from './ProjectManagerPanel.module.css';
 
-/** The panel's width on a desktop screen (the same as in OperatorPanel.module.css): an open card makes room for it. */
+/** The panel's width on a desktop screen (the same as in ProjectManagerPanel.module.css): an open card makes room for it. */
 const PANEL_WIDTH = 440;
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';

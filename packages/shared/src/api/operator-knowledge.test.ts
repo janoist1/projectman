@@ -52,7 +52,7 @@ const facts = {
   owner: true,
 };
 
-describe('shared Operator knowledge proposal contract', () => {
+describe('shared project manager knowledge proposal contract', () => {
   it('defaults operations, bounds input and refuses extra authority fields', () => {
     const input = { expected_revision: 0, title: 'Agreement', change };
     expect(ProposeProjectManagerKnowledgeRequest.parse(input).operations).toEqual([]);

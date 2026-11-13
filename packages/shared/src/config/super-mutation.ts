@@ -79,7 +79,7 @@ function approvalHolders(config: ProjectConfig): string {
  * Whether a configuration change reaches who approves: the pipeline (labels, their holders, gates), the
  * release four-eyes rule, the merger, or who actually holds an approval label or the release approval. The
  * holders follow from a member's role, the role overrides and the custom roles, so those are covered here:
- * `superConfigMutations` marks only the boundary delegation and the coordinator's and Operator's own role.
+ * `superConfigMutations` marks only the boundary delegation and the coordinator's own role.
  */
 export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   return (
@@ -101,7 +101,7 @@ export function ownerYesForMemberOrigin(previous: ProjectConfig, next: ProjectCo
 /**
  * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
  * project or repository; their own login and the security settings; the paid cost. Everything else the
- * Operator may do with the super key, in its own name.
+ * connected Claude may do with the super key, as its holder or the queue item's issuer.
  */
 export type OwnerReservedEffect = 'deletion' | 'security' | 'cost';
 type SuperRoutineMutation =
@@ -340,7 +340,7 @@ export function ownerReservedEffect(
         })
       )
         return 'cost';
-      // Labels, stages, columns, roles, feedback surfaces, gates, paths and the repo settings are the Operator's.
+      // Labels, stages, columns, roles, feedback surfaces, gates, paths and the repo settings are the connected Claude's.
       return null;
     }
     default:

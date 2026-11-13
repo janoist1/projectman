@@ -157,12 +157,12 @@ export const PatchConfigRequest = z
   .strict();
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 
-/** Operator edits replace or explicitly reset only the named built-in roles. */
+/** Project manager edits replace or explicitly reset only the named built-in roles. */
 const ProjectManagerRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
 type ProjectManagerRoleOverridesPatch = z.infer<typeof ProjectManagerRoleOverridesPatch>;
 
 /**
- * Operator edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
+ * Project manager edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
  * label's other fields (who may set it, gates, clearing rules) stay as they are. `null` removes the color
  * or the meaning. A label without a definition gets one; its name then defaults to its id.
  */

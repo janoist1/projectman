@@ -50,7 +50,7 @@
   gap: 6px;
 }
 
-/* What the owner asked the Operator for: two lines, the whole text in the title. */
+/* What the owner asked the project manager for: two lines, the whole text in the title. */
 .request {
   display: -webkit-box;
   -webkit-box-orient: vertical;

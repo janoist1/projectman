@@ -69,7 +69,7 @@ function config() {
   });
 }
 
-describe('targeted Operator role patches', () => {
+describe('targeted project manager role patches', () => {
   function existing() {
     const c = config();
     c.team.roleOverrides = {
@@ -155,7 +155,7 @@ describe('targeted Operator role patches', () => {
   });
 });
 
-describe('targeted Operator label patches', () => {
+describe('targeted project manager label patches', () => {
   it('changes one label field, keeps the rest of the pipeline and never mutates inputs', () => {
     const c = config();
     const patch = ProjectManagerConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });

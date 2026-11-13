@@ -110,7 +110,7 @@
   animation: operator-signals-shake 600ms ease-in-out 1;
 }
 
-/* The length of the Operator's queue, when no signal waits for the viewer: the signals' badge is theirs. */
+/* The length of the project manager's queue, when no signal waits for the viewer: the signals' badge is theirs. */
 .queued {
   position: absolute;
   top: -6px;

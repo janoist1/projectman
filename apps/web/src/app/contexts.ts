@@ -42,7 +42,7 @@ export interface ProjectContextValue {
   openPause: () => void;
   /** Opens the details of the open pause in its bar, where it can be resumed (PM-429). */
   openPauseDetails: () => void;
-  /** Whether the Operator's conversation panel is open (PM-429, PM-447). */
+  /** Whether the project manager's conversation panel is open (PM-429, PM-447). */
   projectManagerOpen: boolean;
   /** Opens the panel; `trigger` is the control the focus returns to when it closes. */
   openProjectManager: (trigger?: HTMLElement | null, prefill?: string, options?: { checklist: true }) => void;

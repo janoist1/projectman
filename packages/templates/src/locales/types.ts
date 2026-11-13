@@ -191,7 +191,7 @@ export interface TemplateLocale {
     /** What the waiting line says when the owner has nothing to do. */
     nothing: string;
   };
-  /** The bold labels of the Operator's report to the owner (PM-447), in the order of its lines. */
+  /** The bold labels of the project manager's report to the owner (PM-447), in the order of its lines. */
   operatorReport: {
     done: string;
     /** The part of the one message per wake-up (PM-550) that lists the signals the owners must decide. */
@@ -223,7 +223,7 @@ export interface TemplateLocale {
   fixLimitItem: FixLimitItemText;
   /** The Senior wait decision item of a project without a project manager (PM-1251); the project manager gets a signal instead. */
   seniorWaitItem: { title: string };
-  /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
+  /** What the owner's todo says when the connected Claude could not finish a queue item (PM-885). */
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */

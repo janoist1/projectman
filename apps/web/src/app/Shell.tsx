@@ -33,8 +33,8 @@ import { MachineIndicator } from '../features/machine/MachineIndicator';
  *   1181-1499 plan usages collapse into a single combined button ("AI-keret {percent} ˅") with a shared dropdown
  *             (COMBINED_PLAN_USAGE_QUERY); the machine meter's button turns into a badge below 1280 (PM-322)
  *   <= 1180   the plan usage and the presence are hidden (CSS)
- *   >= 1500   the Operator button (PM-429, PM-447) shows the avatar and the display name (cut at 18 characters);
- *   901-1499  avatar and "Op"; <= 900 the avatar only (CSS in OperatorButton.module.css)
+ *   >= 1500   the project manager button (PM-429, PM-447) shows the avatar and the display name (cut at 18 characters);
+ *   901-1499  avatar and "Op"; <= 900 the avatar only (CSS in ProjectManagerButton.module.css)
  *   <= 900    "Új kártya" is an icon only: COMPACT_NEW_TASK_QUERY
  *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
  */

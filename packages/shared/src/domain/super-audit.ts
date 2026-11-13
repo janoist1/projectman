@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TaskKey } from './task';
 
 /**
- * The audit of the Operator's super mode (PM-757): one entry per step of an operation made with a
+ * The audit of the connected Claude's super mode (PM-757): one entry per step of an operation made with a
  * super credential. It holds the operation's name and its target, never the request, a configuration
  * or a raw error: the vocabulary below is closed so nothing free-form can get in.
  */
@@ -26,7 +26,7 @@ export const SuperOperationAudit = z.object({
   prefix: z.string(),
   operatorMode: z.literal('super'),
   requestId: z.string().regex(SUPER_AUDIT_REQUEST_ID),
-  /** The Operator's hand-over this operation carries out, when it does. */
+  /** The connected Claude's hand-over this operation carries out, when it does. */
   handoffId: z.string().nullable(),
   operation: SuperOperationName,
   outcome: SuperAuditOutcome,

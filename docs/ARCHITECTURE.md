@@ -619,8 +619,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
 
 ### Code names
 
-Some identifiers kept the name of an earlier idea. They are not renamed, because tables, stored
-events, configuration keys and tool names carry them. The prose of every document says what the
+Some wire names kept the name of an earlier idea: tables, stored events and JSON keys,
+configuration keys, HTTP paths, commit trailers, tool names and translation keys. They are not renamed.
+TypeScript identifiers and folders use today's name (PM-1416). The prose of every document says what the
 thing is today ("connected Claude", "project manager") and names the code name only in backticks,
 with a pointer to this table. One row per code name: what it is today, and what remains of it as old
 data.
@@ -630,7 +631,7 @@ data.
 | `integrator` (`integrator_keys`, `integratorExecution`, `via: 'integrator'`, `recipient: 'integrator'`, `integratorFixLimit`, Settings → Integrator)                                   | The owner's connected Claude: an outside MCP client that acts with its own key and, for a queue item it issues or decides, as its key holder. The key is managed in Settings → Integrator.                                                                                                                                                              | `via: 'integrator'` on old messages and events, the `integrator_keys` rows, the `integrator_timeout` reason of old `fix_limit_recipient_escalated` events.                                                                                                      |
 | `super` (`mcp/super`, `services/super`, `superActor`, `superDecision`, `isCoordinatorSuperActor`, `operatorMode: 'super'`)                                                             | The origin of an action taken with the connected Claude's own key, or by the project manager acting as the selected coordinator. `mcp/super` is the connected Claude's own tool list.                                                                                                                                                                   | Inbox resolutions and old coordination steps carry the `superActor` and `operatorMode: 'super'` they were written with; an old super step keeps the rule it had.                                                                                                |
 | `operator` (the handle, `ai_operator`, `RETIRED_OPERATOR_HANDLE`)                                                                                                                      | The handle and the member are gone: a project has no Operator member and no channel for one (decision 66). The project manager coordinates, and the owner's connected Claude acts with its own key. The built-in `operator` role id (`packages/shared/src/domain/role.ts`) is alive and is the owner's role, shown as "Tulajdonos" / "Owner"; it stays. | The handle `operator` stays taken (`members.takenHandles`), because old events, messages and request and step rows name it; the web shows it as the raw handle. The runtime configuration converters were retired after rewriting old configurations (PM-1383). |
-| `operator_*` tables and code (`operator_requests`, `operator_steps`, `operator_signals`, `operator_signal_arms`, `ProjectManagerSignals`, `ProjectManagerRequests`, `api/operator.ts`) | The project manager's coordination: its signals, its owner-approved requests and their steps, and the channel the project manager answers on.                                                                                                                                                                                                           | The rows and the `operator_*` event and origin names (for example `operator_knowledge_approval`) stay as they were written.                                                                                                                                     |
+| `operator_*` tables and files (`operator_requests`, `operator_steps`, `operator_signals`, `operator_signal_arms`, `api/operator.ts`, `db/operator-*.ts`) | The project manager's coordination: its signals, its owner-approved requests and their steps, and the channel the project manager answers on. | The rows and the `operator_*` event and origin names (for example `operator_knowledge_approval`) stay as they were written. |
 | `team.operatorWatch`, `get_operator_preference`, `set_operator_preference`, `propose_operator_knowledge`, the `operator_knowledge` and `operator_structural_review` deciders           | The signal watch setting (report, unblock, drive), the project manager's per-person style tools, the shared agreement and principles proposal, and the owner's structural-review decision.                                                                                                                                                              | Stored configurations keep the `operatorWatch` key; old decision items keep their decider name.                                                                                                                                                                 |
 
 ## Invariants
@@ -894,14 +895,14 @@ The top right corner (PM-1042, decision 65) belongs to the project manager. `GET
 returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
 signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
 queue view reads `routes.memberQueue` for the manager. Settings → Integrator manages only the
-connected client's credentials. The app has no Operator member or channel.
+connected client's credentials. The retired built-in member and its channel are gone.
 
 **The project manager is the coordinator (decision 66).** A project has no `ai_operator` role and no
 member that holds it; a new project (template, `POST /projects`) gets none. A connected Claude acts as its
 key holder or as the issuer of an integrator queue item (PM-1074), and the project manager acts as the selected
 coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `packages/shared/src/config/operator-member.ts`).
 The coordination tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project
-manager's. Configurations containing an Operator member must be rewritten before upgrading
+manager's. Configurations containing a retired built-in member must be rewritten before upgrading
 (PM-1383); the handle `operator` stays taken
 (`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
 `operator_steps` rows still name it, and the web shows such a name as the raw handle. See "Code names".

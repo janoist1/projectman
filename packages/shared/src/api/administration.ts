@@ -4,7 +4,7 @@ import { TaskKey } from '../domain/task';
 
 /**
  * The commands of the protected administration adapter (PM-763) that a super-mode handoff can carry
- * (PM-762). The server's adapter and the handoff share this one definition, so what the Operator asks for,
+ * (PM-762). The server's adapter and the handoff share this one definition, so what the project manager asks for,
  * what the owner approves and what the supervisor accepts are one shape. Only `owner_command` carries a
  * shell command and path; it requires the owner's own approval for each operation (PM-887).
  */

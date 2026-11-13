@@ -18,7 +18,7 @@ import {
 } from './dto';
 
 /**
- * The super mode's commands and operations (PM-762, PM-764). The handoffs the retired base Operator recorded
+ * The super mode's commands and operations (PM-762, PM-764). The handoffs the retired built-in member recorded
  * (`SuperHandoff`) are no longer made; their rows and timeline events stay readable.
  */
 

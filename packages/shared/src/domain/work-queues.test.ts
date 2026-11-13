@@ -138,10 +138,13 @@ describe('canSeeWorkQueueItem', () => {
     },
   );
 
-  it.each(['signal', 'checklist'] as const)('keeps a %s to who sees the Operator’s sessions', (type) => {
-    expect(canSeeWorkQueueItem(dev, { source: source(type) }, {})).toBe(false);
-    expect(canSeeWorkQueueItem(admin, { source: source(type) }, {})).toBe(true);
-  });
+  it.each(['signal', 'checklist'] as const)(
+    'keeps a %s to who sees the project manager’s sessions',
+    (type) => {
+      expect(canSeeWorkQueueItem(dev, { source: source(type) }, {})).toBe(false);
+      expect(canSeeWorkQueueItem(admin, { source: source(type) }, {})).toBe(true);
+    },
+  );
 
   it.each(['fix_limit', 'start', 'obligation'] as const)('shows the card-level %s to everyone', (type) => {
     expect(canSeeWorkQueueItem(dev, { source: source(type) }, {})).toBe(true);

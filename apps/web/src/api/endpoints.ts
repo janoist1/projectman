@@ -472,7 +472,7 @@ export const api = {
       }`,
       { schema: WorkQueueDetail },
     ),
-  /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
+  /** The owner's grant of machine operations to the project manager, as the viewer may see it (PM-881). */
   projectManagerKnowledge: (key: string) =>
     apiRequest(routes.projectManagerKnowledge(key), { schema: ProjectManagerKnowledgeDocument }),
   /** The weekly owner question measure of the last eight weeks (PM-1192); the owner's own login only. */
@@ -516,7 +516,7 @@ export const api = {
   /** The newest closed items (resolved, expired, cancelled): the "recently decided" lists. */
   inboxHistory: (key: string, limit: number) =>
     apiRequest(`${routes.inbox(key)}?state=closed&limit=${limit}`, { schema: InboxView }),
-  /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
+  /** The questions the project manager screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
   screenedQuestions: (key: string, since: string) =>
     apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {
       schema: ScreenedQuestionsResponse,

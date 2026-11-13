@@ -364,7 +364,7 @@ describe('a conversation', () => {
     expect(await within(thread).findByText('No card')).toBeTruthy();
   });
 
-  it('says in the empty project manager thread that the Operator handles the daily requests, and marks the distributor', async () => {
+  it('says in the empty project manager thread that the project manager handles the daily requests, and marks the distributor', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.render(<Pages />, '/p/AC/messages/with/pm');

@@ -141,7 +141,7 @@
   margin-top: 10px;
 }
 
-/* Steps under the message they belong to, in line with the Operator's bubbles (after the 28px avatar slot). */
+/* Steps under the message they belong to, in line with the project manager's bubbles (after the 28px avatar slot). */
 .extra {
   margin: 6px 0 0 36px;
   min-width: 0;

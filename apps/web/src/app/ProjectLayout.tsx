@@ -50,7 +50,7 @@ export function ProjectLayout() {
   const [pauseOpen, setPauseOpen] = useState(false);
   // Counts the requests to open the pause bar's details (the project manager's "Folytatás…").
   const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
-  // The Operator's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
+  // The project manager's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
   const [projectManagerOpen, setProjectManagerOpen] = useState(false);
   const [projectManagerChecklistRequest, setProjectManagerChecklistRequest] = useState<{
     id: number;

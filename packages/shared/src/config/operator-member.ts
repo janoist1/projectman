@@ -10,7 +10,7 @@ import type { ProjectConfig } from './schema';
 // There is no Operator member since decision 66 (PM-1076): a connected Claude acts as its holder or as the
 // issuer of a queue item, and the project manager acts as the selected coordinator.
 
-/** The handle the Operator had. It stays taken for good: older events and messages name it. */
+/** The retired built-in member's handle. It stays taken for good: older events and messages name it. */
 export const RETIRED_OPERATOR_HANDLE = 'operator';
 
 /**

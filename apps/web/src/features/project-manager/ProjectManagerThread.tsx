@@ -98,7 +98,7 @@ function projectManagerEntries(
 }
 
 /**
- * Where each request's steps go: under the Operator's last message of the request, else under the owner's message
+ * Where each request's steps go: under the project manager's last message of the request, else under the owner's message
  * that opened it, else (an answer, or a message past the page limit) at the end of the thread.
  */
 function stepAnchors(
@@ -118,7 +118,7 @@ function stepAnchors(
   return { byMessage, trailing };
 }
 
-/** The viewer's conversation with the Operator: bubbles, day separators, steps and signal cards (PM-429, PM-447). */
+/** The viewer's conversation with the project manager: bubbles, day separators, steps and signal cards (PM-429, PM-447). */
 export function ProjectManagerThread({
   handle,
   channel,

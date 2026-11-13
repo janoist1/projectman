@@ -898,7 +898,7 @@ export function useInboxHistory(key: string) {
 }
 
 /**
- * The questions the Operator screened today (PM-561): the trail "Az Operátor intézte". `enabled` is false for
+ * The questions the project manager screened today (PM-561): the trail "A projektmenedzser intézte". `enabled` is false for
  * a viewer who may not see it (below admin); `since` is the start of the viewer's day, an ISO time.
  */
 export function useScreenedQuestions(key: string, since: string, enabled: boolean) {
@@ -994,7 +994,7 @@ export function usePullWaitingQuestion(key: string) {
       if (next) patchOpenInboxCount(client, key, next);
     },
     onSettled: () => {
-      // The question left the Operator's trail too.
+      // The question left the project manager's trail too.
       void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });
       return client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
     },

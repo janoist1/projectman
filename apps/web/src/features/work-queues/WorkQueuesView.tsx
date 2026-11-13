@@ -29,7 +29,7 @@ import {
 import type { WorkQueueFilter } from './workQueueFilters';
 import styles from './WorkQueuesView.module.css';
 
-/** What the Operator panel hands to the view when it sends the viewer here (`location.state`). */
+/** What the project manager panel hands to the view when it sends the viewer here (`location.state`). */
 interface FromProjectManagerState {
   fromProjectManager?: { path: string };
 }

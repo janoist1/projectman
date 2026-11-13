@@ -185,7 +185,7 @@
   --role-human-bg: #f1eee6;
   --role-owner-fg: #f5f4ef;
   --role-owner-bg: #191916;
-  /* The Operator (PM-447): purple, the --column-purple values, so it never reads as the project manager's blue. */
+  /* Project manager coordination marks (PM-447): purple, using the --column-purple values. */
   --role-operator-fg: #6b21a8;
   --role-operator-bg: #efe8f8;
   --role-system-fg: #3f3e3a;

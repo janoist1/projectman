@@ -487,7 +487,7 @@ describe('the key owner’s authority in super mode (PM-831)', () => {
   const empty = { labels: [] as string[], assignee: null, links: [], stageId: 'ready' };
   const code = (plan: LabelChangePlan) => (plan.ok ? 'ok' : plan.refusal.code);
 
-  it('lets the key owner’s holding add and remove a label the Operator does not hold', () => {
+  it('lets the key owner’s holding add and remove a label the project manager does not hold', () => {
     const c = config();
     expect(code(planLabelChange(c, empty, { add: ['owner-tag'] }, superActor, undefined, authority))).toBe(
       'ok',

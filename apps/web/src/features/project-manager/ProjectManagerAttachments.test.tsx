@@ -78,7 +78,7 @@ function sentMessage(project: ReturnType<typeof mockProject>, attachments: Messa
   }).body as TeamMessage;
 }
 
-describe('Operator message attachments', () => {
+describe('project manager message attachments', () => {
   it('uploads from browse, paste and panel drop, then sends only files and clears the tray', async () => {
     const project = setup();
     await screen.findByRole('textbox');

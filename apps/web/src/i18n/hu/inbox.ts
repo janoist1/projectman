@@ -51,7 +51,7 @@ export const inbox = {
     approval: 'Jóváhagyás',
     alert: 'Figyelmeztetés',
     mention: 'Említés',
-    // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
+    // A question the project manager made a todo of (PM-556): a card of its own kind, with a pill.
     todo: 'Teendő',
   },
   kindsLower: {
@@ -545,7 +545,7 @@ export const inbox = {
       permissions: 'a jogosultságok megváltoztatása csak a tulajdonosé',
       review_test: 'az átnézés és a tesztelés beállítása csak a tulajdonosé',
       compute_jobs: 'a számítási feladatok beállítása csak a tulajdonosé',
-      operator_watch: 'az Operator figyelésének beállítása csak a tulajdonosé',
+      operator_watch: 'a projektmenedzser figyelésének beállítása csak a tulajdonosé',
       email_send_policy: 'az e-mail-küldés szabályainak megváltoztatása csak a tulajdonosé',
       machine_access: 'a gépek elérésének megváltoztatása csak a tulajdonosé',
       task_create_access: 'a kártyanyitás jogának megváltoztatása csak a tulajdonosé',
@@ -553,7 +553,7 @@ export const inbox = {
       project_manager_authority: 'a projektmenedzser jogkörének megváltoztatása csak a tulajdonosé',
     },
   },
-  /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
+  /** A todo the project manager made out of a question (PM-556): the step box and the result field. */
   todo: {
     stepTitle: 'A lépés',
     what: 'Mit',
@@ -596,7 +596,7 @@ export const inbox = {
     historySeen: 'Láttad az említést.',
     historyReplied: 'Válaszoltál az említésre.',
   },
-  /** What the Operator said about a question that came to the viewer (PM-556). */
+  /** What the project manager said about a question that came to the viewer (PM-556). */
   operatorNote: 'Csatlakoztatott Claude:',
   operatorFallback: {
     timeout: 'A csatlakoztatott Claude nem nézte át: nem válaszolt 10 percen belül.',
@@ -671,7 +671,7 @@ export const inbox = {
     alreadyHandled: 'Közben a projektmenedzser elintézte, nincs vele teendőd.',
     pullFailed: 'Nem sikerült átvenni. Próbáld újra.',
   },
-  /** The folded row of the questions the Operator settled with no person involved (PM-556). */
+  /** The folded row of the questions the project manager settled with no person involved (PM-556). */
   operatorTrail: {
     title: 'A csatlakoztatott Claude intézte · ma {count}',
     titleUnknown: 'A csatlakoztatott Claude intézte',

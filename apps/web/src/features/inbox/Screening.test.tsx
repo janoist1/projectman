@@ -42,7 +42,7 @@ function question(id: string, overrides: Partial<InboxItem> = {}, screening?: Qu
   };
 }
 
-/** A question the Operator made a todo of: the step, its note, and the two todo buttons. */
+/** A question the project manager made a todo of: the step, its note, and the two todo buttons. */
 function todo(id = 'inb_todo', overrides: Partial<InboxItem> = {}): InboxItem {
   return question(
     id,
@@ -82,8 +82,8 @@ function renderInbox(
   return { ...project, client: view.client };
 }
 
-describe('a todo of the Operator in the inbox (PM-561)', () => {
-  it('is a kind of its own: the step, the Operator note, a pill, and a group of its own next to the decisions', async () => {
+describe('a todo of the project manager in the inbox (PM-561)', () => {
+  it('is a kind of its own: the step, the project manager note, a pill, and a group of its own next to the decisions', async () => {
     renderInbox([
       question('inb_other', { options: [{ id: 'yes', label: 'Igen', style: 'primary' }] }),
       todo(),
@@ -168,11 +168,11 @@ describe('a todo of the Operator in the inbox (PM-561)', () => {
 });
 
 describe('the history of closed questions (PM-561)', () => {
-  it('says why a question closed without an answer, and keeps the Operator-settled ones out', async () => {
+  it('says why a question closed without an answer, and keeps the project manager-settled ones out', async () => {
     renderInbox([
       closed(question('inb_a'), 'task_done'),
       closed(question('inb_b'), 'handed_off', 'dev-1'),
-      // The Operator settled these itself: they belong to its trail, not to the viewer's history.
+      // The project manager settled these itself: they belong to its trail, not to the viewer's history.
       closed(question('inb_c', {}, { until: minutesAgo(5), outcome: 'moot' }), 'operator_moot', 'operator'),
       {
         ...question('inb_d', {}, { until: minutesAgo(5), outcome: 'answered' }),
@@ -196,7 +196,7 @@ describe('the history of closed questions (PM-561)', () => {
     expect(within(list).queryByText('Kérdés inb_d')).toBeNull();
   });
 
-  it('lists a question the Operator released and closed as moot, because it had gone to the people', async () => {
+  it('lists a question the project manager released and closed as moot, because it had gone to the people', async () => {
     renderInbox([
       closed(
         question('inb_e', {}, { until: minutesAgo(15), fallback: 'timeout' }),
@@ -341,7 +341,7 @@ describe('a question that closes while it is open (PM-561)', () => {
   });
 });
 
-describe('"Az Operátor intézte" (PM-561)', () => {
+describe('"A projektmenedzser intézte" (PM-561)', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     // Keep today's fixtures on the same local day in every time zone.
@@ -390,7 +390,7 @@ describe('"Az Operátor intézte" (PM-561)', () => {
     },
   ];
 
-  it("is a folded row with the day's count; opened, it lists what the Operator settled and holds", async () => {
+  it("is a folded row with the day's count; opened, it lists what the project manager settled and holds", async () => {
     const project = renderInbox(trailItems());
     const summary = await screen.findByText(t('inbox.operatorTrail.title', { count: 3 }));
     expect(project.requests.some((request) => request.path.includes('/inbox/screened?since='))).toBe(true);
@@ -408,7 +408,7 @@ describe('"Az Operátor intézte" (PM-561)', () => {
       ),
     ).toBeTruthy();
     expect(within(fold).getByText(t('inbox.operatorTrail.at'))).toBeTruthy();
-    // The question the Operator still holds is not in the viewer's list.
+    // The question the project manager still holds is not in the viewer's list.
     expect(screen.queryByRole('article', { name: /inb_t3/ })).toBeNull();
   });
 

@@ -1049,7 +1049,7 @@ describe('the merge event with a fixed conflict (PM-471)', () => {
   });
 });
 
-describe('the rows of a question the Operator screens (PM-556)', () => {
+describe('the rows of a question the project manager screens (PM-556)', () => {
   const row = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
     describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
   const asker = 'dev-1';
@@ -1100,7 +1100,7 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
     );
   });
 
-  it('says when a question goes to the Operator first, and why one skips the screening', () => {
+  it('says when a question goes to the project manager first, and why one skips the screening', () => {
     const base = { inboxItemId: 'inb_1', question: 'Which font?' };
     expect(row('question_asked', base)).toBe(
       t('timeline.events.question_asked', { question: 'Which font?' }),

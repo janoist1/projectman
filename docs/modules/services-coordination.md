@@ -9,7 +9,7 @@ still say "operator" (`ProjectManagerRequests`, `OPERATOR_READ_TOOLS`, `operator
 `docs/ARCHITECTURE.md`, "Code names"; they name the project manager's coordination, not a member. Decision authority
 is in the Project plan, chapter 4; this file describes only what the code does.
 
-The project manager has no member of its own role to ask: a project has no built-in Operator member. The shared rules
+The project manager has no member of its own role to ask: a project has no built-in coordinator member. The shared rules
 that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_HANDLE`). Configurations containing the retired member must be rewritten before upgrading;
 runtime configuration converters were removed in PM-1383. The handle `operator` stays taken for good:
 older events and messages name it.
@@ -68,7 +68,7 @@ path under its own key.
 
 The fields of every kind come from the guide topic `operations` (generated from the schemas).
 
-Migration 157 (PM-1384) rewrote the closed `release` and Operator approval inbox rows to `alert` (the open ones were
+Migration 157 (PM-1384) rewrote the closed `release` and coordination approval inbox rows to `alert` (the open ones were
 cancelled), so no `operator_approval` item remains. Steps and `operator_*` timeline events keep rendering, and
 configuration history reads the `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
 carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`); a non-empty `operations` is

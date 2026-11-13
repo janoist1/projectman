@@ -24,7 +24,7 @@ from it (see "Driver" below).
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`); the
   item closes `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way.
   A todo for the connected Claude or a narrow fix limit decision stays an open inbox item, which the connected Claude reads through
-  the super-mode tools (`open_integrator_todo`, `resolveIntegratorTodo`). Old rows of the retired Operator member
+  the super-mode tools (`open_integrator_todo`, `resolveIntegratorTodo`). Old rows of the retired built-in member
   (the handle `operator` is no member) stay readable. Both reconcilers are idempotent and a failure is logged and
   never changes what the source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at

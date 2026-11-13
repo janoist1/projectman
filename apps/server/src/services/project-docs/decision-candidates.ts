@@ -1,4 +1,4 @@
-import { ownerHandles, projectDocsOf } from '@projectman/shared';
+import { ownerHandles, projectDocsOf, RETIRED_OPERATOR_HANDLE } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { DecisionCandidate, DecisionMark } from '../../contracts';
 import { isoNow } from '../../core/base';
@@ -33,7 +33,9 @@ export class DecisionCandidates {
       const resolution = item.resolution;
       if (!resolution || resolution.rule || !owners.includes(resolution.by)) return false;
       // An answer the integrator relayed is no decision of the owner (PM-762).
-      return !resolution.ownerAnswerRelayed && !resolution.integratorTodo;
+      if (resolution.ownerAnswerRelayed || resolution.integratorTodo) return false;
+      // A question the retired Operator asked is no owner decision either.
+      return this.askerOf(item) !== RETIRED_OPERATOR_HANDLE;
     });
   }
 

@@ -450,6 +450,24 @@ describe('selection rules', () => {
     expect(files).not.toContain('apps/server/test/other.test.ts');
   });
 
+  it('selects the harness-driven session launch tests when the session launch changes (PM-1407)', () => {
+    const changed = 'apps/server/src/runtime/sessions/launch.ts';
+    const tree = [
+      file(changed, 'export const l = 1;'),
+      file('apps/server/test/member-workspaces.test.ts'),
+      file('apps/server/test/codex-session-folder.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/member-workspaces.test.ts',
+        'apps/server/test/codex-session-folder.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
   it('keeps the alert rule tests ahead of the many farther tests that fill the cap (PM-1399)', () => {
     const outages = 'apps/server/src/runtime/watchers/outages.ts';
     const tree = [

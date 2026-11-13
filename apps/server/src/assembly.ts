@@ -970,6 +970,8 @@ export function createDomain(opts: DomainOptions) {
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
   delivery.useMessageHolds((session) => messageRouter.holdsMessagesOf(session));
+  delivery.useNoticeStore((session, text) => messaging.storeNotice(session, text));
+  sessions.useNoticeStore((session, text) => messaging.storeNotice(session, text));
   const sessionCloser = new SessionCloser({
     ctx,
     engines,

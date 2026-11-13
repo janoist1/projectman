@@ -108,7 +108,8 @@ export interface InputQueueEffects {
     timeoutMs: number,
   ) => Effect.Effect<void, NotSubmittedError | SessionGoneError>;
   readonly hold: Effect.Effect<void>;
-  readonly unhold: (first?: string) => Effect.Effect<void>;
+  /** The outcome of `first` when one was queued: settles when the CLI took it, or failed with why not. */
+  readonly unhold: (first?: string) => Effect.Effect<Outcome | undefined>;
 }
 
 type Outcome = Deferred.Deferred<void, NotSubmittedError | SessionGoneError>;
@@ -437,11 +438,13 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         Effect.gen(function* () {
           s.held = false;
           yield* FiberHandle.clear(heldWatch);
+          let outcome: Outcome | undefined;
           if (first?.trim() && !s.closed) {
-            const outcome = yield* Deferred.make<void, NotSubmittedError | SessionGoneError>();
-            queue.unshift({ text: first, untilSubmitted: false, outcome });
+            outcome = yield* Deferred.make<void, NotSubmittedError | SessionGoneError>();
+            queue.unshift({ text: first, untilSubmitted: true, outcome });
           }
           yield* pump;
+          return outcome;
         }),
     };
   });
@@ -468,9 +471,14 @@ export class InputQueue {
     runSync(this.core.hold);
   }
 
-  /** Ends the hold; a non-empty `first` is queued ahead of the waiting messages. Then it pumps. */
-  unhold(first?: string): void {
-    runSync(this.core.unhold(first));
+  /**
+   * Ends the hold; a non-empty `first` is queued ahead of the waiting messages, and only counts as done once
+   * the CLI took it (R-04). Then it pumps. With a `first`, the result settles like `enqueueSubmitted`'s;
+   * without one it is undefined.
+   */
+  unhold(first?: string): Promise<void> | undefined {
+    const outcome = runSync(this.core.unhold(first));
+    return outcome && runPromise(Deferred.await(outcome));
   }
 
   /** Messages waiting to be typed. */

@@ -533,6 +533,13 @@ export class SessionOrchestrator {
     this.projectManagerStart = send;
   }
 
+  private storeNotice?: (session: Session, text: string) => Promise<void>;
+
+  /** Binds the store for a text the session did not take (the pause's nudge, R-04); messaging is built later. */
+  useNoticeStore(store: (session: Session, text: string) => Promise<void>): void {
+    this.storeNotice = store;
+  }
+
   /** Called after the session lock, including admission's running-session shortcut. */
   async notifyProjectManagerStart(
     projectKey: string,
@@ -1848,6 +1855,20 @@ export class SessionOrchestrator {
             'the first input was typed but the session did not take it',
           );
           this.live.settleFirstInput(session.id, false);
+          return;
+        }
+        case 'nudge_failed': {
+          // The pause's nudge sat unconfirmed in the prompt box: store it, so it goes the usual way (R-04).
+          this.ctx.logger.warn(
+            { sessionId: session.id, member: session.member },
+            'the nudge after a pause was typed but the session did not take it',
+          );
+          void this.storeNotice?.(session, event.text).catch((err: unknown) => {
+            this.ctx.logger.error(
+              { err, sessionId: session.id },
+              'could not store the nudge the session did not take',
+            );
+          });
           return;
         }
         case 'state': {

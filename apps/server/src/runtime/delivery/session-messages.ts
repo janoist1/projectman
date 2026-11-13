@@ -153,7 +153,7 @@ export class SessionMessages {
           });
         if (restarted) continue;
       }
-      this.delivery.notice(session, from, text, task.key);
+      this.delivery.notice(session, from, text, task.key, { store: true });
     }
   }
 
@@ -235,6 +235,6 @@ export class SessionMessages {
       `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" was closed: ${QUESTION_CLOSE_REASONS[rule.data]}. ` +
       `Do not wait for its answer.${note ? ` Note: ${truncate(note, ANSWER_NOTICE_LIMIT)}` : ''}` +
       (rule.data === 'operator_moot' ? ` ${reaskHint(item.id)}` : '');
-    await this.delivery.notice(session, 'projectman', text, item.taskKey);
+    await this.delivery.notice(session, 'projectman', text, item.taskKey, { store: true });
   }
 }

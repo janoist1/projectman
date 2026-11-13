@@ -80,6 +80,7 @@ export interface DeliveryEffects {
     from: string,
     text: string,
     taskKey: string | null,
+    options?: NoticeOptions,
   ) => Effect.Effect<boolean>;
   readonly noticeOrHold: (
     session: Session,
@@ -94,6 +95,18 @@ export interface DeliveryEffects {
   readonly dropPauseHeld: (sessionId: string) => Effect.Effect<void>;
   readonly dropHeld: (sessionId: string) => Effect.Effect<void>;
   readonly useMessageHolds: (check: (session: Session) => Promise<boolean>) => Effect.Effect<void>;
+  readonly useNoticeStore: (store: NoticeStore) => Effect.Effect<void>;
+}
+
+/** Keeps the text of a notice no session took as a stored `system` message for the session's member and work item. */
+export type NoticeStore = (session: Session, text: string) => Promise<void>;
+
+/**
+ * `store`: keep the text as a stored message when the session does not take it. Only for a caller
+ * nothing retries; the member queue types again by itself and would deliver the text twice.
+ */
+export interface NoticeOptions {
+  readonly store?: boolean;
 }
 
 /** A notice kept for an idle session; `messageId` is set when a stored message is behind it. */
@@ -154,6 +167,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
     /** Retries started for a session since typing last worked (`retryLater`). */
     const retryAttempts = new Map<string, number>();
     let messageHolds: ((session: Session) => Promise<boolean>) | undefined;
+    let noticeStore: NoticeStore | undefined;
     const flushing = new Set<string>();
     /** Messages being typed, by message and recipient. */
     const claims = new Set<string>();
@@ -552,7 +566,21 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         yield* Effect.forkIn(flush, scope, { startImmediately: true });
       });
 
-    const notice: DeliveryEffects['notice'] = (session, from, text, taskKey) =>
+    /** Stores the text of a notice the session did not take; a failed store is logged, not thrown. */
+    const storeNotice = (session: Session, text: string) =>
+      Effect.promise(async () => {
+        if (!noticeStore) return;
+        try {
+          await noticeStore(session, text);
+        } catch (err) {
+          ctx.logger.error(
+            { err, sessionId: session.id },
+            'could not store a notice the session did not take',
+          );
+        }
+      });
+
+    const notice: DeliveryEffects['notice'] = (session, from, text, taskKey, options) =>
       Effect.gen(function* () {
         const {
           text: typed,
@@ -566,8 +594,10 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         return true;
       }).pipe(
         catchFailure((cause) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             ctx.logger.warn({ err: failure(cause), sessionId: session.id }, 'could not deliver a message');
+            // Nothing retries these notices (PM-1369, R-03): stored, one waits like any message for the member.
+            if (options?.store) yield* storeNotice(session, text);
             return false;
           }),
         ),
@@ -607,7 +637,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
       noticeOrHold: (session, from, text, taskKey) =>
         session.state !== 'idle'
           ? Effect.asVoid(
-              Effect.forkIn(notice(session, from, text, taskKey), scope, { startImmediately: true }),
+              Effect.forkIn(notice(session, from, text, taskKey, { store: true }), scope, {
+                startImmediately: true,
+              }),
             )
           : Effect.sync(() =>
               keep(session, { text: formatInjectedTeamMessage(from, text, taskKey), messageId: null }),
@@ -692,6 +724,11 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
       useMessageHolds: (check) =>
         Effect.sync(() => {
           messageHolds = check;
+        }),
+      /** Binds the store for notices the session did not take, after messaging is built (R-03). */
+      useNoticeStore: (store) =>
+        Effect.sync(() => {
+          noticeStore = store;
         }),
     };
   });
@@ -785,8 +822,14 @@ export class MessageDelivery {
     );
   }
 
-  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean> {
-    return runPromise(this.core.notice(session, from, text, taskKey));
+  notice(
+    session: Session,
+    from: string,
+    text: string,
+    taskKey: string | null,
+    options?: NoticeOptions,
+  ): Promise<boolean> {
+    return runPromise(this.core.notice(session, from, text, taskKey, options));
   }
 
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
@@ -804,5 +847,10 @@ export class MessageDelivery {
   /** Binds the card's existing refinement and fix-limit holds after messaging is built. */
   useMessageHolds(check: (session: Session) => Promise<boolean>): void {
     runSync(this.core.useMessageHolds(check));
+  }
+
+  /** Binds the store for notices the session did not take, after messaging is built (R-03). */
+  useNoticeStore(store: NoticeStore): void {
+    runSync(this.core.useNoticeStore(store));
   }
 }

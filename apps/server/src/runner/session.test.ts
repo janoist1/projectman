@@ -1534,6 +1534,33 @@ describe('pausing (PM-218)', () => {
     expect(s.session.release()).toBe(false);
   });
 
+  it('reports the nudge of a release as failed, with its text, when the CLI never takes it (R-04)', async () => {
+    const s = await ready();
+    await s.session.pause();
+    expect(s.session.release({ nudge: 'Carry on.' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(
+      CODEX_TIMING.stepDelayMs +
+        CODEX_TIMING.enterDelayMs +
+        CODEX_TIMING.submitTimeoutMs +
+        CODEX_TIMING.lateSubmitMs +
+        CODEX_TIMING.enterRetryMs,
+    );
+    expect(s.pty.typed().pastes).toEqual(['Carry on.']);
+    expect(s.events.filter((e) => e.type === 'nudge_failed')).toEqual([
+      { type: 'nudge_failed', sessionId: 'ses_1', text: 'Carry on.' },
+    ]);
+  });
+
+  it('reports no failed nudge when the CLI took it (R-04)', async () => {
+    const s = await ready();
+    await s.session.pause();
+    s.session.release({ nudge: 'Carry on.' });
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await submit(s);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(s.events.map((e) => e.type)).not.toContain('nudge_failed');
+  });
+
   it('reports a held session as paused in its info, and says nothing when it is not (PM-1403)', async () => {
     const s = await ready();
     expect(s.session.info()).not.toHaveProperty('paused');

@@ -171,6 +171,20 @@ export class Messaging {
     );
   }
 
+  /**
+   * A notice the session did not take (R-03) is kept as a `system` message for its member and work item,
+   * so the usual retry and wake-up carry it.
+   */
+  async storeNotice(session: Session, text: string): Promise<void> {
+    const { workItem } = session;
+    await this.send(
+      session.projectKey,
+      'system',
+      { to: [session.member], text, taskKey: workItem.type === 'task' ? workItem.taskKey : null },
+      { actor: SYSTEM_ACTOR, workItem },
+    );
+  }
+
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;

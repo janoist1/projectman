@@ -476,6 +476,68 @@ describe('selection rules', () => {
     expect(selection.omitted).toBeGreaterThan(0);
   });
 
+  it.each(['apps/server/src/runtime/admission/task-starts.ts', 'apps/server/src/core/tasks/task-wait.ts'])(
+    'selects the harness-driven start and wait tests when %s changes (PM-1345, PM-1402)',
+    (changed) => {
+      const tree = [
+        file(changed, 'export const t = 1;'),
+        file('apps/server/test/relation-notices.test.ts', "import { createDomain } from './helpers/domain';"),
+        file('apps/server/test/structural-history-reads.test.ts'),
+        file('apps/server/test/other.test.ts'),
+      ];
+      const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+      expect(files).toEqual(
+        expect.arrayContaining([
+          'apps/server/test/relation-notices.test.ts',
+          'apps/server/test/structural-history-reads.test.ts',
+        ]),
+      );
+      expect(files).not.toContain('apps/server/test/other.test.ts');
+    },
+  );
+
+  it('keeps the tests named after a changed module ahead of the many tests only the central files reach (PM-1402)', () => {
+    const admission = 'apps/server/src/runtime/admission/deferred-starts.ts';
+    const kernel = 'apps/server/src/kernel/events.ts';
+    const named = [
+      'apps/server/test/automatic-session-starts.test.ts',
+      'apps/server/test/admission.test.ts',
+      'apps/server/test/deferred-starts.test.ts',
+    ];
+    const tree = [
+      file(admission, 'export const a = 1;'),
+      file(kernel, 'export const k = 1;'),
+      file('apps/server/src/core/b.ts', "import { k } from '../kernel/events';\nexport const b = k;"),
+      ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+        file(`apps/server/src/core/a${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+      ),
+      ...named.map((path) => file(path)),
+      file('apps/server/test/unrelated-starter.test.ts'),
+    ];
+    const selection = select(tree, [admission, kernel]);
+    const files = selection.tests.flatMap((entry) => entry.files);
+    // The module tests lead the graph tests, which the alphabet would put before them; the cap cuts only the graph tests.
+    expect(files.slice(0, named.length).sort()).toEqual([...named].sort());
+    expect(selection.moduleTests.sort()).toEqual([...named].sort());
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omittedByProximity.module).toEqual([]);
+    expect(selection.omitted).toBeGreaterThan(0);
+    expect(files).not.toContain('apps/server/test/unrelated-starter.test.ts');
+  });
+
+  it('names a module after its folder, but not after a central file or a generic file name (PM-1402)', () => {
+    const kernel = 'apps/server/src/kernel/events.ts';
+    const tree = [
+      file(kernel, 'export const k = 1;'),
+      file('apps/server/src/core/tasks/index.ts', 'export const i = 1;'),
+      file('apps/server/test/events.test.ts'),
+      file('apps/server/test/tasks.test.ts'),
+    ];
+    expect(select(tree, [kernel, 'apps/server/src/core/tasks/index.ts']).moduleTests).toEqual([
+      'apps/server/test/tasks.test.ts',
+    ]);
+  });
+
   it('selects the visibility test when the timeline visibility rule changes (PM-1331)', () => {
     const tree = [
       file('packages/shared/src/domain/timeline-visibility.ts', 'export const visible = 1;'),
@@ -608,7 +670,7 @@ describe('handover-check command', () => {
     );
     expect(printed()).toContain('handover-check: the cap cut 5 test(s)');
     expect(printed().join('\n')).toMatch(
-      /left out by proximity: 0 direct[^,]*, 0 selection-rule[^,]*, 0 name[^,]*, 5 /,
+      /left out by proximity: 0 direct[^,]*, 0 selection-rule[^,]*, 0 module-name[^,]*, 0 name[^,]*, 5 /,
     );
     expect(npm).toHaveBeenCalled();
   });

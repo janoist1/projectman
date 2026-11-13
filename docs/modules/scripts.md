@@ -242,15 +242,26 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   facts, never their wording. **Order by proximity (PM-1306).** The tests come
   nearest first and the alphabet only decides between tests of the same proximity. **The cap
   (PM-1337).** The cap, `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`),
-  cuts only the farther tests: every `direct` and `rule` test and the first `NAME_TESTS_ALWAYS` (10)
-  `name` tests always run, and the remaining room under the cap goes to the rest of the `name` tests
+  cuts only the farther tests: every `direct` and `rule` test, the first `MODULE_TESTS_ALWAYS` (10)
+  `module` tests and the first `NAME_TESTS_ALWAYS` (10)
+  `name` tests always run, and the remaining room under the cap goes to the rest of the `module` and `name` tests
   and the `graph` tests in order. A run can therefore be larger than 60 files (the nearest tests decide
   the merge); the last lines say how many tests the cap cut:
   1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
      file themselves (snapshot tests first). A test that only imports a changed `packages/shared`
      export through the package is not direct: it is `graph`, however many there are;
   2. `rule`: the tests a `SELECTION_RULES` entry chose;
-  3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
+  3. `module` (PM-1402): tests (inside the merge check's scope) whose file name holds, as whole
+     hyphen-separated words, the name of a changed module: the folder (`admission`), the file name
+     (`task-starts`) and the last word of a hyphenated file name (`starts`) of a changed
+     non-test file outside the central files (`packages/shared`, `contracts`, `kernel`, `db`,
+     `assembly.ts`, the test helpers, the web `i18n` and `mocks`; generic names such as `index` and
+     names under 5 characters left out). They rank ahead of the tests that the central files' imports
+     reach, so a changed `runtime/admission` keeps `*session-starts*`, `*admission*` and
+     `*deferred-starts*` inside the 60. The tests of the workspace the change touched most come first,
+     then the tests with more matching names, integration tests last. `--dry-run` names them in a
+     `module-name test(s) ... run ahead of the import graph` line;
+  4. `name`: tests (inside the merge check's scope) that use a changed name without importing the
      file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
      line that differs from the base in a changed non-test file (comments do not count). Using a
      compound name on a changed line is not enough: the code must also declare it (`name:`, a property,
@@ -263,12 +274,12 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
      (`name: true`, `name = 'x'`) rather than only read it or stub it (`name: () => []`), then those using more and rarer changed names, then by path. Integration tests
      (`*.integration.test.*`, skipped in a sandbox) go behind the others in the `direct`, `name` and
      `graph` tiers;
-  4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
+  5. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say
   `ran R of M (cap 60 cuts only the farther tests, the N nearest always run); the merge-test runs the other C`
   (exit 0), `the cap cut C test(s)` and
-  `left out by proximity: 0 direct, 0 selection-rule, <n> name-usage, <n> farther import-graph`
+  `left out by proximity: 0 direct, 0 selection-rule, <n> module-name, <n> name-usage, <n> farther import-graph`
   (the first two are always 0), and name the omitted tests of the `name` tier, at most 20 per line and then `(+N more)`
   (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output

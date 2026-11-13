@@ -28,7 +28,7 @@ by the inline script in `index.html`.
 2. **Colour never carries meaning alone.** Every state also has an icon or a word ("!", "?", a check, the label).
 3. **Tokens, not values.** A colour, radius, shadow, font size or bevel in a component is a token. A new need becomes
    a new token with a neutral value in Classic, then the Win 3.11 value in `win311.css`.
-4. **Hungarian text is text in `i18n/hu.ts`**; the style never changes wording.
+4. **Hungarian text is text in `i18n/hu/`**; the style never changes wording.
 5. **Both styles, light and dark, 1512 and 390 px.** A new or changed screen is photographed in all of them.
 6. **Touch targets, contrast and focus do not depend on the style.** 44 px touch targets on a phone, text 4.5:1,
    a visible focus mark everywhere.
@@ -132,7 +132,7 @@ both styles. Add the screen you design to that scenario or make a scenario of yo
 5. Win 3.11: sharp corners, bevels instead of shadows, no animation, 13 px minimum reading text, the dotted focus
    frame.
 6. Focus is visible and the order is right; targets are 44 px on a phone; the text fits at 390 px.
-7. Nothing is hardcoded in Hungarian: the text is in `i18n/hu.ts`.
+7. Nothing is hardcoded in Hungarian: the text is in `i18n/hu/`.
 8. After an action (send, delete, undo, close) focus lands on a defined next control: the control that replaces the
    one acted on, the next item in the list, or the element that opened the dialog. It is never lost to the page body
    when the focused element disappears.

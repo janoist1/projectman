@@ -1,0 +1,16 @@
+export const editor = {
+  preview: 'Preview',
+  toolbar: 'Format description',
+  more: 'More',
+  withShortcut: '{name} ({shortcut})',
+  bold: 'Bold',
+  italic: 'Italic',
+  heading: 'Heading',
+  bullet: 'Bullet list',
+  numbered: 'Numbered list',
+  taskList: 'Checklist',
+  link: 'Link',
+  code: 'Code',
+  document: 'Link a document',
+  placeholder: 'text',
+} as const;

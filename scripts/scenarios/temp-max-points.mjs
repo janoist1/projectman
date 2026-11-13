@@ -1,4 +1,6 @@
-import { hu } from '../../apps/web/src/i18n/hu.ts';
+import { tsImport } from 'tsx/esm/api';
+
+const { hu } = await tsImport('../../apps/web/src/i18n/hu/index.ts', import.meta.url);
 
 const t = (key, params = {}) =>
   key

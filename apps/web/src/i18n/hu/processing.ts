@@ -1,0 +1,45 @@
+/** What became of a message for one recipient (PM-1290/PM-1305): the one wording of the card and the PM panel. */
+export const processing = {
+  label: {
+    stored: 'Kézbesítésre vár',
+    held: 'Várakozik',
+    starting: 'Indul…',
+    delivered: 'Kézbesítve',
+    read: 'Olvasva',
+    handed_off: 'Továbbadva @{to} részére',
+    working: 'Feldolgozás alatt',
+    waiting: 'Várakozik',
+    stale: 'Elakadt',
+    turn_ended: 'Nem válaszolt',
+    replied: 'Válaszolt',
+    not_sent: 'Nem kézbesíthető',
+  },
+  hold: {
+    engine: 'A motor kapcsolódására vár.',
+    handoff: 'A munka átadására vár.',
+    refinement_turn: 'Az előkészítés következő lépésére vár.',
+    fix_limit: 'A javítási körök utáni döntésre vár.',
+    full_test: 'A teljes ellenőrzésre vár.',
+  },
+  wait: {
+    permission: 'Engedélyre vár.',
+    input: 'Válaszra vár.',
+    paused: 'Szünetel.',
+    quota: 'Az előfizetési keretre vár.',
+    unknown: 'A folytatásra vár.',
+  },
+  stale: {
+    engine_offline: 'A motor nem kapcsolódik. Utolsó jelzés: {time}.',
+    no_report: 'Az állapot nem frissül. Utolsó jelzés: {time}.',
+  },
+  detail: {
+    starting: 'Az indulást a felső munkasáv mutatja.',
+    delivered: 'AI-tagnál a kézbesítés nem jelent elolvasást.',
+    turn_ended: 'A feldolgozási kör véget ért; ehhez az üzenethez még nincs összerendelt válasz.',
+    not_sent: 'A hozzászólás megmaradt, de ez a megszólítás nem küldött értesítést.',
+  },
+  list: 'Feldolgozás állapota',
+  details: 'Állapot részletei',
+  openReply: 'Válasz megnyitása',
+  replyUnavailable: 'A válasz nem érhető el.',
+} as const;

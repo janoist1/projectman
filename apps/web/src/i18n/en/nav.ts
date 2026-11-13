@@ -1,0 +1,17 @@
+export const nav = {
+  version: 'Version: {version}',
+  main: 'Main navigation',
+  board: 'Board',
+  map: 'Map',
+  team: 'Team',
+  inbox: 'For you',
+  messages: 'Messages',
+  feedback: 'Feedback',
+  notifications: 'Notifications',
+  howWeWork: 'How we work',
+  settings: 'Settings',
+  account: 'Account: {name}',
+  inboxCount: '{count|# item waits|# items wait} for you',
+  feedbackCount: '{count|# mark waits|# marks wait} for you',
+  documents: 'Documents',
+} as const;

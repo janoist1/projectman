@@ -25,7 +25,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   };
   // Load the actual locale through Vite; UI wording stays in hu.ts.
   const first = await open({});
-  const ui = await first.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await first.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const contactsRegion = (page) =>
     page.getByRole('region', { name: ui.settings.team.contacts.label }).first();
   const shootContacts = async (page, name) => {

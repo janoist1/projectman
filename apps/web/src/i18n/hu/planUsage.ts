@@ -1,0 +1,16 @@
+export const planUsage = {
+  weekly: 'Heti keret',
+  percent: '{value}%',
+  unknown: 'n. a.',
+  title: '{provider}-előfizetés: heti keret {weekly}',
+  resets: 'Visszaáll: {time}',
+  withReset: '{value} (visszaáll: {time})',
+  paused: 'A heti keret {limit}% fölött van: ennél a szolgáltatónál új AI-munka nem indul.',
+  badgeLabel: 'Legmagasabb heti AI-keret: {percent}. Részletek a Csapat oldalon.',
+  compactLabel: '{provider} heti keret: {percent}',
+  dropdownTitle: '{provider} heti keret',
+  meterLabel: '{provider} heti keret',
+  combinedPrefix: 'AI-keret',
+  combinedTriggerLabel: 'Heti AI-keretek: legmagasabb érték {percent}. Részletek megnyitása.',
+  combinedTitle: 'AI-keretek',
+} as const;

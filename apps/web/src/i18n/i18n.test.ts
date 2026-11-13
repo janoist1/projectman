@@ -36,11 +36,23 @@ const dynamicPrefixes = [
   'pwa.',
 ];
 
+/** The section files and indexes of the two locales (keys of `sources` are relative to this folder). */
+function isLocaleFile(file: string): boolean {
+  return file.startsWith('./hu/') || file.startsWith('./en/');
+}
+
+const huSections = import.meta.glob<Record<string, unknown>>(['./hu/*.ts', '!./hu/index.ts'], {
+  eager: true,
+});
+const enSections = import.meta.glob<Record<string, unknown>>(['./en/*.ts', '!./en/index.ts'], {
+  eager: true,
+});
+
 function unusedKeys(keys: string[], appSources: Record<string, string>): string[] {
   const literals = new Set<string>();
   const templates: RegExp[] = [];
   for (const [file, raw] of Object.entries(appSources)) {
-    if (file === './hu.ts' || file === './en.ts' || file.includes('/mocks/')) continue;
+    if (isLocaleFile(file) || file.includes('/mocks/')) continue;
     const source = stripComments(raw);
     // Includes lookup tables, conditional arguments and rich(), as well as t().
     for (const match of source.matchAll(/(['"])([A-Za-z0-9_./:-]+)\1|`([A-Za-z0-9_./:-]+)`/g)) {
@@ -132,10 +144,10 @@ describe('hu locale', () => {
     ).toEqual([]);
   });
 
-  it('keeps Hungarian text out of the code (only hu.ts and mock data hold it)', () => {
+  it('keeps Hungarian text out of the code (only the hu/ files and mock data hold it)', () => {
     const accented = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
     const offenders = Object.entries(sources)
-      .filter(([file]) => file !== './hu.ts' && !file.includes('/mocks/'))
+      .filter(([file]) => !file.startsWith('./hu/') && !file.includes('/mocks/'))
       .flatMap(([file, source]) =>
         stripComments(source)
           .split('\n')
@@ -213,6 +225,38 @@ describe('en locale', () => {
   });
 });
 
+describe('locale section files', () => {
+  const sectionNames = (sections: Record<string, unknown>) =>
+    Object.keys(sections)
+      .map((path) => path.replace(/^.*\/(.+)\.ts$/, '$1'))
+      .sort();
+
+  it.each([
+    ['hu', hu, huSections],
+    ['en', en, enSections],
+  ] as const)('%s: the index holds exactly the section files, sorted', (_name, locale, sections) => {
+    expect(Object.keys(sections).length).toBeGreaterThan(30);
+    expect(Object.keys(locale)).toEqual(sectionNames(sections));
+  });
+
+  it.each([
+    ['hu', huSections],
+    ['en', enSections],
+  ] as const)('%s: each section file exports one section, named like the file', (_name, sections) => {
+    const mismatched = Object.entries(sections)
+      .filter(([path, module]) => {
+        const name = path.replace(/^.*\/(.+)\.ts$/, '$1');
+        return Object.keys(module).join() !== name;
+      })
+      .map(([path]) => path);
+    expect(mismatched).toEqual([]);
+  });
+
+  it('hu and en have the same section file names', () => {
+    expect(sectionNames(enSections)).toEqual(sectionNames(huSections));
+  });
+});
+
 describe('unused key guard', () => {
   it('reports an unused key by name', () => {
     expect(unusedKeys(['guard.used', 'guard.unused'], { './screen.ts': "t('guard.used')" })).toEqual([
@@ -239,7 +283,7 @@ describe('unused key guard', () => {
   it('ignores comments and the locale itself', () => {
     expect(
       unusedKeys(['guard.unused'], {
-        './hu.ts': "const key = 'guard.unused'",
+        './hu/guard.ts': "const key = 'guard.unused'",
         './screen.ts': "// t('guard.unused')\n/* t(`guard.unused`) */",
       }),
     ).toEqual(['guard.unused']);

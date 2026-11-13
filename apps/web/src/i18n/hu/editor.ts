@@ -1,0 +1,16 @@
+export const editor = {
+  preview: 'Előnézet',
+  toolbar: 'Leírás formázása',
+  more: 'Több',
+  withShortcut: '{name} ({shortcut})',
+  bold: 'Félkövér',
+  italic: 'Dőlt',
+  heading: 'Címsor',
+  bullet: 'Felsorolás',
+  numbered: 'Számozott lista',
+  taskList: 'Kártyalista',
+  link: 'Hivatkozás',
+  code: 'Kód',
+  document: 'Dokumentum hivatkozása',
+  placeholder: 'szöveg',
+} as const;

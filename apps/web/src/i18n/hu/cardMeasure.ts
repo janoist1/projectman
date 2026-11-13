@@ -1,0 +1,31 @@
+/** The comparison of the closed cards (PM-222). */
+export const cardMeasure = {
+  title: 'Lezárt kártyák összevetése',
+  hint: 'A modell a munkamenetek mért fogyasztásából jön, nem a tag mai beállításából.',
+  weightedHintSummary: 'Mi az a súlyozott token?',
+  weightedHint: 'A súlyozott token a gyorsítótárból olvasott tokeneket egytizedükkel számolja.',
+  periodLabel: 'Időszak',
+  periodDays: '{days} nap',
+  empty: 'Az időszakban nem zárult le kártya.',
+  unmeasured:
+    '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
+  noImplementer: 'nincs megvalósító',
+  reviewerUnknown: 'Nincs átnézőadat',
+  failedByReviewer: 'Bukott merge-ellenőrzés átnézőnként:',
+  reviewerRatio: '{name}: {failed} / {total} kártyán ({percent})',
+  sessionsWithoutData: '{count} munkamenet mérés nélkül',
+  columns: {
+    card: 'Kártya',
+    implementer: 'Megvalósító és modellje',
+    reviewer: 'Átnéző',
+    tokens: 'Súlyozott token',
+    reviewRounds: 'Átnézési körök',
+    sendBacks: 'Visszaküldések',
+    mergeConflicts: 'Beolvasztási ütközések',
+    mergeChecksFailed: 'Bukott beolvasztási ellenőrzések',
+    closedAt: 'Lezárva',
+  },
+  changeRequestsOf: 'ebből javítást kért: {count}',
+  reviewTestsFailedOf: 'ebből az átnézés teljes tesztje bukott: {count}',
+  sortBy: 'Rendezés: {column}',
+} as const;

@@ -1,0 +1,18 @@
+export const memberStatus = {
+  no_account: 'No account yet',
+  idle: 'Idle',
+  working: 'Working',
+  waiting_for_human: 'Waiting for a person',
+  online: 'Online',
+  offline: 'Offline',
+  invited: 'Invited',
+  retired: 'Retired',
+  needsYou: 'Waiting for you',
+  paused: 'Paused',
+  pausing: 'Pausing…',
+  cannotWork: 'Can’t work',
+  cannotWorkWithReason: 'Can’t work: {reason}',
+  cannotWorkLead: 'Can’t work:',
+  quotaReason: 'The provider plan has run out; waiting for it to reset.',
+  quotaReasonUntil: 'The provider plan has run out; it resets at about {time}.',
+} as const;

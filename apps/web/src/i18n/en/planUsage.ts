@@ -1,0 +1,16 @@
+export const planUsage = {
+  weekly: 'Weekly usage',
+  percent: '{value}%',
+  unknown: 'n/a',
+  title: '{provider} plan: weekly usage {weekly}',
+  resets: 'Resets: {time}',
+  withReset: '{value} (resets: {time})',
+  paused: 'Weekly usage is above {limit}%: no new AI work starts for this provider.',
+  badgeLabel: 'Highest weekly AI plan usage: {percent}. Details on the Team page.',
+  compactLabel: '{provider} weekly usage: {percent}',
+  dropdownTitle: '{provider} weekly usage',
+  meterLabel: '{provider} weekly usage',
+  combinedPrefix: 'AI plan',
+  combinedTriggerLabel: 'Weekly AI plans: highest usage {percent}. Open details.',
+  combinedTitle: 'AI plans',
+} as const;

@@ -22,7 +22,7 @@ export default async ({ instance, open, shoot, step }) => {
   });
 
   const page = await open({ path: '/login' });
-  const ui = await page.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await page.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const text = ui.auth;
   const visit = (path) => page.goto(new URL(path, page.url()).href);
   const shots = (name) => shoot(page, name, { widths: WIDTHS });

@@ -9,8 +9,9 @@ about your own choices needing confirmation.
 ## Language
 
 - Source code is English: identifiers, comments, paths, commits, test names, logs, error codes.
-- UI text lives only in paired `hu` / `en` locales: `apps/web/src/i18n/{hu,en}.ts`,
-  `apps/feedback-widget/src/i18n/{hu,en}.ts`, `packages/templates/src/locales/{hu,en}.ts`,
+- UI text lives only in paired `hu` / `en` locales: `apps/web/src/i18n/{hu,en}/` (one
+  file per top-level section, named like it, plus `index.ts`; a new section is one file and one
+  sorted index line in both), `apps/feedback-widget/src/i18n/{hu,en}.ts`, `packages/templates/src/locales/{hu,en}.ts`,
   `deploy/mac/menubar/Resources/{hu,en}.lproj/Localizable.strings`. Use `t('key')` or native
   `L10n`; never hardcode UI text. Add keys to both locales, including `errors.codes`.
   `hu` defines keys; web `en` must cover them (`t()` has no Hungarian fallback) and follow

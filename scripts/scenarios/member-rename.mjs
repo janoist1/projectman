@@ -31,7 +31,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   const state = { email: false, sessionLive: false, timeline: [] };
 
   let page = await open({ path: `/p/AC/team/${renamed.handle}` });
-  const ui = await page.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await page.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, name) => values[name]);
 
   await page.route(

@@ -63,7 +63,7 @@ export default async ({ open, shoot, step }) => {
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
   const first = await open({ path: '/' });
-  const ui = await first.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
+  const ui = await first.evaluate(async () => (await import('/src/i18n/hu/index.ts')).hu);
   const mode = ui.engines.mode;
   const guide = ui.ownerOnboarding.guide;
 

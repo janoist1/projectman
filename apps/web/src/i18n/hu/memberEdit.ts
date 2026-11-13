@@ -1,0 +1,31 @@
+export const memberEdit = {
+  title: 'Tag szerkesztése: {name}',
+  edit: 'Szerkesztés',
+  editMember: 'Szerkesztés: {name}',
+  roles: 'Betöltött szerepek',
+  instructions: 'Saját utasítások',
+  autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',
+  autoCompactWindowHint:
+    'Üresen hagyva a projekt értéke érvényes (a projekt korlátainál, alapból 200 000). 100 000 és 1 000 000 között adható meg.',
+  autoCompactWindowCodex: 'Csak a Claude-tagoknál hat; a {provider}-tagok beszélgetését ez nem tömöríti.',
+  autoCompactWindowPlaceholder: 'a projekt értéke',
+  limit: 'Legfeljebb hány pontos kártyát kaphat?',
+  limitHint: 'Automatikusan ennél nagyobb pontú kártyát nem kap. Pontozatlan kártyát bármikor kaphat.',
+  limitDefault: '5 pont (alap)',
+  limitUnlimited: '13 pont – bármekkora',
+  tempLimit: 'Beugróként legfeljebb {points} pontos kártyát kaphat; ezt a projekt Korlátok része állítja.',
+  emailEnabled: 'E-mail levelezés engedélyezése',
+  emailEnabledHint:
+    'Írhat azoknak, akik a Beállítások › E-mail alatt e-mailt kérnek, és megkapja a válaszukat.',
+  emailChannelOff: 'Most nem megy ki levél: a projektben ki van kapcsolva az e-mail levelezés.',
+  emailChannelOffLink: 'Beállítások › E-mail',
+  emailSendWithoutApproval: 'Jóváhagyás nélkül küldhet',
+  emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
+  emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
+  ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+  machineAccess: 'Külső teendőt adhat (MCP)',
+  machineAccessHint:
+    'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
+  save: 'Mentés',
+  saved: 'A tag adatai mentve.',
+} as const;

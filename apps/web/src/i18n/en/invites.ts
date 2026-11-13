@@ -1,0 +1,42 @@
+export const invites = {
+  title: 'Invite a colleague',
+  email: 'Email address',
+  name: 'Name',
+  access: 'Access',
+  roles: 'Roles',
+  create: 'Create invite',
+  link: 'Invite link',
+  copy: 'Copy link',
+  copied: 'Copied',
+  copyFailed: 'Couldn’t copy. Select the link and copy it.',
+  lifetime:
+    'The link works once and expires in 7 days. Copy it and share it with your colleague; the app doesn’t send an email.',
+  pending: 'Pending invites',
+  revoke: 'Revoke',
+  revokeFor: 'Revoke invite: {email}',
+  revoked: 'The invite has been revoked.',
+  expires: 'Expires: {date}',
+  offered: '{name} invited you to the {project} project.',
+  acceptTitle: 'Join the project',
+  acceptSubtitle: 'Accept the invite you got from your colleague.',
+  password: 'Password',
+  passwordHint: 'At least 8 characters.',
+  accept: 'Accept invite',
+  loginRequired:
+    'There is already an account for this email address. Log in with that account, then come back to the invite.',
+  login: 'Log in to accept',
+  existing: 'Already have an account? Log in first.',
+  nameHint: 'This is how you’ll appear to the team.',
+  codeIntro: 'We’ll send the sign-in code to the invited address: {hint}',
+  codeIntroNoHint: 'We’ll send the sign-in code to the address the invite was made for.',
+  codeSentInvite:
+    'We sent the {digits}-digit sign-in code to the invited address. It is valid for {minutes|# minute|# minutes}.',
+  invalid:
+    'This invite can no longer be used. It has expired, been revoked or already been accepted, or the link is wrong. Ask the owner of the project for a new invite.',
+  accessHint: {
+    admin: 'Can manage the team and the project settings.',
+    developer: 'Can work on cards and in sessions.',
+    client: 'Sees everything, can comment on cards and message the contacts.',
+    viewer: 'Can view the project; can’t change it.',
+  },
+} as const;

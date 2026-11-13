@@ -10,8 +10,8 @@ type Statement = 'INSERT' | 'UPDATE' | 'DELETE';
  * is named (project key, kind, entity id, time), never the content, and no rule: what a row means is
  * decided in the domain, not in SQL.
  *
- * Used by migration 81 only: its text is frozen there, so a table added later needs a migration of its
- * own that calls `changeTriggerSql`. A migration that rebuilds one of these tables drops its
+ * A new table needs a migration that calls `changeTriggerSql(entry)` and an entry in this list.
+ * A migration that rebuilds one of these tables drops its
  * triggers; `project-change-journal.test.ts` fails until the rebuild creates them again, and also when
  * a table is in neither this list nor `UNJOURNALED_TABLES`.
  */
@@ -53,7 +53,7 @@ const ofProject = (
  * view or the board reads; the entity is the card key. A card deleted by a cascade is announced by the
  * card row itself.
  */
-const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('tasks', 'task', 'key'),
   {
     // A link belongs to the card; once the card is gone (a cascade) there is no project to name.
@@ -71,7 +71,6 @@ const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('task_handovers', 'task', 'task_key'),
   ofProject('task_review_pins', 'task', 'task_key'),
   ofProject('task_loops', 'task', 'task_key'),
-  ofProject('senior_waits', 'task', 'task_key'),
   ofProject('deferred_starts', 'task', 'task_key'),
   ofProject('full_test_runs', 'task', 'task_key'),
   ofProject('timeline_events', 'timeline', 'id', ['INSERT']),
@@ -115,25 +114,9 @@ const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_trains', 'operation', 'id', WRITES),
   ofProject('releases', 'operation', 'id', WRITES),
   ofProject('doc_writes', 'operation', 'id', WRITES),
-];
-
-/**
- * Tables added after migration 81, each group with a migration of its own that calls `changeTriggerSql`
- * on its group (a migration's text is frozen, so it names its own group, never the whole later list).
- */
-/** Migration 83 (PM-762): the durable hand-over to the integrator and the operation it starts. */
-export const V83_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('super_handoffs', 'handoff', 'id', WRITES),
   ofProject('super_operations', 'operation', 'id', WRITES),
-];
-
-/** Migration 92 (PM-876): the merge checks with their measurements. */
-export const V92_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_check_runs', 'operation', 'id', WRITES),
-];
-
-/** Migration 130 (PM-1135): the acceptance items of a card; an item belongs to the card, like a link. */
-export const V130_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   {
     table: 'task_acceptance_items',
     kind: 'task',
@@ -142,24 +125,6 @@ export const V130_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
     entity: () => 'key',
     from: (row) => `tasks WHERE id = ${row}.task_id`,
   },
-];
-
-/** Migration 100 (PM-885) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
-export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
-  (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
-);
-
-/** Migration 136 (PM-1159) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
-export const V136_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
-  (entry) => entry.table === 'pauses' || entry.table === 'session_pauses',
-);
-
-export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
-  // Migration 131 (PM-1150) drops `senior_waits` with its triggers: the wait is an obligation row now.
-  ...V81_CHANGE_TRIGGER_TABLES.filter((entry) => entry.table !== 'senior_waits'),
-  ...V83_CHANGE_TRIGGER_TABLES,
-  ...V92_CHANGE_TRIGGER_TABLES,
-  ...V130_CHANGE_TRIGGER_TABLES,
 ];
 
 /**
@@ -272,9 +237,4 @@ export function changeTriggerSql(entry: ChangeTriggerTable): string {
       END;`;
     })
     .join('\n');
-}
-
-/** The triggers migration 81 creates: its text is frozen, later tables get their own migration. */
-export function changeTriggersSql(): string {
-  return V81_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n');
 }

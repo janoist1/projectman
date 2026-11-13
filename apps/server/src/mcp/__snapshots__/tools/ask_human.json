@@ -103,7 +103,7 @@
         "maxLength": 1000
       },
       "signal_id": {
-        "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.",
+        "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern, milestone_closed and review_follow_ups signal: the owners are not asked about those.",
         "type": "string",
         "minLength": 1,
         "maxLength": 100

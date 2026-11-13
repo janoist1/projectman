@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
 import { connectedActorOf, coordinatorSuperActorOf } from '@projectman/shared';
 import type { ProjectConfig, ProjectDoc, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
@@ -13,8 +12,7 @@ import type {
 } from '../src/contracts';
 import { createDomainContext } from '../src/core/base';
 import { runIntegratorExecution } from '../src/kernel';
-import { createRepositories, migrate } from '../src/db';
-import { migrations } from '../src/db/migrations';
+
 import { DocWrites } from '../src/services/project-docs';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -298,28 +296,6 @@ describe('project manager documents (PM-1044)', () => {
       );
     },
   );
-});
-
-it('migrates old document writes without granting autonomous lessons authority', () => {
-  const db = new Database(':memory:');
-  try {
-    const version = migrations.find((migration) => migration.name === 'autonomous lessons writes')!.version;
-    for (const migration of migrations.filter((migration) => migration.version < version))
-      db.exec(migration.sql);
-    db.pragma(`user_version = ${version - 1}`);
-    db.exec(`INSERT INTO doc_writes (id, project_key, repo, base, base_commit, edits, message, author,
-      engine_id, state, created_at, updated_at)
-      VALUES ('dw_old', 'AR', 'repo', 'main', '${BASE}', '[]', 'Old write', 'operator',
-        'local', 'queued', '2026-01-01', '2026-01-01');`);
-    migrate(db);
-    expect(createRepositories(db).docWrites.get('dw_old')).toMatchObject({
-      autonomousLessons: false,
-      externalOrigin: null,
-      requestId: null,
-    });
-  } finally {
-    db.close();
-  }
 });
 
 describe('read_project_doc (PM-495)', () => {

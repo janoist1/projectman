@@ -137,7 +137,7 @@ records `approval` instead, and the system releases (fallback, the connected Cla
 (an `owner_topic` given with a todo is accepted and not recorded).
 Signals (PM-1243): `ownerQuestionSignalRefusal` (`packages/shared`, `operator-watch.ts`) makes the MCP
 `ask_human` refuse (`signal_not_for_owner`) a question tied by `signal_id` to an `unreleased` (a retired kind, old rows only; the `release_due` alert todo carries it, PM-1333),
-`structural_pattern` or `milestone_closed` signal; no inbox item is made.
+`structural_pattern`, `milestone_closed` or `review_follow_ups` signal; no inbox item is made.
 `HumanQuestions.ask` applies the same rule to the coordinator's own question and to a re-ask,
 except for information and approval questions, and refuses `ownerTopic` on any other member's
 question (`owner_topic_not_allowed`). The topic lands in `payload.ownerTopic` and the

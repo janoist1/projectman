@@ -825,7 +825,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   on recovery. The existing `provider.status` RPC carries the engine's cached status;
   the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
-  (Effect, PM-617).
+  (plain TypeScript, PM-1393).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
   connectivity comes from the server's engine registry. No new engine code is needed.
   For NanoGPT the cloud's key store decides whether the key is there (PM-736).
@@ -1270,6 +1270,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   The [hybrid recovery procedure](HYBRID.md) closes the public edge and stops the cloud
   before downloading final data for single-mode activation. Deployment and backup run
   on EC2; the recovery service manages only the single-mode server.
+  PM-1381: a restore point below schema 152 must first start with
+  **v2026.11.12**, then the current release. Rebuild that release image at
+  its commit if the seven-day build artifact has expired; see DEPLOY.md, "A database
+  from before the baseline". The database is on the hub; the remote engine does not
+  open it. The baseline is bundled TypeScript, with no new filesystem assumption.
   PM-1197 (part of PM-1193): `deploy/aws/host.sh` gains `prune-images` (after a healthy deploy only the current and the
   previous image stay on the host; the Mac `deploy` calls it too) and `env-check` (reports which required names are
   missing from `/etc/projectman/cloud.env`, never a value; a missing name stops the deploy as `env_missing` before
@@ -2521,6 +2526,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   remains serialized because capacity and workspace availability count running processes, not reservations.
   Slow lock rounds report their full duration and phase timings with the holder and member; slow queue
   sweeps report their five slowest members. No new server/engine message is introduced.
+  PM-1374: the monitor probes on demand, on the server: an account a live session uses every minute, the
+  others every quarter of an hour, none while the project is paused or its AI is off, with a longer wait
+  after a probe that gave no answer. The same `usage.plan` call runs on the engine, only less often.
+  The review watch calls `SessionOrchestrator.sourceHead` for the pins of tasks whose assignee has a live
+  session, once more when that session stops, and for every pin once in ten minutes; no new engine event.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key
@@ -2945,6 +2955,12 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   child guard and use isolated temp homes. The migration CLI exposes `verify`,
   `instance status|standby|retire|engine|activate` and `hybrid back`.
   Inventory/package library functions remain test-fixture helpers, not CLI commands.
+  PM-1381: `verify` and inventory report a `schema_before_baseline` blocker for
+  schema 1–151, using the server's recovery instructions. Before `hybrid back` or
+  `instance activate --discard-cloud-data` can use an old restored or pre-hybrid
+  database, open its copy once with **v2026.11.12**, then the current
+  release (DEPLOY.md, "A database from before the baseline"). The same applies to old
+  development homes. These tools run on the recovery host; no engine RPC changes.
   **Machine assumptions:** local repositories and data directories, POSIX modes and
   process groups. Home copies restore source directory modes after `cpSync`;
   the permission walk uses `lstat` and never follows symlinks. The hybrid return

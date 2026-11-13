@@ -471,7 +471,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`session_start_failed`, or an engine call that fails or times out, which belongs to no session) and a session
   that ended as `failed` (a non-zero exit; a clean exit may be a stop nobody recorded) before its first turn, unless the provider was in a rate-limit cooldown or the stop
   was a setup refusal or on purpose. A session is counted once, however many points see it. The count is in the
-  `start_failures` table (migration 155), so it survives a restart. After a failure the next automatic start at
+  `start_failures` table (migration 156), so it survives a restart. After a failure the next automatic start at
   the place waits 30 s, then 1, 2 and 4 minutes (`start_backoff`, with `until`); the fifth failure in a row stops
   the place (`start_failing`). Both refusals can be waited for, so the deferral stays (it is not dropped) and the
   card, the queue item or the message shows why. A stopped place opens one `work_outage` alert per provider and
@@ -936,7 +936,7 @@ retries, shutdown waits) is an Effect program behind a plain TypeScript facade, 
 module sees an Effect type. A plain timer is plain TypeScript, and a hub module's periodic work is a
 kernel sweep (PM-1388). Modules with an Effect program: `kernel`, `runtime/sessions`,
 `runtime/delivery`, `runtime/watchers`, `runtime/usage`, `services/merges`, `services/full-tests`,
-`services/github`, `services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
+`services/github`, `services/project-docs`, `services/schedules`, `runner`, `full-test`.
 The boundary, the programs, their files and facades, the pinned version and the rules are in
 [EFFECT.md](EFFECT.md); read it before touching or writing Effect code.
 
@@ -1054,8 +1054,13 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes), and `feedback_deletions` (PM-1189, migration 138: who deleted a mark and when, with no
 content; the mark, its thread and its screenshot are deleted for good, a card it led to stays and gets
 a `feedback_deleted` timeline line); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
-queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
-the server refuses a database a newer build migrated.
+queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table.
+Fresh databases start from the frozen schema baseline in
+`apps/server/src/db/schema/baseline-0152.ts` (PM-1381); subsequent schema changes are
+numbered migrations in `apps/server/src/db/migrations.ts`. The server refuses databases
+at versions 1–151, naming the pre-baseline release that must upgrade them first
+([recovery procedure](DEPLOY.md#a-database-from-before-the-baseline-pm-1381)).
+It also refuses a database a newer build migrated and an unversioned nonempty database.
 
 **Handle columns (PM-1025).** Every column that stores a member handle is registered in
 `apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,

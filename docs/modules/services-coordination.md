@@ -236,8 +236,8 @@ points; its facts name the card, the Seniors, since when and the points. The cas
 so the next sweep resolves the signal. A project without a pm gets the old owner question instead.
 
 The project manager may use `dismiss_signal { signal_id, note }` without an owner request at every watch level
-(`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or
-`milestone_closed` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
+(`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern`,
+`milestone_closed` or `review_follow_ups` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
 and publishes the decision to owners. Presented signals remain the owners' to decide.
 
 **Unreleased merges (PM-1333).** Merges waiting for a release no longer make a signal and start nobody: `releaseDue`
@@ -247,11 +247,22 @@ by hand does not reopen within 24 hours) and settles it with `settleAlert(..., {
 `unreleased` kind is in `RETIRED_KINDS`, so the sweep resolves old open rows; the project manager has no unreleased
 step and its prompt names none.
 
-**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
-`milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
+**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern`,
+`milestone_closed` or `review_follow_ups` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
 `packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
 `signal_not_for_owner` and makes no inbox item. `unreleased` stays in the list for old rows only; a signal meant for
 the coordinator alone is closed with `dismiss_signal`.
+
+**Review follow-ups at close (PM-1362).** `ReviewFollowUps.cardClosed` (`review-follow-ups.ts`, wired in `assembly.ts` on
+`task_stage_changed` and `task_cancelled`) runs when a card is done or cancelled. It takes the card's
+`review_follow_ups` timeline events (recorded by `update_task follow_ups`, PM-1361) that no earlier
+`review_follow_ups` signal of the card covers (that signal's `subject` lists the covered event ids) and, when any
+remain, raises one coordinator-only signal: `caseKey` `review_follow_ups:<taskKey>:<last event id>`, `subject` the
+event ids. A reopened and re-closed card passes on only the new remarks. The signal has no expiry and does not close
+by itself (`caseHolds` defaults to true): the pm adds each item to an open card, opens a follow-up card or drops it,
+then closes the signal with `dismiss_signal` and a note. `noticeText` carries `ReviewFollowUpsFacts`
+(`reviewFollowUpsFacts`). Migration 155 adds the kind to the `operator_signals` CHECK. Server only; no
+machine-dependent part.
 
 ## Question screening
 

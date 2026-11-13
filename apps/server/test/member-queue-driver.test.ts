@@ -74,7 +74,8 @@ describe('the member queue driver', () => {
       await driver().ensure('AR', 'dev-1');
       const count = meter.stop();
       expect(count).toBeGreaterThan(0);
-      expect(count).toBeLessThanOrEqual(1500);
+      // 1500 before PM-1374; a stopped task session now costs one review-pin lookup (about 20 for this batch).
+      expect(count).toBeLessThanOrEqual(1560);
     } finally {
       meter.restore();
     }

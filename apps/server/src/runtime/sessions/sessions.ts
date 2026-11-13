@@ -680,6 +680,17 @@ export class SessionOrchestrator {
     return this.ctx.repos.sessions.listLive(projectKey, member);
   }
 
+  /** The provider accounts (provider on engine) that a live session uses now, once each (PM-1374). */
+  liveAccounts(): Array<{ provider: AgentProvider; engineId: EngineId }> {
+    const accounts = new Map<string, { provider: AgentProvider; engineId: EngineId }>();
+    for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
+      const provider = session.provider ?? DEFAULT_AGENT_PROVIDER;
+      const engineId = session.engineId ?? LOCAL_ENGINE_ID;
+      accounts.set(`${engineId}\0${provider}`, { provider, engineId });
+    }
+    return [...accounts.values()];
+  }
+
   /**
    * Whether only the owner and the admin see the session: a conversation with someone who is not an owner
    * (PM-475, PM-1080), which holds that person's messages, and every session of the retired Operator (decision

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BASELINE_VERSION, schemaRefusal } from '../src/db';
 import { standbyHome } from '../../../scripts/migrate/instance';
 import { verifyHome } from '../../../scripts/migrate/verify';
 import { stoppedSourceHomes } from './helpers/migration-source';
@@ -80,6 +81,23 @@ describe('verify', () => {
     db.pragma('user_version = 999');
     db.close();
     expect(await blockers()).toContain('schema_newer');
+  });
+
+  it('blocks a database from before the baseline with the runtime recovery instructions', async () => {
+    const db = new Database(join(home, 'db.sqlite'));
+    db.pragma(`user_version = ${BASELINE_VERSION - 1}`);
+    db.close();
+    const result = await verifyHome({ home, checkPaths: false });
+    expect(result.ok).toBe(false);
+    expect(result.findings).toContainEqual({
+      severity: 'blocker',
+      code: 'schema_before_baseline',
+      subject: 'db.sqlite',
+      message: schemaRefusal(BASELINE_VERSION - 1, true),
+    });
+    const unchanged = new Database(join(home, 'db.sqlite'), { readonly: true });
+    expect(unchanged.pragma('user_version', { simple: true })).toBe(BASELINE_VERSION - 1);
+    unchanged.close();
   });
 
   it('can skip the machine paths for a backup checked on another machine', async () => {

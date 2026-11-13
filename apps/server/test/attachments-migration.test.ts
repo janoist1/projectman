@@ -2,14 +2,12 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { TimelineEvent } from '@projectman/shared';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
-import { migrations } from '../src/db/migrations';
 
-describe('attachments migration', () => {
-  it('preserves ready card files when upgrading to comment attachment storage', () => {
+describe('attachments baseline schema', () => {
+  it('keeps ready card files separate from unsent comment uploads', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version < 148)) db.exec(migration.sql);
-      db.pragma('user_version = 147');
+      migrate(db);
       db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', 'now', 'now');
         INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
           VALUES ('tsk_old', 'AR', 'AR-1', 1, 'Old task', '', 'dev', 'active', 'internal', 'owner', 'now', 'now');
@@ -34,14 +32,12 @@ describe('attachments migration', () => {
       db.close();
     }
   });
-  it('adds the table next to the existing data without touching it, and only once', () => {
+  it('preserves stored rows when reopened and supports repository writes', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     try {
-      // A database as the build before this migration left it (version 10), with old rows.
-      for (const migration of migrations.filter((item) => item.version <= 10)) db.exec(migration.sql);
-      db.pragma('user_version = 10');
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
+      migrate(db);
+      db.exec(`INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
         VALUES ('tsk_example', 'AR', 'AR-1', 1, 'Example task', 'An example', 'code_review', 'active', 'internal', 'owner', '2026-01-01', '2026-01-01');
         INSERT INTO timeline_events (id, project_key, task_key, actor_kind, actor_handle, type, data, created_at)
@@ -50,7 +46,6 @@ describe('attachments migration', () => {
         (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>)
           .map((row) => row.name)
           .sort();
-      expect(tables()).not.toContain('attachments');
 
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
@@ -58,7 +53,7 @@ describe('attachments migration', () => {
       expect(tables()).toContain('attachments');
 
       const repos = createRepositories(db);
-      // Nothing is made up for the old tasks, and what was there reads as before.
+      // Stored tasks and timeline events remain readable.
       expect(repos.attachments.listReady('AR', 'AR-1')).toEqual([]);
       expect(repos.tasks.get('AR-1')).toMatchObject({ key: 'AR-1', stageId: 'code_review' });
       const [old] = repos.timeline.list('AR', { taskKey: 'AR-1' });

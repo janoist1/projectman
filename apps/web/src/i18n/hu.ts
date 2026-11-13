@@ -4462,6 +4462,7 @@ export const hu = {
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
         relation_check: '{key}: a kártya új kapcsolatokat kapott',
         senior_wait: '{key}: olyan fejlesztőre vár, aki el tudja vinni',
+        review_follow_ups: '{key}: lezáráskor megmaradt nem blokkoló megjegyzések',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -4490,6 +4491,8 @@ export const hu = {
           'A kártya kapcsolatai megváltoztak. A PM ellenőrzi, hogy még helytállóak-e; ha megszűntek, a jelzés magától lezárul.',
         senior_wait:
           'A kártya olyan fejlesztőre vár, akinek a határa eléri a pontszámát. A PM dönt: várjon a Seniorra, vagy bárki elvihesse; ha a döntés pénzbe kerül, előbb a tulajdonosokat kérdezi. A döntés után a jelzés magától lezárul.',
+        review_follow_ups:
+          'A kártya lezárult, de az átnézők későbbi kártyára szánt, nem blokkoló megjegyzései megmaradtak. A PM tételenként dönt: meglévő kártyához teszi, új kártyát nyit, vagy elejti; utána kézzel zárja le a jelzést.',
       },
     },
   },

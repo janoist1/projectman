@@ -94,8 +94,17 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion, statementCount } from './database';
+export {
+  openAuxiliaryDatabase,
+  openDatabase,
+  migrate,
+  schemaVersion,
+  schemaRefusal,
+  hasSchemaObjects,
+  statementCount,
+} from './database';
 export type { Db } from './database';
+export { BASELINE_VERSION, BASELINE_RELEASE } from './schema/baseline-0152';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord } from './attachments';
 export type { MessageTurn, MessageTurnEnd } from './message-turns';

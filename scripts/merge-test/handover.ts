@@ -138,10 +138,11 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
-      'the migration tests build an old schema from the migration list; some import it through the db facade, not db/migrations; the schema registry tests read the migrated schema (PM-1324, PM-1325)',
+      'the baseline and schema registry tests inspect the resulting schema; retained migration tests guard current repository behavior (PM-1324, PM-1325, PM-1381)',
     sources: ['apps/server/src/db/migrations.ts'],
     tests: [
       'apps/server/test/*-migration.test.ts',
+      'apps/server/test/db-baseline.test.ts',
       'apps/server/test/db.test.ts',
       'apps/server/test/history-index.test.ts',
       'apps/server/test/hot-read-indexes.test.ts',

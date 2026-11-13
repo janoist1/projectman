@@ -10,7 +10,13 @@ export type OperatorWatch = z.infer<typeof OperatorWatch>;
 const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'structural_pattern',
   'milestone_closed',
+  'review_follow_ups',
 ];
+/** The coordinator-only kinds as a list for the English agent texts: `a, b and c`. */
+export function coordinatorOnlySignalKindsText(): string {
+  const kinds = COORDINATOR_ONLY_SIGNAL_KINDS;
+  return `${kinds.slice(0, -1).join(', ')} and ${kinds.at(-1)}`;
+}
 export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
   return COORDINATOR_ONLY_SIGNAL_KINDS.includes(kind);
 }

@@ -119,10 +119,15 @@ export class PlanUsageCache {
   }
 }
 
+/** An account nobody uses is measured this often (PM-1374); a start measures it at once (`get`). */
+const IDLE_PROBE_MS = 15 * 60_000;
+
 /**
- * Keeps the plan usage of the providers the projects' AI members run on fresh: probes them in
- * the background periodically and after configuration changes, and publishes every result to
- * the projects whose AI members run on that provider. Owns the cache admission reads.
+ * Keeps the plan usage of the providers the projects' AI members run on fresh: probes the accounts a
+ * live session uses every interval, the others every quarter of an hour, never while the project is
+ * paused or its AI is off, and with a growing wait after a probe that gave no answer (PM-1374). A start
+ * does not wait for it: admission asks the cache, which measures when its value is old. Publishes every
+ * result to the projects whose AI members run on that provider. Owns the cache admission reads.
  */
 export class PlanUsageMonitor {
   readonly cache: PlanUsageCache;
@@ -131,7 +136,14 @@ export class PlanUsageMonitor {
   private readonly bus: EventBus;
   private readonly logger: FastifyBaseLogger;
   private readonly background: BackgroundTasks;
+  private readonly now: () => Date;
   private readonly intervalMs: number;
+  private readonly idleIntervalMs: number;
+  private readonly liveAccounts: () => Array<{ provider: AgentProvider; engineId: EngineId }>;
+  private readonly isPaused: (projectKey: string) => boolean;
+  /** The last result of each account: when it came and how many probes in a row gave no answer. */
+  private readonly attempts = new Map<string, { at: number; failures: number }>();
+  private lastScanAt = 0;
   private refreshing = false;
   private readonly loop: RefreshLoop;
 
@@ -145,8 +157,14 @@ export class PlanUsageMonitor {
     logger: FastifyBaseLogger;
     now: () => Date;
     background: BackgroundTasks;
-    /** How long a probe result is fresh, and how often the providers are probed (default 1 minute). */
+    /** The accounts a live session uses now: only these are measured every interval. */
+    liveAccounts: () => Array<{ provider: AgentProvider; engineId: EngineId }>;
+    /** Whether work is paused for the project (or the instance); its accounts are not measured then. */
+    isPaused: (projectKey: string) => boolean;
+    /** How long a probe result is fresh, and how often the live accounts are probed (default 1 minute). */
     ttlMs?: number;
+    /** How often an account without a live session is probed (default 15 minutes). */
+    idleIntervalMs?: number;
     onFetched?: (provider: AgentProvider, engineId: EngineId, usage: PlanUsage | null) => void;
   }) {
     this.projects = opts.projects;
@@ -154,7 +172,11 @@ export class PlanUsageMonitor {
     this.bus = opts.bus;
     this.logger = opts.logger;
     this.background = opts.background;
+    this.now = opts.now;
+    this.liveAccounts = opts.liveAccounts;
+    this.isPaused = opts.isPaused;
     this.intervalMs = opts.ttlMs && opts.ttlMs > 0 ? opts.ttlMs : 60_000;
+    this.idleIntervalMs = opts.idleIntervalMs ?? IDLE_PROBE_MS;
     this.loop = new RefreshLoop({
       intervalMs: this.intervalMs,
       tick: () => this.refresh(),
@@ -167,6 +189,7 @@ export class PlanUsageMonitor {
       now: opts.now,
       ttlMs: opts.ttlMs,
       onFetched: (provider, engineId, usage) => {
+        this.noteAttempt(provider, engineId, usage);
         opts.onFetched?.(provider, engineId, usage);
         return this.publish(provider, engineId, usage);
       },
@@ -185,7 +208,7 @@ export class PlanUsageMonitor {
 
   /** Probes now and then every interval. */
   start(): void {
-    this.refresh();
+    this.refresh({ force: true });
     this.loop.start();
   }
 
@@ -193,15 +216,28 @@ export class PlanUsageMonitor {
     this.loop.stop();
   }
 
-  /** Probes every account (engine and provider) the AI members run on, in the background; one round at a time. */
-  refresh(): void {
+  /**
+   * Probes the accounts (engine and provider) that are due, in the background; one round at a time. A tick
+   * with no live session and no idle probe due reads nothing and starts nothing. `force` (the start, a
+   * configuration change) probes every account of a project that may run, whatever its last result was.
+   */
+  refresh(opts: { force?: boolean } = {}): void {
     if (this.refreshing) return;
+    const now = this.now().getTime();
+    const live = this.liveKeys();
+    if (!live) return;
+    if (!opts.force && live.size === 0 && now - this.lastScanAt < this.idleIntervalMs) return;
     this.refreshing = this.background.run(
       async () => {
         try {
+          this.lastScanAt = now;
           const pairs = new Map<string, { provider: AgentProvider; engineId: EngineId }>();
-          for (const { pairs: projectPairs } of (await this.accountsByProject()).values())
-            for (const pair of projectPairs) pairs.set(entryKey(pair.engineId, pair.provider), pair);
+          for (const { pairs: projectPairs, mayRun } of (await this.accountsByProject()).values())
+            if (mayRun)
+              for (const pair of projectPairs) {
+                const key = entryKey(pair.engineId, pair.provider);
+                if (opts.force || this.due(key, live.has(key), now)) pairs.set(key, pair);
+              }
           await Promise.all([...pairs.values()].map((pair) => this.cache.get(pair.provider, pair.engineId)));
         } finally {
           this.refreshing = false;
@@ -209,6 +245,33 @@ export class PlanUsageMonitor {
       },
       (err) => this.logger.warn({ err }, 'plan usage refresh failed'),
     );
+  }
+
+  /** The accounts live sessions use; null when they cannot be read (the round is skipped, the next tick tries again). */
+  private liveKeys(): Set<string> | null {
+    try {
+      return new Set(this.liveAccounts().map((pair) => entryKey(pair.engineId, pair.provider)));
+    } catch (err) {
+      this.logger.warn({ err }, 'plan usage could not read the live sessions');
+      return null;
+    }
+  }
+
+  /** Whether the account is measured in this round: a live one every tick, an idle one every quarter of an hour. */
+  private due(key: string, live: boolean, now: number): boolean {
+    const last = this.attempts.get(key);
+    if (!last) return true;
+    if (last.failures === 0 && live) return true;
+    const base = live ? this.intervalMs : this.idleIntervalMs;
+    const wait = Math.min(base * 2 ** last.failures, Math.max(base, this.idleIntervalMs));
+    // Half a tick of slack: the probe's own time and the tick's phase must not push a due account a whole wait back.
+    return now - last.at >= wait - this.intervalMs / 2;
+  }
+
+  private noteAttempt(provider: AgentProvider, engineId: EngineId, usage: PlanUsage | null): void {
+    const key = entryKey(engineId, provider);
+    const failures = usage === null ? Math.min((this.attempts.get(key)?.failures ?? 0) + 1, 10) : 0;
+    this.attempts.set(key, { at: this.now().getTime(), failures });
   }
 
   /** A probe result goes to the projects whose account of that provider is the one measured on that engine. */
@@ -237,10 +300,16 @@ export class PlanUsageMonitor {
     return { pairs: [...pairs.values()], representative };
   }
 
-  private async accountsByProject(): Promise<Map<string, Accounts>> {
-    const result = new Map<string, Accounts>();
-    for (const project of this.projects.summaries())
-      result.set(project.key, this.accounts(await this.projects.config(project.key)));
+  /** `mayRun`: the project's AI is on and its work is not paused, so its accounts are worth measuring. */
+  private async accountsByProject(): Promise<Map<string, Accounts & { mayRun: boolean }>> {
+    const result = new Map<string, Accounts & { mayRun: boolean }>();
+    for (const project of this.projects.summaries()) {
+      const config = await this.projects.config(project.key);
+      result.set(project.key, {
+        ...this.accounts(config),
+        mayRun: config.team.limits.aiEnabled && !this.isPaused(project.key),
+      });
+    }
     return result;
   }
 }

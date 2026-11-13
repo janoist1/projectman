@@ -3,6 +3,32 @@
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
 and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and the connected Claude's access.
 
+## Operations moved from the working rules (PM-1342)
+
+The owner's live instance uses a cloud hub and a Mac engine. The manual update is
+`npm run cloud -- deploy --ref <commit>`, followed by rebuilding and reinstalling the
+engine at the same commit. Who may update it is defined in the project plan, chapter 4
+(Dokumentumok, "Projektterv"): until production use, the owner's connected Claude does;
+the team's AI members do not. An update still needs approval for that exact change.
+`publish_release` publishes a release through the release chain described below.
+`npm run live -- install|status|uninstall` is only for single-mode disaster recovery.
+
+The macOS operator command for a full check outside member sandboxes is:
+
+```sh
+npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all
+```
+
+Developers run the targeted checks and `npm run handover-check` from CLAUDE.md instead.
+The merger uses `merge_task`; the server runs `npm run merge-test` before moving main,
+on the card's engine or GitHub Actions as configured
+([services/merges](modules/services-merges.md)). Shared code/configuration changes get
+their full suite at merge.
+
+Development uses `npm run dev`, `~/.projectman-dev` (unless `PROJECTMAN_HOME` is set)
+and `http://127.0.0.1:5173`. Never run a development build against `~/.projectman`:
+newer migrations cause older builds to refuse the database.
+
 ## A database from before the baseline (PM-1381)
 
 The schema baseline replaces migrations 1–152. A database at version 1–151 must

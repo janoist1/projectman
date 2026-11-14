@@ -1007,6 +1007,46 @@ export class ProjectManagerSignals {
     let cards: Task[] | undefined;
     const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
+    const sourceFacts = (s: ProjectManagerSignalRecord): unknown => {
+      if (s.inboxItemId) return ctx.repos.inbox.get(s.inboxItemId)?.payload;
+      if (s.kind === 'outage') return this.deps.outageFacts(s.projectKey, s.subject ?? '');
+      return s.subject ? ctx.repos.sessions.get(s.subject)?.activity : null;
+    };
+    const factsByKind: Record<ProjectManagerSignalKind, (s: ProjectManagerSignalRecord) => unknown> = {
+      cards_closed: (s) =>
+        ctx.repos.tasks
+          .readClosedSince(projectKey, s.subject ?? s.raisedAt)
+          .filter((task) => task.status === 'done')
+          .slice(0, 20),
+      operations_review: (s) => OperationsReviewFacts.parse(JSON.parse(s.subject!)),
+      loop_suspected: (s) => LoopTriageFacts.parse(JSON.parse(s.subject!)),
+      process_cleanup_failed: sourceFacts,
+      outage: sourceFacts,
+      stalled: sourceFacts,
+      silent: sourceFacts,
+      merge_blocked: sourceFacts,
+      unreleased: sourceFacts,
+      answer_stalled: (s) => this.answerStalledFacts(s),
+      structural_pattern: (s) => structural()!.facts(s),
+      milestone_closed: (s) => structural()!.facts(s),
+      start_blocked: (s) => this.startBlockedFacts(config, s),
+      start_condition_met: (s) => this.startConditionFacts(config, s, (cards ??= this.openCards(projectKey))),
+      start_condition_changed: (s) => ({
+        previousVersion: s.subject,
+        shift: previous.get(s.id)
+          ? startConditionShift({
+              before: previous.get(s.id)!,
+              after: config,
+              tasks: (cards ??= this.openCards(projectKey)),
+            })
+          : null,
+        nextAction: 'Follow the start_condition_changed rule in your role guide.',
+      }),
+      obligation_overdue: (s) => this.obligationOverdueFacts(s),
+      senior_wait: (s) => this.seniorWaitFacts(config, s),
+      relation_check: (s) => relationCheckFacts(s),
+      review_follow_ups: (s) => reviewFollowUpsFacts(ctx, s),
+    };
     return (
       `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
       signals
@@ -1022,52 +1062,7 @@ export class ProjectManagerSignals {
                 );
           return JSON.stringify({
             ...ProjectManagerSignal.parse(s),
-            facts:
-              s.kind === 'start_condition_changed'
-                ? {
-                    previousVersion: s.subject,
-                    shift: previous.get(s.id)
-                      ? startConditionShift({
-                          before: previous.get(s.id)!,
-                          after: config,
-                          tasks: (cards ??= this.openCards(projectKey)),
-                        })
-                      : null,
-                    nextAction:
-                      'Ask the owner once: propose labels or priorities to preserve the former selection, or config_revert to subject. If shift is null, explain that the previous version could not be read and ask without lists.',
-                  }
-                : s.kind === 'start_condition_met'
-                  ? this.startConditionFacts(config, s, (cards ??= this.openCards(projectKey)))
-                  : s.kind === 'cards_closed'
-                    ? ctx.repos.tasks
-                        .readClosedSince(projectKey, s.subject ?? s.raisedAt)
-                        .filter((task) => task.status === 'done')
-                        .slice(0, 20)
-                    : s.kind === 'operations_review'
-                      ? OperationsReviewFacts.parse(JSON.parse(s.subject!))
-                      : structuralKind(s.kind)
-                        ? structural()!.facts(s)
-                        : s.kind === 'loop_suspected'
-                          ? LoopTriageFacts.parse(JSON.parse(s.subject!))
-                          : s.kind === 'obligation_overdue'
-                            ? this.obligationOverdueFacts(s)
-                            : s.kind === 'senior_wait'
-                              ? this.seniorWaitFacts(config, s)
-                              : s.kind === 'answer_stalled'
-                                ? this.answerStalledFacts(s)
-                                : s.kind === 'start_blocked'
-                                  ? this.startBlockedFacts(config, s)
-                                  : s.kind === 'relation_check'
-                                    ? relationCheckFacts(s)
-                                    : s.kind === 'review_follow_ups'
-                                      ? reviewFollowUpsFacts(ctx, s)
-                                      : s.inboxItemId
-                                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                                        : s.kind === 'outage'
-                                          ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
-                                          : s.subject
-                                            ? ctx.repos.sessions.get(s.subject)?.activity
-                                            : null,
+            facts: factsByKind[s.kind](s),
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,

@@ -249,8 +249,9 @@ export function canSeeInboxItem(
   item: Pick<InboxItem, 'state' | 'assignees' | 'payload'>,
 ): boolean {
   if (hasIntegratorTodoOrigin(item.payload) && viewer.access !== 'owner') return false;
-  // Check the field itself: malformed or historical private proposals must also stay private.
-  if (item.payload && 'operatorKnowledge' in item.payload)
+  // Check the field itself: malformed or historical private proposals must also stay private. A setup source question
+  // lists the owner's other projects, which are not this project's people's to see (PM-1463).
+  if (item.payload && ('operatorKnowledge' in item.payload || 'setupSource' in item.payload))
     return !viewer.via && canSeeAllTeamMessages(viewer);
   if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
   return true;

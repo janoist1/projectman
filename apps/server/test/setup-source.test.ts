@@ -5,6 +5,7 @@ import { memberOf, SETUP_SOURCE_NONE_OPTION } from '@projectman/shared';
 import type { AiMemberConfig, InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale, getTemplate } from '@projectman/templates';
 import type { ToolContext } from '../src/contracts';
+import { canSeeInboxItem, canSeeProjectEvent } from '../src/core/projects';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { seedProjectManagerRequest } from './helpers/operator-session';
@@ -84,6 +85,30 @@ describe('ask_setup_source (PM-1463)', () => {
     );
     expect(item.options.map((option) => option.id)).not.toContain('CX');
     expect(item.payload).toMatchObject({ setupSource: { owner: 'owner', candidates: ['BX'] } });
+  });
+
+  it("keeps the owner's other projects, asked and answered, from everyone but an owner or admin on their own login", async () => {
+    await setup([MINE]);
+    const asked = await h.domain.teamTools.askSetupSource(ctx);
+    await h.domain.inbox.resolve(
+      'AR',
+      asked.inbox_item_id,
+      { optionId: 'BX' },
+      { handle: 'owner', access: 'owner' },
+    );
+    const item = h.repos.inbox.get(asked.inbox_item_id)!;
+    const [answered] = h.repos.timeline.ofProjectType('AR', 'question_answered', 1);
+    expect(answered!.data).toMatchObject({ inboxItemId: item.id, ownerOnly: true });
+    for (const access of ['owner', 'admin', 'developer', 'viewer', 'client'] as const)
+      for (const via of [undefined, 'integrator'] as const) {
+        const viewer = { handle: 'reader', access, via };
+        const sees = via === undefined && ['owner', 'admin'].includes(access);
+        expect(canSeeInboxItem(viewer, item)).toBe(sees);
+        expect(canSeeProjectEvent(viewer, { type: 'inbox_upserted', projectKey: 'AR', item })).toBe(sees);
+        expect(
+          canSeeProjectEvent(viewer, { type: 'timeline_appended', projectKey: 'AR', event: answered! }),
+        ).toBe(sees);
+      }
   });
 
   it('answers setup_source_none when the owner has no other project', async () => {

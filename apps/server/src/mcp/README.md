@@ -95,7 +95,10 @@ A second, separate door for the connected Claude's MCP client: a bearer `pmi_` k
 - The tools only this door has (`super/tools.ts`): `list_projects`, `super_operate`, `get_super_operation`,
   `get_super_question`, `query_super_diagnostics`, `get_project_doc_write` and `relay_owner_answer`;
   the connected Claude's own queue: `list_integrator_inbox` (the open items addressed to the connected Claude, with the full
-  text; an optional `project_key`, without it every project of the key), `resolve_integrator_todo`
+  text; an optional `project_key`, without it every project of the key; at most the 500 newest of the items it may
+  see, cut after the selection), `get_integrator_inbox_status` (PM-1466: only `{hasPending}` for the same selection
+  and scope, no text; the first call of a scheduled check in the owner's own client, see `INSTALL.md` 5.5; a refused
+  key or project stays an error, never `false`), `resolve_integrator_todo`
   (`{project_key, item_id, option_id: todo_done | todo_cannot, note?}`; "cannot" needs a reason; it records the
   connected Claude's own work, not an owner answer or approval) and `resolve_integrator_fix_limit`
   (`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the item to the owners

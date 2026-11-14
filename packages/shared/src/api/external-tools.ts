@@ -60,3 +60,10 @@ export const ExternalAttachmentRead = z.strictObject({
   }),
 });
 export type ExternalAttachmentRead = z.infer<typeof ExternalAttachmentRead>;
+
+/**
+ * `get_integrator_inbox_status` (PM-1466): whether the key may see at least one open item addressed to the
+ * integrator now. Only the flag: no title, text, payload or project list, so a scheduled check reads little.
+ */
+export const IntegratorInboxStatus = z.strictObject({ hasPending: z.boolean() });
+export type IntegratorInboxStatus = z.infer<typeof IntegratorInboxStatus>;

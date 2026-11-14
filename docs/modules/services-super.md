@@ -12,7 +12,11 @@ diagnostics catalogue. The code names (`super`, `integrator`, `operator-super`) 
 The connected Claude's work waits in the existing integrator inbox (todos and fix limit decisions; see
 [core/inbox](core-inbox.md)). A connected Claude lists it through `list_integrator_inbox` and resolves it through
 `resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no connected Claude
-running, it waits; held cards remain held. Whether the work stays on the integrator side is decided by
+running, it waits; held cards remain held. `getIntegratorInboxStatus` (`get_integrator_inbox_status`, PM-1466) answers
+only whether that queue has an open item, with the same super access check and the same selection
+(`InboxService.integratorQueue`, which cuts its limit after selecting the integrator's items, so newer items for
+others never hide an older one). The owner's own client calls it first on a scheduled check and lists only on
+`true` (`INSTALL.md` 5.5); the schedule lives in that client, the hub runs nothing for it. Whether the work stays on the integrator side is decided by
 `integratorSideAvailable` (`packages/shared/src/domain/member-queue.ts`): it holds while some owner has a live super
 key, and without one the items go to the owners. No server code writes `payload.operatorHandoff` or a queue outcome
 `handoff` (`reason`, `to`) any more: they are read only, so that old items and rows keep rendering (a missing `to`

@@ -166,6 +166,33 @@ export interface PreviousConversation {
   summary: HandoffSummary | null;
   /** The card's latest handoff note; filled by PM-342 2/3, null until then. */
   lastNote: { from: string; endedAt: string; text: string } | null;
+  /** What a refreshed project manager conversation carries over (PM-1461); only with the reason `refreshed`. */
+  handover?: ConversationHandover;
+}
+
+/** One open thing of the project manager that the next conversation must know of (PM-1461). */
+export interface ConversationHandoverItem {
+  /** What the thing is: a question or approval waiting for the owners, a super operation, an owner's answer, a signal. */
+  kind: 'question' | 'approval' | 'operation' | 'answer' | 'signal';
+  /** The id the project manager can look the thing up by (inbox item, operation or signal id). */
+  id: string;
+  /** A short fact line, cut to a fixed length. */
+  text: string;
+  /** When it began (asked, started, answered or raised), ISO time. */
+  at: string;
+}
+
+/**
+ * What the project manager's new conversation is told about the old one (PM-1461): server facts, never the
+ * old conversation's text, and the project manager's own note.
+ */
+export interface ConversationHandover {
+  /** The operating agreement now in force; null: none is approved. */
+  agreement: { version: number; involvement: 'every_step' | 'important' | 'minimal' } | null;
+  /** At most `CONVERSATION_HANDOVER_ITEM_LIMIT` items per kind, oldest first. */
+  items: ConversationHandoverItem[];
+  /** What the project manager wrote itself (`save_handover`); null: nothing. */
+  note: string | null;
 }
 
 /** A member whose session works on the card now, as another member's brief names it (PM-249). */

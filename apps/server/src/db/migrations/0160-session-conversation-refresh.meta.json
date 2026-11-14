@@ -1,0 +1,11 @@
+{
+  "tables": {
+    "sessions": {
+      "handles": {
+        "unrewritten": {
+          "conversation_refresh": "a transient state of the project manager's conversation refresh; its note is free text, and it is deleted when the new conversation starts"
+        }
+      }
+    }
+  }
+}

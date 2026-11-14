@@ -1,0 +1,26 @@
+{
+  "name": "save_handover",
+  "title": "Save a note for the next conversation",
+  "description": "Answer the system message that asks for a handover note before your long general conversation continues in a fresh one: what you are doing, promised, must watch. Call it once, nothing else in that turn. Only while a note is asked for (saved: false otherwise).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    },
+    "required": [
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Save a note for the next conversation",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

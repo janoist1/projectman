@@ -26,7 +26,8 @@
               "session_stop",
               "project_pause",
               "project_resume",
-              "message_send"
+              "message_send",
+              "setup_apply"
             ]
           }
         },

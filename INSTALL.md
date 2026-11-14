@@ -16,18 +16,21 @@ Read it whole before you start. Follow it in order and stop at the first failure
   the app's own commands and a few downloaded files.
 - Steps marked **[AI]** are yours. Steps marked **[FRIEND]** need the friend's own click, login,
   password or macOS permission; ask for exactly that, wait for the answer, then carry on. The
-  friend is only asked for: their logins, the password, the macOS permission prompts and copying two
-  keys from the web app. Nothing else.
-- **Keys never travel as arguments or environment variables.** The two keys (the engine key `pme_…`
-  and the integrator key) are shown once in the web app and copied by the friend with its **Copy**
-  button. You read each one from the clipboard and pass it on standard input (`pbpaste | …`).
+  friend is only asked for: their logins, the password, the macOS permission prompts and approving
+  one pairing code in the web app (or, on the copy path, copying two keys from it). Nothing else.
+- **Keys never travel as arguments or environment variables.** On the usual path (_Pairing_ below)
+  the engine app makes both keys itself and writes them only into files; you never see them. On
+  the copy path (sections 4 and 5) the two keys (the engine key `pme_…` and the integrator key) are
+  shown once in the web app and copied by the friend with its **Copy** button. You read each one
+  from the clipboard and pass it on standard input (`pbpaste | …`).
   Never put a key in a command line, an environment variable, a file you create, a message, or your
-  answer to the friend. Never print or read the contents of the Access token files either; the
-  commands below read them themselves.
+  answer to the friend. Never print or read the contents of the Access token files or of the
+  engine's `pairing-pending.json` either; the commands below read them themselves.
 - If a command is refused by your own sandbox or permission system, do not try to get around it.
   Tell the friend what you need, and let them approve it or run the command themselves.
 - If a command prints `REFUSED [code]`, or fails any check, stop and tell the friend and the person
-  who invited them (the hub's owner). Do not skip the check.
+  who invited them (the hub's owner), unless the _Pairing_ section names that code and says what to
+  do. Do not skip the check.
 
 ## 1. Prerequisites
 
@@ -52,9 +55,11 @@ The owner sent two things over an encrypted channel (AirDrop, Signal or iMessage
 the archive's location.
 
 1. **[FRIEND]** opens the invitation link, sets a password and logs in to the hub's web app. Keep
-   that browser tab open: steps 4 and 5 need it.
-2. **[AI]** unpack the archive into a private staging folder, not into `cloud/` itself: step 5's
-   `connect` writes `cloud/integrator-access-token.json` by itself, as a normalised copy of the file
+   that browser tab open: the pairing (or steps 4 and 5) needs it. Ask the friend which e-mail
+   address they logged in with; the pairing checks it.
+2. **[AI]** unpack the archive into a private staging folder, not into `cloud/` itself: the
+   pairing's `pair wait` and step 5's `connect` write `cloud/integrator-access-token.json` by
+   themselves, as a normalised copy of the file
    you give it, and stops if that target already exists with different content (without
    `--replace`). The archive holds two Access token files (secrets) and a
    non-secret `handoff.json`:
@@ -72,9 +77,9 @@ the archive's location.
 
    Then read **only** `~/.config/projectman/handoff/handoff.json`. It gives `hubUrl` (the hub, for
    `--cloud`) and `integratorBaseUrl` (for `connect`). Do not open the two `*-access-token.json`
-   files. The engine's file now lives in `cloud/` (step 4 uses it there); the integrator's file
-   stays in `handoff/` until step 5. Delete the archive afterwards and tell the friend to delete
-   their copy of the transfer.
+   files. The engine's file now lives in `cloud/` (the pairing or step 4 uses it there); the
+   integrator's file stays in `handoff/` until the pairing or step 5 has copied it. Delete the
+   archive afterwards and tell the friend to delete their copy of the transfer.
 
 ## 3. The app
 
@@ -114,7 +119,114 @@ client="$HOME/Library/Application Support/projectman/engine/bin/projectman"
 Check: `"$engine" status --json` prints one JSON line with `"overall":"not_initialised"`. (`package`
 is still `null` and `service.installed` is `false`: the app installs the service in step 4.)
 
+## Pairing: connecting without copying keys (try this first)
+
+Pairing does with one approval what steps 4.1–4.2 and 5.1–5.2 do by copying two keys. The engine
+app makes the engine key and the integrator key on this Mac and sends the hub only their
+fingerprints; the friend approves a short code in the web app, and the app then writes the same
+files as `init` (step 4.2) and `connect` (step 5.2). If it does not work, the copy path is
+sections 4 and 5 in full; _When to switch to the copy path_ below says when.
+
+1. **[AI]** ask the friend for a name for this Mac's engine (for example _"<name>'s Mac"_), and
+   make sure you know the e-mail address they log in to the hub with (step 2.1).
+2. **[AI]** request a pairing code (`<hub>` and `<integratorBaseUrl>` come from `handoff.json`):
+
+   ```sh
+   engine="$HOME/Library/Application Support/projectman/engine/bin/projectman-engine"
+   "$engine" pair start \
+     --cloud <hub> --name "<engine name>" \
+     --link-headers-file "$HOME/.config/projectman/cloud/engine-access-token.json" \
+     --integrator-base-url <integratorBaseUrl> \
+     --integrator-access-headers-file "$HOME/.config/projectman/handoff/integrator-access-token.json" \
+     --expect-email <the friend's e-mail>
+   ```
+
+   On success (exit code `0`) it prints a link (`<hub>/pair/XXXX-XXXX`), the address `<hub>/pair`,
+   the code (`XXXX-XXXX`) and how long the code is valid (10 minutes). Before it asks the hub, it
+   checks this Mac, and then shows no code:
+   - `REFUSED [config_exists]`: this Mac already has an engine configuration. Add `--force` only
+     if the friend confirms they want to replace the old engine link.
+   - `REFUSED [connect_file_exists]`: a client key or client configuration already exists with
+     different content. Add `--replace` only if the friend confirms they want to replace it.
+   - `REFUSED [pairing_in_progress]`: an earlier pairing is still pending here. Go on with step 4
+     (`pair wait`), or, if the friend wants to start over, run `"$engine" pair cancel` first.
+   - `REFUSED [too_many_attempts]`: the hub takes no more pairing requests for now. Wait the
+     seconds it names, then run the same command again.
+   - `REFUSED [pairing_unavailable]`, or exit code `2` with a usage text whose command list has no
+     `pair`: switch to the copy path (see below). Any other usage error is a mistake in the
+     command; fix it.
+
+3. **[AI]** show the friend the link and the code **exactly as printed**, character by character;
+   do not shorten or retype them. **[FRIEND]** opens the link in the browser where they are logged
+   in to the hub (or opens `<hub>/pair` and types the code), checks that the page shows the same
+   code, and presses **Approve** (Jóváhagyom) only if it does. If the page says this account cannot
+   approve (_"You can't approve with this account"_ / _"Ezzel a fiókkal nem hagyhatod jóvá"_), the
+   friend may first log in with the account they manage their projects with and open the link
+   again; if that does not help, switch to the copy path.
+4. **[AI]** wait for the approval, while the friend approves:
+
+   ```sh
+   engine="$HOME/Library/Application Support/projectman/engine/bin/projectman-engine"
+   "$engine" pair wait
+   ```
+
+   Each run waits up to 30 seconds. Exit code `3` means the code is not approved yet: run it again,
+   as long as it exits `3`. Do not start a new code meanwhile.
+
+5. **[AI]** go on by the exit code of `pair wait`:
+   - **`0` – approved and written.** It prints `Approved by …` with the approver's name and
+     e-mail, the engine's name and id, and the files it wrote. Tell the friend who approved. If the
+     name or the e-mail is not the friend's, stop and ask the friend before anything else.
+     Otherwise delete the staging folder (`rm -r ~/.config/projectman/handoff`) and carry on with
+     step **4.3** (there, "the engine of step 4.1" is the engine you have just paired), 4.4 and 4.5,
+     then step **5.3** and 5.4, then section 6. Skip steps 4.1, 4.2, 5.1 and 5.2: the pairing has
+     done them.
+   - **`1` – read the line it printed:**
+     - `PAIRING ENDED [denied]`: the friend (or someone in their account) declined it. Nothing was
+       written. Ask the friend whether they started it; request a new code (step 2) only if they
+       want to.
+     - `PAIRING ENDED [expired]`: the code expired before the approval. Nothing was written.
+       Request a new code (step 2) and show it again. If the second code in a row expires too,
+       switch to the copy path.
+     - `PAIRING ENDED [cancelled]` or `PAIRING ENDED [unknown]`: the request is gone from the hub.
+       Nothing was written. Tell the friend, and request a new code (step 2) if they want to.
+     - `PAIRING ENDED [approver_mismatch]`: a different account approved it than the e-mail you
+       gave. Nothing was written. Stop, tell the friend and the hub's owner: the line names the
+       engine and its key that were made in that other account; its owner should remove them in
+       _Settings_.
+     - Any other line, such as `REFUSED [hub_unreachable]`, `REFUSED [hub_error]`,
+       `REFUSED [hub_access_refused]` or `REFUSED [home_in_use]`: the pairing has **not** ended and
+       is still pending here. Fix the cause it names (network, the hub's address, the Access file)
+       and run `pair wait` again. If it keeps failing, run `"$engine" pair cancel` and tell the
+       friend and the hub's owner.
+   - **`4` – approved, but not written**, because a file appeared on this Mac meanwhile
+     (`PAIRING APPROVED BUT NOT WRITTEN [config_exists]` or `[connect_file_exists]`). The approval
+     stays pending here. Tell the friend what would be replaced (the engine configuration, or the
+     client key and configuration). Only after the friend explicitly says yes, run
+     `"$engine" pair wait --force` (`config_exists`) or `"$engine" pair wait --replace`
+     (`connect_file_exists`). If the friend says no, run `"$engine" pair cancel` and tell them the
+     approved engine and key stay in their account (_Settings → Engines_ and _Settings → Connected
+     Claude_) until they remove them.
+
+### When to switch to the copy path
+
+Use sections 4 and 5 in full instead, and say so to the friend, when:
+
+- the engine app does not know `pair` (exit code `2`, and its usage text lists no `pair`
+  command): the app is older than pairing;
+- `pair start` prints `REFUSED [pairing_unavailable]`: the hub is older than pairing;
+- the friend cannot approve: the page says this account cannot approve, even after logging in with
+  the right account. Tell the hub's owner too: steps 4.1 and 5.1 need the same rights, so the
+  owner may have to help;
+- the code expires twice in a row.
+
+If the last pairing has not ended with a `PAIRING ENDED` line (for example when the friend could
+not approve), run `"$engine" pair cancel` first, so its code cannot be approved later. Never add `--force` or `--replace` to any command without the
+friend's explicit yes.
+
 ## 4. Connecting the engine to the hub
+
+_Steps 4.1 and 4.2 are the copy path._ After a successful pairing, start at step 4.3.
 
 1. **[FRIEND]** in the web app: _Settings → Engines_ (Beállítások → Motorok) → add an engine, name
    it (for example _"<name>'s Mac"_). The page shows the machine key (`pme_…`) **once** and the
@@ -166,6 +278,8 @@ is still `null` and `service.installed` is `false`: the app installs the service
    [docs/HYBRID.md](docs/HYBRID.md#connecting-the-engine).)
 
 ## 5. The connected AI
+
+_Copy path for steps 5.1 and 5.2._ After a successful pairing, start at step 5.3.
 
 This makes the friend's AI client able to reach the hub's tools, restricted to the friend's own
 projects.

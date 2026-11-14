@@ -1296,6 +1296,20 @@ function describeEventBody(event: TimelineEvent, ctx: TimelineContext): Describe
           state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
         }),
       );
+    case 'setup_applied': {
+      const applied = t('timeline.events.setup_applied', {
+        version: str(d.version).slice(0, 7),
+        hired: String(strings(d.hired).length),
+        updated: String(strings(d.updated).length),
+      });
+      if (d.agreement === 'written')
+        return normal(`${applied}. ${t('timeline.events.setup_applied_agreement_written')}`);
+      if (d.agreement === 'not_written')
+        return normal(
+          `${applied}. ${t('timeline.events.setup_applied_agreement_not_written', { error: tDynamic(`errors.codes.${str(d.agreementError)}`, str(d.agreementError)) })}`,
+        );
+      return normal(applied);
+    }
     case 'workspace_released':
       return normal(t('timeline.events.workspace_released', { reason: str(d.reason) }));
     case 'focus_changed': {

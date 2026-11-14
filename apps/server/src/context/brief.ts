@@ -57,6 +57,9 @@ const TEXT_LIMIT = 280;
  */
 export function buildBrief(input: ContextPackInput, situation: Situation): string | null {
   if (input.workItem.type === 'schedule') return input.member.schedule?.prompt ?? null;
+  // The project manager's general conversation that was refreshed starts from its handover (PM-1461).
+  if (input.workItem.type === 'general' && input.previousConversation?.reason === 'refreshed')
+    return previousConversationBlock(input);
   const task = input.workItem.type === 'task' ? input.task : null;
   if (!task) return null;
 

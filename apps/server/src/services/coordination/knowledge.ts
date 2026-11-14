@@ -11,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type {
   InboxItem,
+  ProjectManagerAgreementData,
   ProjectManagerKnowledgeApprovalPayload,
   SessionStartCause,
   WorkItemRef,
@@ -20,7 +21,7 @@ import { isoNow, type DomainContext } from '../../core/base';
 import { DECISION_OPTIONS, type InboxService, type Resolver } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
-import { conflict, forbidden, humanActor, invalid, newId } from '../../kernel';
+import { conflict, DomainError, forbidden, humanActor, invalid, newId } from '../../kernel';
 import type { ProjectManagerRequests, ProjectManagerSteps } from './requests';
 
 /** Owner-approved shared knowledge. File writes and configuration commits share one project lock. */
@@ -189,6 +190,50 @@ export class ProjectManagerKnowledge {
       );
       this.finish(current, payload, written, note);
       await this.recheckLocked(item.projectKey, loaded.version);
+    });
+  }
+
+  /**
+   * Replaces the agreement as part of an owner-approved setup package (PM-1460): `approvedBy` is the owner whose
+   * yes ran the package. A concurrent knowledge write is retried once; after that the error is the caller's.
+   */
+  async writeAgreement(
+    projectKey: string,
+    data: ProjectManagerAgreementData,
+    by: { approvedBy: string; operationId: string },
+  ): Promise<number> {
+    return this.deps.projects.withConfigurationLock(projectKey, async (loaded) => {
+      const write = async () => {
+        const knowledge = await this.read(projectKey);
+        const next = structuredClone(knowledge);
+        next.agreement = {
+          version: (knowledge.agreement?.version ?? 0) + 1,
+          data,
+          approvedBy: by.approvedBy,
+          approvedAt: isoNow(this.deps.ctx),
+        };
+        next.revision++;
+        const parsed = ProjectManagerKnowledgeDocument.safeParse(next);
+        if (!parsed.success) throw invalid('operator_knowledge_invalid', 'the agreement is not valid');
+        return this.deps.store.compareAndSwapKnowledge(projectKey, knowledge.revision, parsed.data);
+      };
+      const written = await write().catch((err: unknown) => {
+        if (err instanceof DomainError && err.code === 'operator_knowledge_stale') return write();
+        throw err;
+      });
+      this.deps.timeline.append({
+        projectKey,
+        actor: humanActor(by.approvedBy),
+        type: 'operator_knowledge_changed',
+        data: {
+          proposalId: by.operationId,
+          kind: 'agreement_replace',
+          revision: written.revision,
+          agreementVersion: written.agreement!.version,
+        },
+      });
+      await this.recheckLocked(projectKey, loaded.version);
+      return written.agreement!.version;
     });
   }
 

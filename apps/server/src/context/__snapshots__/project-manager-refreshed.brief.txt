@@ -1,0 +1,10 @@
+## Previous conversation
+Your earlier general conversation had grown long, so it was refreshed and this one is new. Below is what the server knows is open from it: check each item with its tool before you act on it, and do not repeat a question or an operation that is already waiting.
+Operating agreement in force: version 3, involvement: important steps.
+Your questions waiting for an answer:
+- `inb_q1` (2026-11-14T08:00:00.000Z): Which budget line?
+Your operations that are not settled:
+- `sop_1` (2026-11-14T08:30:00.000Z): operate (waiting_owner)
+Your own note for this conversation:
+> I wait for the budget answer.
+> Then I plan the sprint.

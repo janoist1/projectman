@@ -9,7 +9,7 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { ConfigDiffItem } from '../config/diff';
-import { ProjectManagerKnowledgeChange } from '../domain/operator-knowledge';
+import { ProjectManagerAgreementData, ProjectManagerKnowledgeChange } from '../domain/operator-knowledge';
 import {
   RedactionCounts,
   SYSTEM_FEEDBACK_BODY_MAX,
@@ -845,6 +845,44 @@ export const ProjectManagerOperation = z.discriminatedUnion('op', [
     text: z.string().trim().min(1).max(20_000),
     taskKey: TaskKey.optional(),
   }),
+  /**
+   * A whole setup package (PM-1460): configuration, hires, member changes and the agreement on one owner yes,
+   * in one configuration commit. The agreement is written after the commit, in its own store.
+   */
+  z
+    .strictObject({
+      op: z.literal('setup_apply'),
+      /** What the owner's question names (project language). */
+      title: z.string().trim().min(1).max(120),
+      patch: ProjectManagerConfigPatch.optional(),
+      hires: z.array(HireMemberRequest).max(20).default([]),
+      updates: z
+        .array(z.strictObject({ handle: MemberHandle, changes: ProjectManagerMemberChanges }))
+        .max(30)
+        .default([]),
+      agreement: ProjectManagerAgreementData.optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (!value.patch && !value.hires.length && !value.updates.length && !value.agreement)
+        ctx.addIssue({ code: 'custom', message: 'the setup package is empty' });
+      const hired = new Set(value.hires.flatMap((hire) => (hire.handle ? [hire.handle] : [])));
+      const seen = new Set<string>();
+      for (const [index, update] of value.updates.entries()) {
+        if (hired.has(update.handle))
+          ctx.addIssue({
+            code: 'custom',
+            message: 'a member the package hires is set in its hire request, not changed',
+            path: ['updates', index, 'handle'],
+          });
+        if (seen.has(update.handle))
+          ctx.addIssue({
+            code: 'custom',
+            message: 'a member is changed twice',
+            path: ['updates', index, 'handle'],
+          });
+        seen.add(update.handle);
+      }
+    }),
 ]);
 export type ProjectManagerOperation = z.infer<typeof ProjectManagerOperation>;
 
@@ -935,7 +973,7 @@ export function projectManagerKnowledgeOperationIncluded(
   return parsed.success && payload.operations.some((entry) => canonical(entry) === canonical(parsed.data));
 }
 
-const PROJECT_MANAGER_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
+const PROJECT_MANAGER_CRITICAL_OPS = ['session_stop', 'message_send', 'setup_apply'] as const;
 export function projectManagerCriticalOp(op: ProjectManagerOperation['op']): boolean {
   return PROJECT_MANAGER_CRITICAL_OPS.some((critical) => critical === op);
 }

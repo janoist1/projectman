@@ -516,6 +516,8 @@ export const inbox = {
       project_pause: 'Szünetelteted a(z) {project} csapatának munkáját?',
       project_resume: 'Folytatod a(z) {project} csapatának munkáját?',
       message_send: 'Üzenetet küldesz nekik: {to}?',
+      setup_apply:
+        'Alkalmazod a(z) {project} projektben a(z) „{title}” beállítás-csomagot ({hires} új tag, {updates} tagmódosítás)?',
       invite_create: 'Meghívót küldesz a(z) {project} projektbe?',
       merge: 'Beolvasztod a(z) {task} kártya munkáját?',
       merge_order: 'Átrendezed a(z) {project} beolvasztási sorát?',

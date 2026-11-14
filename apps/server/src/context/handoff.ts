@@ -1,6 +1,11 @@
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { AgentProvider, HandoffFallbackReason, HandoffSummary } from '@projectman/shared';
-import type { ContextPackBuilder, ContextPackInput } from '../contracts';
+import type {
+  ContextPackBuilder,
+  ContextPackInput,
+  ConversationHandoverItem,
+  PreviousConversation,
+} from '../contracts';
 import { code } from './format';
 
 const PROVIDER_NAME: Record<AgentProvider, string> = {
@@ -41,6 +46,49 @@ function summaryLines(summary: HandoffSummary | null, whose: string): string[] {
   ];
 }
 
+const HANDOVER_KIND_TITLE: Record<ConversationHandoverItem['kind'], string> = {
+  question: 'Your questions waiting for an answer',
+  approval: 'Your approvals waiting for the owners',
+  operation: 'Your operations that are not settled',
+  answer: 'Owners’ answers to your questions in the last days',
+  signal: 'Open signals',
+};
+
+const AGREEMENT_INVOLVEMENT: Record<'every_step' | 'important' | 'minimal', string> = {
+  every_step: 'every step',
+  important: 'important steps',
+  minimal: 'minimal',
+};
+
+/**
+ * The block of a refreshed project manager conversation (PM-1461): what is open (server facts), the agreement
+ * in force and the manager's own note; the machine-made summary of the old conversation stands in only when
+ * the manager left no note.
+ */
+function refreshedBlock(previous: PreviousConversation): string {
+  const handover = previous.handover;
+  const lines = [
+    '## Previous conversation',
+    'Your earlier general conversation had grown long, so it was refreshed and this one is new. Below is what the server knows is open from it: check each item with its tool before you act on it, and do not repeat a question or an operation that is already waiting.',
+  ];
+  if (handover?.agreement)
+    lines.push(
+      `Operating agreement in force: version ${handover.agreement.version}, involvement: ${AGREEMENT_INVOLVEMENT[handover.agreement.involvement]}.`,
+    );
+  for (const kind of Object.keys(HANDOVER_KIND_TITLE) as ConversationHandoverItem['kind'][]) {
+    const items = handover?.items.filter((item) => item.kind === kind) ?? [];
+    if (items.length === 0) continue;
+    lines.push(
+      `${HANDOVER_KIND_TITLE[kind]}:`,
+      ...items.map((item) => `- ${code(item.id)} (${item.at}): ${item.text}`),
+    );
+  }
+  if (handover?.items.length === 0) lines.push('Nothing was open when the conversation ended.');
+  if (handover?.note) lines.push('Your own note for this conversation:', quoted(handover.note));
+  else lines.push(...summaryLines(previous.summary, 'the earlier'));
+  return lines.join('\n');
+}
+
 /**
  * Why the conversation of the new session is not the old one (PM-342), with the machine-made summary
  * of the old one when there is one and the card's latest handoff note. Null unless this new
@@ -49,6 +97,7 @@ function summaryLines(summary: HandoffSummary | null, whose: string): string[] {
 export function previousConversationBlock(input: ContextPackInput): string | null {
   const previous = input.previousConversation;
   if (!previous) return null;
+  if (previous.reason === 'refreshed') return refreshedBlock(previous);
   const now = PROVIDER_NAME[input.member.provider ?? DEFAULT_AGENT_PROVIDER];
   const what =
     previous.reason === 'provider_changed'

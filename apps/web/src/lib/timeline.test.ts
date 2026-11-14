@@ -423,6 +423,37 @@ describe('a dropped team message on the timeline (PM-1248)', () => {
   });
 });
 
+describe('an applied setup package on the timeline (PM-1460)', () => {
+  const row = (data: Record<string, unknown>) =>
+    describeEvent(
+      {
+        ...creation,
+        taskKey: null,
+        type: 'setup_applied',
+        data: { operationId: 'op_1', previousVersion: 'a'.repeat(40), version: 'b'.repeat(40), ...data },
+      },
+      context,
+    ).text;
+
+  it('counts the members and tells whether the agreement was written, with the reason when not', () => {
+    const applied = t('timeline.events.setup_applied', { version: 'bbbbbbb', hired: '2', updated: '1' });
+    expect(row({ hired: ['dev-a', 'dev-b'], updated: ['dev-1'], agreement: 'none' })).toBe(applied);
+    expect(row({ hired: ['dev-a', 'dev-b'], updated: ['dev-1'], agreement: 'written' })).toBe(
+      `${applied}. ${t('timeline.events.setup_applied_agreement_written')}`,
+    );
+    expect(
+      row({
+        hired: ['dev-a', 'dev-b'],
+        updated: ['dev-1'],
+        agreement: 'not_written',
+        agreementError: 'operator_knowledge_stale',
+      }),
+    ).toBe(
+      `${applied}. ${t('timeline.events.setup_applied_agreement_not_written', { error: t('errors.codes.operator_knowledge_stale') })}`,
+    );
+  });
+});
+
 describe('open-step reminders on the timeline (PM-806)', () => {
   const row = (
     type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',

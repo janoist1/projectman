@@ -267,6 +267,7 @@ export const timeline = {
       lostNote:
         'A korábbi beszélgetés elveszett: új beszélgetés indul a kártyából és az utolsó átadó jegyzetből ({member})',
       relocated: 'Új beszélgetés indult: a korábbi máshol futott ({member})',
+      refreshed: 'Friss lap: új beszélgetés indult átadóval, a korábbit lezárták ({member})',
       providerShift:
         'Szolgáltatóváltás ({fromProvider} → {toProvider}): új beszélgetés indul, a régi gépi összefoglalójával ({member})',
       providerShiftNoSummary:
@@ -390,6 +391,11 @@ export const timeline = {
     team_resumed_instance: 'Az egész példány folytatta a munkát',
     super_handoff_changed: 'A csatlakoztatott Claude-nak átadott gépi munka állapota: {state}',
     super_operation_changed: 'A csatlakoztatott Claude super műveletének állapota: {state}',
+    setup_applied:
+      'Beállítás-csomagot alkalmazott egy konfigurációs commitban ({version}): {hired} új tag, {updated} tagmódosítás',
+    setup_applied_agreement_written: 'A közös megállapodás is frissült.',
+    setup_applied_agreement_not_written:
+      'A közös megállapodás nem íródott ki, a beállítások érvényben maradtak. Ok: {error}',
     workspace_released: 'Felszabadította a munkaterületet a folyamat-takarítás igazolása nélkül: {reason}',
     gate_requested: 'Jóváhagyást kért: {from} → {to}',
     gate_rejected: 'A jóváhagyást elutasították: {to}',

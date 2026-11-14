@@ -150,6 +150,9 @@ export function superOperationHeading(item: InboxItem, names: SuperOperationName
     member: name(summary.params.handle ?? ''),
     to: joinNames((summary.params.to ?? '').split(', ').filter(Boolean).map(name)),
     task: summary.params.taskKey ?? '',
+    title: summary.params.title ?? '',
+    hires: summary.params.hires ?? '0',
+    updates: summary.params.updates ?? '0',
   });
 }
 

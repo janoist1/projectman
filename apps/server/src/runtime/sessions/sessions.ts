@@ -74,6 +74,7 @@ import type {
   MemberWorkspaceManager,
   EngineDirectory,
   RunnerEvent,
+  ConversationHandover,
   ScreenshotScope,
   SessionRunner,
   SessionCleanup,
@@ -183,6 +184,18 @@ export interface SessionOrchestratorDeps {
       workItem: WorkItemRef,
       cause: SessionStartCause | null,
     ): Promise<ContextPackInput['projectManagerKnowledge']>;
+  };
+  /**
+   * What the project manager's refreshed conversation is told of the old one (PM-1461). Absent: the handover
+   * is the project manager's note alone.
+   */
+  conversationHandover?: {
+    build(input: {
+      projectKey: string;
+      member: string;
+      sessionId: string;
+      note: string | null;
+    }): Promise<ConversationHandover>;
   };
   /** Server-side selection of the current conversational partner's style only. */
   projectManagerPreferences: {

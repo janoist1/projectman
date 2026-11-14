@@ -402,6 +402,9 @@ export const errors = {
     super_handoff_closed: 'The handoff or its action is already closed and cannot be run again.',
     super_owner_decision_pending: 'We’re still waiting for the owner’s decision.',
     super_operation_expired: 'The owner didn’t answer in time, the action has expired.',
+    super_operation_superseded: 'A newer setup package replaced this one, so it won’t run.',
+    setup_owner_only_step:
+      'The setup package holds a change only the owner can make themselves. It has to be set outside the package.',
     super_executor_unavailable: 'This installation can’t carry out this action yet.',
     super_operation_unsupported:
       'The connected Claude can’t carry out this action even with the super permission.',

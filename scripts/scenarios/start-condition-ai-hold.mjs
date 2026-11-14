@@ -35,10 +35,12 @@ export default async ({ instance, open, shoot, step }) => {
       await step(`${style}, ${scheme}`, async () => {
         const page = await open({ path: '/p/AC/settings/project' });
         await page.emulateMedia({ colorScheme: scheme });
+        // The account's saved style wins at start, unless a choice is pending: set it and reload.
         await page.evaluate((value) => {
           window.localStorage.setItem('pm:ui-style', value);
-          document.documentElement.dataset.style = value;
+          window.localStorage.setItem('pm:ui-style-pending', value);
         }, style);
+        await page.reload();
         await page.locator('[role="status"]', { hasText: hold.name }).first().waitFor();
         await shoot(page, `${style}-${scheme}`, {
           widths: [1512, 390],

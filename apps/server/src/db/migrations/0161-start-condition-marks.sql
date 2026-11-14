@@ -1,3 +1,4 @@
+-- PM-1462: Persist when a card first meets the project's start condition.
 CREATE TABLE start_condition_marks (
   task_key TEXT PRIMARY KEY,
   project_key TEXT NOT NULL,

@@ -1644,7 +1644,7 @@ and may name hold labels on the card, its open parent or its open, unarchived th
 five minutes by default; effective urgent and sufficient stage matches act immediately. Without the
 setting, starts and urgent pulls retain their earlier behavior. Cards already in work are unaffected.
 `StartConditionMarks` (`runtime/admission`) serializes updates per project and stores `met_since` in
-`start_condition_marks` (migration 0159). A lost match removes its timestamp; a later match starts again.
+`start_condition_marks` (migration 0161). A lost match removes its timestamp; a later match starts again.
 The start round updates marks before capacity checks, and an unref'd timer requests a retry at the next
 deadline. Configuration, priority, labels, stage, parent and theme changes also request retries.
 All of this runs on the hub, including persistent timestamps; no engine crossing or machine assumption changes.

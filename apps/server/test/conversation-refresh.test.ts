@@ -20,6 +20,8 @@ describe('the refresh of the project manager general conversation (PM-1461)', ()
 
   beforeEach(async () => {
     h = await createDomainHarness({
+      // The domain reads the same clock the requests are opened by, never the real one.
+      now: () => new Date(NOW),
       adjust: (config) => {
         const pm = config.team.members.find((candidate) => candidate.handle === 'pm')!;
         if (pm.kind === 'ai') pm.onLeave = false;

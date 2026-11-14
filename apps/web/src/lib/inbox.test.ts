@@ -422,6 +422,25 @@ describe('splitQuestion', () => {
     expect(text).toContain('AR-3');
     expect(text).not.toContain('{');
   });
+  it('gives a Messages-only pairing alert no inbox words, and no unknown heading', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      title: 'Machine paired',
+      payload: {
+        alert: 'engine_paired',
+        pairingId: 'pair_1',
+        engineId: 'eng_1',
+        machineName: 'Mac mini',
+        keyPrefix: 'pmi_a1b2c3d4',
+        approverName: 'Owner',
+      },
+    };
+    expect(inboxHeading(alert)).toBe('Machine paired');
+    expect(inboxHeading(alert)).not.toBe(t('inbox.alerts.unknown'));
+    expect(alertText(alert, new Map(), null)).toBeNull();
+  });
   it('renders the alert that parts were left in the first stage after a reminder (PM-480)', () => {
     const alert: InboxItem = {
       ...item,

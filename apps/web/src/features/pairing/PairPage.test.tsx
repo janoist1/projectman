@@ -249,6 +249,25 @@ describe('the approval', () => {
     },
   );
 
+  it('puts the focus back on the same button when a second limit follows the first', async () => {
+    const backend = new MockBackend();
+    await openApproval(backend);
+    const approve = screen.getByRole('button', { name: t('pairing.approve.approve') });
+    const limit = async () => {
+      backend.pairing.rateLimitedFor = 1;
+      fireEvent.click(approve);
+      await waitFor(() => expect(approve.getAttribute('aria-disabled')).toBe('true'));
+      expect(document.activeElement).toBe(approve);
+      backend.pairing.rateLimitedFor = null;
+      await waitFor(() => expect(approve.getAttribute('aria-disabled')).toBeNull(), { timeout: 3000 });
+    };
+    await limit();
+    // The focus moves elsewhere (a click does not move it); the second limit must bring it back to the pressed button.
+    approve.blur();
+    expect(document.activeElement).not.toBe(approve);
+    await limit();
+  });
+
   it('blocks both buttons while a decision is sent and keeps the focus on the pressed one', async () => {
     const backend = new MockBackend();
     const project = await openApproval(backend);

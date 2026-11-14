@@ -142,6 +142,7 @@ export * from './domain/session';
 export * from './domain/session-state';
 export * from './domain/session-work';
 export * from './domain/stage-owner-pick';
+export * from './domain/start-condition';
 export * from './domain/start-failure';
 export * from './domain/start-order';
 export * from './domain/start-plan';

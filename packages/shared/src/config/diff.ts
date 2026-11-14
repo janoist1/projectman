@@ -71,6 +71,7 @@ const TEAM_SECTION = {
   cardMover: 'team',
   merger: 'team',
   mergeAfterReview: 'team',
+  startCondition: 'team',
   taskCreateAccess: 'team',
   projectManagerMoves: 'team',
   projectManagerLifecycle: 'team',

@@ -981,6 +981,8 @@ export const settings = {
     release_approval_needs_duty: 'Only the holders of the “Release approval” duty can approve a release.',
     conditional_release_gate: 'A release stage’s gate can’t be tied to a label (“only if it has”).',
     unknown_column: 'The given column does not exist.',
+    start_condition_invalid_stage:
+      'The start condition must name a queue stage at or before the queue preceding work.',
     duplicate_column: 'Column IDs must not repeat.',
     first_stage_not_queue: 'The first stage must be a queue.',
     last_stage_not_done: 'The last stage must be a done state.',

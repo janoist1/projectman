@@ -7,6 +7,7 @@ import { openPrerequisites } from './relations';
 import { canAutomaticallyStartTask, isOpenTask } from './task';
 import type { Task, TaskPriority } from './task';
 import type { Stage } from './pipeline';
+import { startConditionGoes } from './start-condition';
 
 /**
  * How a start of a card ranks among the waiting ones (PM-436): the `urgent` cards (the card's priority is
@@ -96,6 +97,8 @@ export function startableCards(input: {
   fromStageId: string;
   toStageId: string;
   assigned?: boolean;
+  marks?: ReadonlyMap<string, string>;
+  now?: string;
 }): Task[] {
   const { config, tasks, fromStageId, toStageId, assigned } = input;
   return tasks.filter((task) => {
@@ -108,6 +111,18 @@ export function startableCards(input: {
       return false;
     if (openPrerequisites(task, tasks).length > 0) return false;
     if (startBlock(task, config) !== null) return false;
+    if (
+      config.team.startCondition &&
+      fromStageId === pullSourceStage(config)?.id &&
+      !startConditionGoes({
+        task,
+        tasks,
+        config,
+        metSince: input.marks?.get(task.key) ?? null,
+        now: input.now ?? '',
+      })
+    )
+      return false;
     const evaluation = evaluateStart(task, config, toStageId);
     return evaluation.unmet.length === 0 && evaluation.approvals.length === 0;
   });

@@ -1637,6 +1637,18 @@ Stored `focus_changed` timeline events and the `{ reason: 'focus', ... }` form o
 contract and the web timeline, because the timeline is append-only and old events must keep rendering.
 Migration 125 drops the then empty table `project_focus_items`.
 
+`team.startCondition` (PM-1462) optionally filters automatic starts from the queue immediately before work.
+The owner-only setting combines queue stages, effective priority and inherited labels with `any`/`all`,
+and may name hold labels on the card, its open parent or its open, unarchived theme. The shared rules in
+`domain/start-condition.ts` keep this separate from priority ordering. Priority and label matches wait
+five minutes by default; effective urgent and sufficient stage matches act immediately. Without the
+setting, starts and urgent pulls retain their earlier behavior. Cards already in work are unaffected.
+`StartConditionMarks` (`runtime/admission`) serializes updates per project and stores `met_since` in
+`start_condition_marks` (migration 0161). A lost match removes its timestamp; a later match starts again.
+The start round updates marks before capacity checks, and an unref'd timer requests a retry at the next
+deadline. Configuration, priority, labels, stage, parent and theme changes also request retries.
+All of this runs on the hub, including persistent timestamps; no engine crossing or machine assumption changes.
+
 - **Timeline.** `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }`; old events may also carry
   `{ reason: 'focus', ... }`) marks a card the system pulled into the work stage (below).
 - **Effective priority (PM-1136).** `effectivePriority` (shared) is the highest of the card's, its parent's and its

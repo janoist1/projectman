@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, questionPayloadOf, StartCondition } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { aiActor, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -104,6 +104,44 @@ describe('the start offer to the project manager', () => {
     await vi.waitFor(() => expect(keys.map((k) => task(k).assignee).sort()).toEqual(['dev-1', 'dev-2']));
     return keys;
   };
+
+  it('offers priority-qualified cards after grace and preserves the timestamp across restart', async () => {
+    await harness((c) => {
+      c.team.startCondition = StartCondition.parse({ priority: 'any' });
+    }, true);
+    const key = await create('Waiting for grace');
+    await settle();
+    expect(task(key).startOffer).toBeUndefined();
+    await h.domain.tasks.update('AR', key, { priority: 'high' }, OWNER_ACTOR);
+    await settle();
+    const mark = h.repos.startConditionMarks.ofProject('AR').get(key);
+    expect(mark).toBe(clock.toISOString());
+    expect(task(key).startOffer).toBeUndefined();
+    minutes(4);
+    await restart();
+    await settle();
+    expect(h.repos.startConditionMarks.ofProject('AR').get(key)).toBe(mark);
+    expect(task(key).startOffer).toBeUndefined();
+    minutes(1);
+    await settle();
+    expect(task(key).startOffer).toMatchObject({ to: 'pm' });
+  });
+
+  it('pulls effective urgent immediately but never pulls a held urgent card', async () => {
+    await harness((c) => {
+      c.pipeline.labels.push({ id: 'hold', name: 'Wait', color: 'gray', setBy: 'anyone' });
+      c.team.startCondition = StartCondition.parse({ priority: 'any', hold: ['hold'] });
+    });
+    const held = await create('Held urgent', { labels: ['hold'], priority: 'urgent' });
+    await settle();
+    expect(task(held).stageId).toBe('ready');
+    expect(task(held).assignee).toBeNull();
+    expect(startRows(held)).toEqual([]);
+    const key = await create('Urgent', { priority: 'urgent' });
+    await settle();
+    await vi.waitFor(() => expect(task(key).stageId).toBe('development'));
+    expect(task(key).assignee).not.toBeNull();
+  });
 
   it('sends one action message and opens a start obligation; the pm move starts the right developer', async () => {
     await harness();

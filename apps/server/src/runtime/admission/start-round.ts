@@ -33,6 +33,7 @@ import { startContext } from '../../core/tasks';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { Admission, StartRounding } from './admission';
 import type { SeniorDecisions } from './senior-decisions';
+import type { StartConditionMarks } from './start-condition-marks';
 import { DomainError } from '../../kernel';
 
 interface ProjectRound {
@@ -61,6 +62,7 @@ interface StartOfferObligations {
 }
 
 interface StartRoundDeps {
+  startConditionMarks: Pick<StartConditionMarks, 'update'>;
   ctx: DomainContext;
   projects: Pick<ProjectService, 'config'>;
   tasks: Pick<TaskService, 'readSchedulingTasks'>;
@@ -148,6 +150,7 @@ export class StartRound implements StartRounding {
     const { ctx, projects, tasks, messaging, waits } = this.deps;
     try {
       const config = await projects.config(task.projectKey);
+      const marks = await this.deps.startConditionMarks.update(task.projectKey);
       const source = pullSourceStage(config);
       const development = developmentStage(config);
       if (!source || !development) return;
@@ -157,6 +160,8 @@ export class StartRound implements StartRounding {
       if (parts.length === 0) return;
       const queued = tasks.readSchedulingTasks(task.projectKey, { kind: 'queue', stageId: source.id });
       const startable = startableCards({
+        marks,
+        now: isoNow(ctx),
         config,
         tasks: startContext(tasks, task.projectKey, queued),
         fromStageId: source.id,
@@ -202,7 +207,12 @@ export class StartRound implements StartRounding {
    * who has no session on the card at all, no handoff is open on it and the fix round limit does not hold
    * it. Going forward into the work stage is the Start button's business (PM-119), so nothing else starts them.
    */
-  private unstarted(config: ProjectConfig, work: Stage): Task[] {
+  private unstarted(
+    config: ProjectConfig,
+    work: Stage,
+    marks: ReadonlyMap<string, string>,
+    now: string,
+  ): Task[] {
     const { ctx, tasks } = this.deps;
     const projectKey = config.project.key;
     const stored = tasks.readSchedulingTasks(projectKey, { kind: 'queue', stageId: work.id });
@@ -210,6 +220,8 @@ export class StartRound implements StartRounding {
     if (mine.length === 0) return [];
     const ofMine = new Set(mine.map((task) => task.key));
     return startableCards({
+      marks,
+      now,
       config,
       tasks: startContext(tasks, projectKey, mine),
       fromStageId: work.id,
@@ -241,6 +253,7 @@ export class StartRound implements StartRounding {
 
   private async forProject(key: string): Promise<void> {
     const { ctx, projects, tasks, seniorDecisions, admission } = this.deps;
+    const marks = await this.deps.startConditionMarks.update(key);
     const config = await projects.config(key).catch(() => null);
     const source = config && pullSourceStage(config);
     const development = config && developmentStage(config);
@@ -292,13 +305,15 @@ export class StartRound implements StartRounding {
     const queued = tasks.readSchedulingTasks(key, { kind: 'queue', stageId: source.id });
     const cards = [
       ...startableCards({
+        marks,
+        now: since,
         config,
         tasks: startContext(tasks, key, queued),
         fromStageId: source.id,
         toStageId: development.id,
         assigned: true,
       }),
-      ...this.unstarted(config, development),
+      ...this.unstarted(config, development, marks, since),
     ];
     const owners = stageOwners(config, development);
     const developers = stageDevelopers(config, development).filter((developer) =>

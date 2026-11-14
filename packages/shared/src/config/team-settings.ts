@@ -66,6 +66,7 @@ export const TEAM_SETTING_POLICY = {
   merger: { ownerOnly: null },
   // PM-1379: the merger's own approval queues the merge (decisions 21, 71, 77, 78); off keeps today's rule.
   mergeAfterReview: { ownerOnly: null, default: false, stored: true },
+  startCondition: { ownerOnly: 'project_manager_authority' },
   members: { ownerOnly: null },
   contacts: { ownerOnly: null },
   // PM-1102: a read-only viewer writes to the project manager only.

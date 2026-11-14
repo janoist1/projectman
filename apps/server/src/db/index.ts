@@ -49,6 +49,7 @@ export type { OwnerInvitationRecord } from './owner-invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
 import { createStartFailureRepository } from './start-failures';
+import { createStartConditionMarkRepository } from './start-condition-marks';
 export type { StartFailureRecord } from './start-failures';
 import { createDecisionOfferRepository } from './decision-offers';
 import { createDocWriteRepository } from './doc-writes';
@@ -180,6 +181,7 @@ export function createRepositories(db: Db) {
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     startFailures: createStartFailureRepository(db),
+    startConditionMarks: createStartConditionMarkRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),
     sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),

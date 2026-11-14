@@ -282,6 +282,22 @@ then closes the signal with `dismiss_signal` and a note. `noticeText` carries `R
 (`reviewFollowUpsFacts`). Migration 155 adds the kind to the `operator_signals` CHECK. Server only; no
 machine-dependent part.
 
+**Weekly operations review (PM-1464).** The sweep (`sweepBody`) asks `operationsReviewCase` (`operations-review.ts`)
+once a minute whether the weekly review is due: the project has a project manager, `team.operationsReview` is
+`weekly` (the default; `off` stops it), at least 7 days passed since the last review (the first waits for a week-old
+project) and a card closed or changed its stage since (`operationsReviewDue`, shared). Then it raises one
+`operations_review` signal, `caseKey` `operations_review:<ISO week>`, whose `subject` holds the facts as JSON, read
+once when raised (`OperationsReviewFacts`): the measures of the closed cards and open work (`operationsReview`:
+closed cards, median lead time, fix rounds, send-backs, waits for people, stuck cards, tokens), the settings
+versions saved since the last review with their areas (`historyPage`, `configChangeArea`) and the enabled rules with
+their reasons (`teamRules`, `team.ruleReasons`). Like `cards_closed` the signal is informational: `noticeText` gives
+no steps, it is never in `signal_ids` and `markDelivered` resolves it. Delivery also calls
+`ConversationRefreshes.requestRefresh(projectKey, 'review')` (PM-1461), so the pm ends the review with `save_handover`
+and continues in a fresh conversation. The role guide's `operations_review` rule tells the pm what the review holds
+(one to three suggestions within its authority, a lesson for a recurring problem, the agreement and the rules checked
+against the settings changes). Migration 161 adds the kind to the `operator_signals` CHECK. Server only; no
+machine-dependent part.
+
 ## Question screening
 
 An AI member's `ask_human` question (the project manager's too, not a human's) is created in the inbox state

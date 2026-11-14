@@ -120,6 +120,7 @@ export * from './domain/message-processing';
 export * from './domain/message-wake';
 export * from './domain/ntfy';
 export * from './domain/obligation';
+export * from './domain/operations-review';
 export * from './domain/operator-diagnostics';
 export * from './domain/operator-knowledge';
 export * from './domain/outage';

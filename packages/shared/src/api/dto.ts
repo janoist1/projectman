@@ -231,6 +231,7 @@ export const PROJECT_MANAGER_UNRELEASED_HOURS = 24;
  */
 export const ProjectManagerSignalKind = z.enum([
   'cards_closed',
+  'operations_review',
   'loop_suspected',
   'process_cleanup_failed',
   'outage',

@@ -404,6 +404,7 @@ export const operator = {
     kinds: {
       loop_suspected: '{key}: körbejárás gyanúja',
       cards_closed: 'Lezárt kártyák',
+      operations_review: 'Heti működési áttekintés',
       outage: 'Kiesés: a munka egy része áll',
       process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
       stalled: '{key}: válaszra vár a munkamenet',
@@ -421,6 +422,8 @@ export const operator = {
     },
     bodies: {
       cards_closed: 'A PM a megállapodás szerint összefoglalja a legutóbb lezárt kártyákat.',
+      operations_review:
+        'A PM hetente röviden összefoglalja a csapat mérőszámait és a beállítás változásait, legfeljebb három javaslattal; a jelzés kézbesítéskor lezárul.',
       loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
       outage: 'Egy szolgáltató vagy motor nem érhető el; a PM kezeli, az érintett kártyákon látszik.',
       process_cleanup_failed:

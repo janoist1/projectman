@@ -534,6 +534,12 @@ export const ProjectConfig = z.object({
      * `TEAM_SETTING_POLICY` default, off.
      */
     mergeAfterReview: z.boolean().optional(),
+    /**
+     * Whether the project manager sends the owners a short operations review once a week (PM-1464): the
+     * measures of the closed cards and the settings changed since the last review. Absent: its
+     * `TEAM_SETTING_POLICY` default, weekly.
+     */
+    operationsReview: z.enum(['weekly', 'off']).optional(),
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),

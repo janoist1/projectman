@@ -90,6 +90,7 @@ export const PROJECT_SETTING_NOTES = {
   ownerDecisionTopics: 'The topics on which a decision always needs an owner.',
   merger: 'The member whose approval merges a card.',
   mergeAfterReview: 'Whether the merger’s own approval at review queues the merge by itself.',
+  operationsReview: 'Whether the project manager sends the owners a short weekly operations review (weekly or off).',
   contacts: 'The people outside the team the project keeps as contacts.',
   viewerRecipients: 'Whom a read-only viewer may write to.',
   repoMerge: 'Per repository: whether a card’s work must be merged before the card is done.',

@@ -67,6 +67,7 @@ import type {
   CardWorker,
   ContextPackBuilder,
   ContextPack,
+  CapabilityTools,
   ContextPackInput,
   DocumentStore,
   MemberMemoryStore,
@@ -169,6 +170,8 @@ export interface SessionOrchestratorDeps {
   visibleTeamTools: VisibleTeamTools;
   /** The host owner's e-mail, or null before the first-run setup: who a request to the host goes to (PM-1064). */
   hostOwnerEmail(): string | null;
+  /** The tool registers the project manager's capability catalog lists (PM-1468). */
+  capabilityTools: CapabilityTools;
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;

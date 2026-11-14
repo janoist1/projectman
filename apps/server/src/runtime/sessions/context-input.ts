@@ -28,6 +28,7 @@ import type {
 import type { DomainContext } from '../../core/base';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { TaskHandoffRow } from '../../db';
+import { buildCapabilityCatalog } from '../../context';
 import { aiActor } from '../../kernel';
 import { BRIEF_TIMELINE_LIMIT, QUIET_TIMELINE_EVENTS } from '../../agent-text';
 import { attachmentToolRules } from './session-policy';
@@ -171,10 +172,20 @@ export class SessionContextInput {
       coordinationMemberOf(config)?.handle === member.handle
         ? this.ctx.repos.checklists.get(projectKey)
         : null;
+    // What the project can do (PM-1468): the selected project manager's own conversations, never a guest one.
+    const capabilities =
+      coordinationMemberOf(config)?.handle === member.handle &&
+      guestOfConversation(config, member, workItem) === undefined
+        ? buildCapabilityCatalog(config, {
+            ...this.deps.capabilityTools,
+            hostEmail: this.deps.hostOwnerEmail(),
+          })
+        : null;
     return {
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
       ...(checklist ? { checklist } : {}),
+      ...(capabilities ? { capabilities } : {}),
       // An owner account's project: the host is not an owner, so the onboarding covers the owner's own machine (PM-1069).
       ...(checklist && hostOutsideOwners(config, this.deps.hostOwnerEmail())
         ? { hostOutsideOwners: true }

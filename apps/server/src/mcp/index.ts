@@ -1,6 +1,12 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { McpModule, McpModuleOptions, ToolContext } from '../contracts';
+import type {
+  ConnectedToolCatalogEntry,
+  McpModule,
+  McpModuleOptions,
+  TeamToolCatalogEntry,
+  ToolContext,
+} from '../contracts';
 import { nonLocalReason } from '../kernel';
 import {
   MAX_BODY_BYTES,
@@ -10,7 +16,9 @@ import {
   useRawJsonBody,
 } from './http';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
+import { externalToolsFor } from './super/registry';
 import { registerExternalRoutes } from './super/route';
+import { TEAM_TOOLS } from './tools';
 
 export { FeedbackTools } from './feedback';
 export { ProjectManagerTools } from './project-manager';
@@ -39,6 +47,32 @@ export { ExternalTools } from './super/handler';
 
 export { TEAM_TOOLS, TEAM_TOOL_NAMES, toolOutputText } from './tools';
 export { visibleTeamTools } from './server';
+
+let teamCatalog: TeamToolCatalogEntry[] | undefined;
+let connectedCatalog: ConnectedToolCatalogEntry[] | undefined;
+
+/** The team tools for the capability catalog (PM-1468): every registered one; the registers do not change at run time. */
+export function teamToolCatalog(): TeamToolCatalogEntry[] {
+  teamCatalog ??= TEAM_TOOLS.map((tool) => ({
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    audience: tool.audience ?? {},
+  }));
+  return teamCatalog;
+}
+
+/** The connected AI's tools for the capability catalog (PM-1468): what its super mode offers the host owner's key. */
+export function connectedToolCatalog(): ConnectedToolCatalogEntry[] {
+  connectedCatalog ??= [...externalToolsFor('super', true)].map((tool) => ({
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    access: tool.access,
+    hostOnly: tool.hostOnly === true,
+  }));
+  return connectedCatalog;
+}
 
 /**
  * Team tools MCP endpoint (`/mcp/:token`) for AI members' Claude Code sessions.

@@ -22,12 +22,14 @@ import {
   SessionTools,
   ExternalTools,
   visibleTeamTools,
+  teamToolCatalog,
+  connectedToolCatalog,
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createWebPushService } from './services/web-push';
 import { createNtfyService } from './services/ntfy';
 import { createHostRequestsService } from './services/host-requests';
-import type { NtfyTransport, PushTransport } from './contracts';
+import type { CapabilityTools, NtfyTransport, PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
@@ -766,7 +768,13 @@ export function createDomain(opts: DomainOptions) {
     holdStarts: (key, handle) => startHolds.hold(key, handle),
     deferredStartNames: (key, handle) => deferredStarts.names(key, handle),
   });
+  // The registers the project manager's capability catalog lists (PM-1468): its prompt and its tool read the same ones.
+  const capabilityTools: CapabilityTools = {
+    teamTools: teamToolCatalog(),
+    connectedTools: connectedToolCatalog(),
+  };
   const sessions = new SessionOrchestrator({
+    capabilityTools,
     startHolds,
     mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
@@ -1683,6 +1691,8 @@ export function createDomain(opts: DomainOptions) {
         projectManagerSignals,
         loopTriages,
         checklist,
+        capabilityTools,
+        hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
         superPath: () => {
           if (!superPath) throw new Error('the super-operation path is not composed yet');
           return superPath;

@@ -60,6 +60,7 @@ import {
   labelHolders,
   screenshotPlacement,
 } from '@projectman/shared';
+import { capabilityIndex } from './capability-catalog';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { ROLE_PURPOSES } from './role-purposes';
@@ -110,6 +111,7 @@ export function buildSystemPrompt(
     ['guardrails', guardrailsSection(input)],
     ['role', roleSection(input, guide)],
     ['checklist', checklistSection(input, guide)],
+    ['capabilities', input.capabilities ? capabilityIndex(input.capabilities) : ''],
     ['operator_knowledge', projectManagerKnowledgeSection(input)],
     ['operator_preference', projectManagerPreferenceSection(input)],
     ['documents', documentsSection(input)],

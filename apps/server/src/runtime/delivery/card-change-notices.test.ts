@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TimelineEvent } from '@projectman/shared';
+import { cardChangeNoticeText } from '../../agent-text';
+import type { CardChangeNoticeItem } from '../../agent-text';
 import type { ToolContext } from '../../contracts';
 import { createDomainHarness, OWNER_ACTOR } from '../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../test/helpers/domain-harness';
@@ -35,19 +38,31 @@ describe('card change notices (PM-1512)', () => {
 
   const take = (ctx = tool) => h.domain.cardNotices.take(ctx);
   const itemId = (n: number) => h.domain.tasks.detail('AR', 'AR-1').acceptance![n]!.id;
-  const eventOf = (type: 'task_updated' | 'team_message') =>
-    h.repos.timeline.latestOfType('AR', 'AR-1', type)!;
+  const eventOf = (type: TimelineEvent['type'], taskKey = 'AR-1') =>
+    h.repos.timeline.latestOfType('AR', taskKey, type)!;
+  const eventsOf = (type: TimelineEvent['type']) =>
+    h.repos.timeline
+      .taskEventsAfter('AR-1', 0, 500)
+      .map((row) => row.event)
+      .filter((event) => event.type === type);
   const send = (from: string, text: string, kind: 'action' | 'info' = 'action', to = [DEV]) =>
     h.domain.messaging.send('AR', from, { to, text, taskKey: 'AR-1' }, { kind });
+
+  /** The block the hub is expected to write: built by the text function, so the wording is not repeated here. */
+  const noticeOf = (...items: CardChangeNoticeItem[]) => cardChangeNoticeText('AR-1', items);
+  const byOwner = (kind: CardChangeNoticeItem['kind'], event: TimelineEvent, change?: string) => ({
+    kind,
+    ...(change ? { change } : {}),
+    actor: event.actor.handle ?? 'someone',
+    eventId: event.id,
+  });
+  const descriptionEvents = () =>
+    eventsOf('task_updated').filter((event) => (event.data.fields as string[]).includes('description'));
 
   it('tells a description change of somebody else once, with the event and without free text', async () => {
     await h.domain.tasks.update('AR', 'AR-1', { description: 'Second scope: SECRET-TEXT' }, OWNER_ACTOR);
     const notice = take();
-    expect(notice?.text).toContain('AR-1');
-    expect(notice?.text).toContain('description');
-    expect(notice?.text).toContain('owner');
-    expect(notice?.text).toContain(eventOf('task_updated').id);
-    expect(notice?.text).toContain('get_task');
+    expect(notice?.text).toBe(noticeOf(byOwner('description', eventOf('task_updated'))));
     expect(notice?.text).not.toContain('SECRET-TEXT');
     expect(take()).toBeNull();
   });
@@ -55,17 +70,13 @@ describe('card change notices (PM-1512)', () => {
   it('puts the changes that gathered on the card into one block', async () => {
     await h.domain.tasks.update('AR', 'AR-1', { description: 'Second scope' }, OWNER_ACTOR);
     await h.domain.tasks.update('AR', 'AR-1', { acceptance: [{ op: 'add', text: 'Extra' }] }, OWNER_ACTOR);
-    const notice = take();
-    expect(notice?.text.match(/event_id evt_/g)).toHaveLength(2);
+    expect(take()?.text).toBe(
+      noticeOf(
+        byOwner('description', descriptionEvents()[0]!),
+        byOwner('acceptance', eventOf('acceptance_item_changed'), 'add'),
+      ),
+    );
     expect(take()).toBeNull();
-  });
-
-  it('lists ten changes and counts the rest', async () => {
-    for (let i = 0; i < 12; i++)
-      await h.domain.tasks.update('AR', 'AR-1', { description: `Scope ${i}` }, OWNER_ACTOR);
-    const notice = take();
-    expect(notice?.text.match(/event_id evt_/g)).toHaveLength(10);
-    expect(notice?.text).toContain('and 2 more changes');
   });
 
   it.each(['edit', 'add', 'remove'] as const)('tells an acceptance %s of somebody else', async (op) => {
@@ -76,11 +87,15 @@ describe('card change notices (PM-1512)', () => {
           ? ({ op, itemId: itemId(0), text: 'Changed' } as const)
           : ({ op, itemId: itemId(0) } as const);
     await h.domain.tasks.update('AR', 'AR-1', { acceptance: [change] }, OWNER_ACTOR);
-    expect(take()?.text).toContain(`(${op})`);
+    expect(take()?.text).toBe(noticeOf(byOwner('acceptance', eventOf('acceptance_item_changed'), op)));
   });
 
-  it('tells a reopened and a moved acceptance item', async () => {
+  it('tells a reopened item, and a moved one on both cards', async () => {
     const [first, second] = [itemId(0), itemId(1)];
+    const { session: target } = await h.domain.sessions.ensureSession('AR', 'cr', {
+      type: 'task',
+      taskKey: 'AR-2',
+    });
     await h.domain.tasks.update(
       'AR',
       'AR-1',
@@ -94,14 +109,20 @@ describe('card change notices (PM-1512)', () => {
       { acceptance: [{ op: 'reopen', itemId: first, note: 'it does not hold' }] },
       OWNER_ACTOR,
     );
-    expect(take()?.text).toContain('(reopen)');
+    expect(take()?.text).toBe(noticeOf(byOwner('acceptance', eventOf('acceptance_item_changed'), 'reopen')));
     await h.domain.tasks.update(
       'AR',
       'AR-1',
       { acceptance: [{ op: 'move', itemId: second, taskKey: 'AR-2' }] },
       OWNER_ACTOR,
     );
-    expect(take()?.text).toContain('(move)');
+    expect(take()?.text).toBe(noticeOf(byOwner('acceptance', eventOf('acceptance_item_changed'), 'move')));
+    const arrived = take({ sessionId: target.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-2' });
+    expect(arrived?.text).toBe(
+      cardChangeNoticeText('AR-2', [
+        byOwner('acceptance', eventOf('acceptance_item_changed', 'AR-2'), 'moved_in'),
+      ]),
+    );
   });
 
   it('does not tell the state marks: done and not_needed', async () => {
@@ -122,8 +143,9 @@ describe('card change notices (PM-1512)', () => {
   it('tells an action message for the member without its text, from a person and from an AI member', async () => {
     await send('owner', 'Please stop: SECRET-TEXT');
     await send('cr', 'Look at this: SECRET-TEXT-2');
+    const [fromOwner, fromReviewer] = eventsOf('team_message');
     const notice = take();
-    expect(notice?.text.match(/a message for you arrived/g)).toHaveLength(2);
+    expect(notice?.text).toBe(noticeOf(byOwner('message', fromOwner!), byOwner('message', fromReviewer!)));
     expect(notice?.text).not.toContain('SECRET-TEXT');
   });
 
@@ -142,7 +164,7 @@ describe('card change notices (PM-1512)', () => {
       { to: [DEV], text: 'Use the second option', taskKey: 'AR-1' },
       { kind: 'action', answer: { inboxItemId: 'inb_x', question: 'Which?', answer: 'Second' } },
     );
-    expect(take()?.text).toContain('your question was answered');
+    expect(take()?.text).toBe(noticeOf(byOwner('answer', eventOf('team_message'))));
   });
 
   it('does not tell an info message or a message for another member', async () => {
@@ -161,15 +183,13 @@ describe('card change notices (PM-1512)', () => {
   it('tells a person message although it stands in the input queue already', async () => {
     const sent = await send('owner', 'Please stop');
     await vi.waitFor(() => expect(h.repos.messages.get(sent.id)?.receipts?.[0]?.deliveredAt).toBeTruthy());
-    expect(take()?.text).toContain('a message for you arrived');
+    expect(take()?.text).toBe(noticeOf(byOwner('message', eventOf('team_message'))));
   });
 
   it('does not tell a message a newer action replaced', async () => {
     await send('cr', 'First idea');
     await send('cr', 'Second idea');
-    const notice = take();
-    expect(notice?.text.match(/a message for you arrived/g)).toHaveLength(1);
-    expect(notice?.text).toContain(eventOf('team_message').id);
+    expect(take()?.text).toBe(noticeOf(byOwner('message', eventOf('team_message'))));
   });
 
   it('does not tell its own changes', async () => {
@@ -241,7 +261,9 @@ describe('card change notices (PM-1512)', () => {
       await h.domain.tasks.update('AR', 'AR-1', { description: 'Third scope' }, OWNER_ACTOR);
       const second = take()!;
       h.domain.cardNotices.rollback(sessionId, [first.grant, second.grant]);
-      expect(take()?.text.match(/event_id evt_/g)).toHaveLength(2);
+      expect(take()?.text).toBe(
+        noticeOf(...descriptionEvents().map((event) => byOwner('description', event))),
+      );
     });
   });
 });

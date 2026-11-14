@@ -257,7 +257,10 @@ export interface CardChangeNotices {
   rollback(sessionId: string, grants: readonly string[]): void;
 }
 
-/** The response header that carries the grants of a notice to the engine relay; never leaves the hub. */
+/**
+ * The response header that carries the grants of a notice to the engine relay. Only the relay reads it, and it does
+ * not pass it on to the engine; on the direct loopback path the header reaches the CLI, which ignores it.
+ */
 export const CARD_NOTICE_HEADER = 'x-projectman-card-notice';
 
 export interface ListTasksInput {

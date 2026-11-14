@@ -222,8 +222,9 @@ export class PlanUsageMonitor {
    * Probes the accounts (engine and provider) that are due, in the background; one round at a time. A tick
    * with no live session and no idle probe due reads nothing and starts nothing. `force` (the start, a
    * configuration change) probes every account of a project that may run, whatever its last result was.
+   * `engineIds` limits the round to those engines without postponing the next regular idle scan.
    */
-  refresh(opts: { force?: boolean } = {}): void {
+  refresh(opts: { force?: boolean; engineIds?: ReadonlySet<EngineId> } = {}): void {
     if (this.refreshing) return;
     const now = this.now().getTime();
     const live = this.liveKeys();
@@ -232,11 +233,12 @@ export class PlanUsageMonitor {
     this.refreshing = this.background.run(
       async () => {
         try {
-          this.lastScanAt = now;
+          if (!opts.engineIds) this.lastScanAt = now;
           const pairs = new Map<string, { provider: AgentProvider; engineId: EngineId }>();
           for (const { pairs: projectPairs, mayRun } of (await this.accountsByProject()).values())
             if (mayRun)
               for (const pair of projectPairs) {
+                if (opts.engineIds && !opts.engineIds.has(pair.engineId)) continue;
                 const key = entryKey(pair.engineId, pair.provider);
                 if (opts.force || this.due(key, live.has(key), now)) pairs.set(key, pair);
               }
@@ -244,10 +246,11 @@ export class PlanUsageMonitor {
         } finally {
           this.refreshing = false;
           if (this.reconnected.size > 0) {
+            const engineIds = new Set(this.reconnected);
             // The round in flight may have asked before the engine was there and stamped that answer as fresh.
-            for (const engineId of this.reconnected) this.cache.invalidate(engineId);
+            for (const engineId of engineIds) this.cache.invalidate(engineId);
             this.reconnected.clear();
-            this.refresh({ force: true });
+            this.refresh({ force: true, engineIds });
           }
         }
       },
@@ -265,7 +268,7 @@ export class PlanUsageMonitor {
       if (key.startsWith(`${engineId}\0`)) this.attempts.delete(key);
     this.cache.invalidate(engineId);
     if (this.refreshing) this.reconnected.add(engineId);
-    else this.refresh({ force: true });
+    else this.refresh({ force: true, engineIds: new Set([engineId]) });
   }
 
   /** The accounts live sessions use; null when they cannot be read (the round is skipped, the next tick tries again). */

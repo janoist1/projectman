@@ -25,7 +25,8 @@ function setup(
     idleIntervalMs?: number;
     /** The provider the project's AI member runs on (default claude); a non-Claude one is read through `providerFor`. */
     memberProvider?: AgentProvider;
-    source?: { get: () => Promise<PlanUsage | null> };
+    engineIds?: EngineId[];
+    source?: { get: (engineId?: EngineId) => Promise<PlanUsage | null> };
   } = {},
 ) {
   const live = { current: state.live ?? LIVE, paused: state.paused ?? false };
@@ -35,10 +36,16 @@ function setup(
     : { get: vi.fn(async () => (state.answer === undefined ? usage : state.answer)) };
   const bus = { publish: vi.fn() };
   const background = new BackgroundTasks();
+  const engineIds = state.engineIds ?? [LOCAL];
+  const members = engineIds.map((_, index) => ({
+    kind: 'ai',
+    handle: `dev-${index}`,
+    provider: memberProvider,
+  }));
   const configOf = () => ({
     project: { key: 'PM' },
     team: {
-      members: [{ kind: 'ai', handle: 'dev', provider: memberProvider }],
+      members,
       limits: { aiEnabled: state.aiEnabled ?? true },
     },
   });
@@ -51,7 +58,10 @@ function setup(
     provider,
     providerFor: (requested) => (requested === memberProvider ? provider : undefined),
     projects,
-    engines: { engineFor: () => 'local' },
+    engines: {
+      engineFor: (_projectKey, handle) =>
+        engineIds[members.findIndex((member) => member.handle === handle)] ?? null,
+    },
     bus: bus as unknown as EventBus,
     background,
     logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
@@ -324,6 +334,47 @@ describe('PlanUsageMonitor', () => {
       await background.stop();
     }
   });
+
+  it.each([false, true])(
+    'reprobes only the reconnected engine and preserves the other engine backoff (round in flight: %s)',
+    async (inFlight) => {
+      let engineUp = false;
+      let release = () => {};
+      const { monitor, provider, background } = setup(100, {
+        memberProvider: 'codex',
+        engineIds: [A, B],
+        live: [],
+        idleIntervalMs: 1000,
+        source: {
+          get: async (engineId) => {
+            if (engineId === B) return null;
+            const up = engineUp;
+            if (inFlight && !up) await new Promise<void>((resolve) => (release = resolve));
+            return up ? usage : null;
+          },
+        },
+      });
+      try {
+        monitor.refresh({ force: true });
+        await vi.advanceTimersByTimeAsync(150);
+        expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A, B]);
+        engineUp = true;
+        monitor.engineOnline(A);
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A, B, A]);
+        expect(monitor.cache.peek('codex', A)).toEqual(usage);
+
+        await vi.advanceTimersByTimeAsync(850);
+        monitor.refresh();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A, B, A, B]);
+      } finally {
+        release();
+        await background.stop();
+      }
+    },
+  );
 
   it.each([
     ['the project is paused', { paused: true }],

@@ -1461,6 +1461,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   a member session. `hostOnly` tools are omitted/refused for further owners' keys;
   this includes instance knowledge (see **Project and instance knowledge**).
   `list_integrator_inbox` optionally filters a project and checks access per project.
+  `get_integrator_inbox_status` (PM-1466) reads the same queue on the hub and answers only
+  `{hasPending}`. **Scheduled queue check (PM-1466):** the owner may set up a local scheduled
+  task in their own client (Claude Code Desktop, hourly at most; or a session-bound `/loop`,
+  `INSTALL.md` 5.5) that calls it and works the queue on `true` through the client's normal
+  permission prompts. **Machine assumption:** that client's machine is awake and the client
+  runs; a missed run is caught up by the next one. The hub keeps no scheduler state.
+  **Remote engine:** unaffected; the status and list are hub reads over the authenticated MCP
+  connection, the schedule runs in the client, and no new server/engine crossing exists.
   Document reads/writes, questions and attachment reads use the hub's services.
   Document git calls run on the selected engine; queued writes reactivate and recheck
   their key before execution and push. Attachment chunks come from hub storage.

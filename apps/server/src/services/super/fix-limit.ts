@@ -1,4 +1,8 @@
-import { ResolveIntegratorFixLimitRequest, visibleQuestionItem } from '@projectman/shared';
+import {
+  IntegratorInboxStatus,
+  ResolveIntegratorFixLimitRequest,
+  visibleQuestionItem,
+} from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectAccess } from '../../core/members';
@@ -55,4 +59,20 @@ export function listIntegratorInbox(
     .integratorQueue(projectKey, state, access, INTEGRATOR_INBOX_LIMIT)
     .map((item) => visible(deps, projectKey, item, access));
   return { items };
+}
+
+/**
+ * Whether anything is open for the integrator in the project (PM-1466): the same access check and selection as
+ * `listIntegratorInbox`, one item is enough, and only the flag leaves.
+ */
+export function getIntegratorInboxStatus(
+  deps: { inbox: Pick<InboxService, 'integratorQueue'> },
+  projectKey: string,
+  access: ProjectAccess,
+): IntegratorInboxStatus {
+  if (!access.superActor)
+    throw forbidden('integrator_not_allowed', 'an explicit super credential is required');
+  return IntegratorInboxStatus.parse({
+    hasPending: deps.inbox.integratorQueue(projectKey, 'open', access, 1).length > 0,
+  });
 }

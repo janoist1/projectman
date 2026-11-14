@@ -332,6 +332,85 @@ projects.
 4. **[FRIEND]** fully quits and restarts each client you configured (Claude Desktop: _Quit_, not
    just close the window; Claude Code and Codex: start a new session).
 
+5. _Optional:_ let the connected AI work its queue on a schedule (below).
+
+### 5.5 Optional: working the queue on a schedule
+
+Without this, the connected AI reads the todos addressed to it only when it connects or when the
+friend asks. With it, the friend's own client checks the queue on its own schedule and works what
+is open, through the same permission prompts as always. The hub runs nothing on the friend's
+machine: the schedule lives in the client, so it runs only while **the Mac is awake and the client
+is running**. A missed or delayed run changes nothing: the next run sees the items still open.
+
+Every run starts a short AI turn, even when the queue is empty: it calls
+`get_integrator_inbox_status` (only `{hasPending: true|false}`, no todo text) and stops on `false`.
+Only on `true` does it list the todos and work them.
+
+1. **[AI]** check the prerequisites, and stop if one fails:
+   - the friend uses **Claude Code Desktop** (Desktop 1.1.5368 or later, the _Code_ tab) and is
+     logged in with their Claude subscription (never an API key);
+   - the projectman MCP server is configured for Claude Code (step 3, the Claude Code line) and a
+     new Claude Code session lists `get_integrator_inbox_status` among the projectman tools. The
+     entry in `claude_desktop_config.json` alone serves the Desktop chat, not the scheduled task.
+   - no scheduled task named `projectman-queue` exists yet (_Scheduled_ in the sidebar). Never
+     create a second one: one client works one key's queue.
+2. **[FRIEND]** creates the task, as you guide them: _Code_ tab → _Scheduled_ → _New task_ → _Set up
+   manually_.
+   - **Name:** `projectman-queue`.
+   - **Instructions:** paste the prompt below.
+   - _Advanced settings_ → _General_: **Only on this computer** on; **Local folder:** an empty
+     folder of their choice (for example `~/projectman-queue`); the task needs one, but it works
+     only through the projectman tools.
+   - **Trigger:** _Hourly_ (the most frequent preset; the form refuses anything shorter).
+   - **Permission mode:** the default, which asks. Never choose a mode that skips permission
+     prompts, and never change `~/.claude/settings.json` for this.
+
+   ```text
+   Scheduled check of my projectman queue. Call get_integrator_inbox_status without project_key.
+   If hasPending is false, stop: no other tool and no report. If it is true, call
+   list_integrator_inbox and work the open items as the projectman MCP instructions say: each with
+   my client's normal permission prompts, give queue_item_id and a fresh request_id on the step a
+   todo needs, and close it with resolve_integrator_todo or resolve_integrator_fix_limit only when
+   its result is real. A step waiting for a permission or my decision stays open; a refused one is
+   never a success. Never redo an item closed meanwhile, never repeat a write of unknown outcome
+   under a new request_id, and never put a password, token or key into a prompt, todo or note.
+   Answer me in my own language.
+   ```
+
+3. **[FRIEND] + [AI]** the trial run. Ask the hub's owner (or, on the hub, the friend themselves)
+   to open a harmless test todo for the connected AI (for example "write today's date into
+   `~/projectman-queue/probe.txt`"). Then the friend presses **Run now** on the task's page:
+   - the run calls `get_integrator_inbox_status`, gets `true`, lists the todo and asks for the
+     local write in a normal permission prompt, which the friend answers in the run's session
+     (_History_ row or the _Scheduled_ group in the sidebar);
+   - refusing the prompt must not close the todo as done; allowing it closes it with
+     `resolve_integrator_todo`;
+   - a second **Run now** with nothing open calls only the status tool and stops.
+     The friend may choose _always allow_ for the two read-only tools `get_integrator_inbox_status`
+     and `list_integrator_inbox`, so that an empty run needs no click; you never choose it for them,
+     and every other step keeps its prompt. Note the Desktop version and the outcome, and tell the
+     hub's owner. Then wait for the first hourly run to pass with nothing open.
+4. **Pause, stop, history.** On the task's page: the **Status** toggle (_Active_ / _Paused_) pauses
+   it; **Delete** stops it for good; **History** lists the runs (a run waiting for a permission
+   prompt shows there until it is answered); **Always allowed** revokes approvals given with
+   _always allow_. Revoking the integrator key (Settings → Connected Claude) also stops every
+   run at once: its calls then fail with an authentication error, never with an empty queue.
+
+**Limits.** No run while the Mac sleeps or the app is closed (after waking, the app makes one
+catch-up run for the latest missed time); _Settings → Keep computer awake_ helps against idle sleep,
+not against a closed lid. A run that waits for a permission prompt does nothing until the friend
+answers it. The schedule is never an approval: owner decisions, protected operations and the
+release path wait for the owner as before.
+
+**Terminal alternative.** In a Claude Code terminal session, `/loop 30m <the prompt above>` runs
+the same check every 30 minutes, with the session's permissions. It is bound to that session: it
+stops when the session ends, is not restored by a restart, and expires after 7 days. Use it for a
+working day, not instead of the Desktop task. Stop it by asking Claude to cancel the loop.
+
+**Remote engine.** It makes no difference where the friend's engine runs: the status and the
+queue are read from the hub over the same authenticated MCP connection, and the schedule runs in
+the friend's client. A todo that needs the engine uses the engine's own path.
+
 ## 6. Verify
 
 **[AI]** all three must pass:

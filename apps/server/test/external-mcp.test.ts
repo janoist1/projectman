@@ -33,6 +33,7 @@ const ACCEPT = 'application/json, text/event-stream';
 const PROJECTLESS_TOOLS = [
   'list_projects',
   'list_integrator_inbox',
+  'get_integrator_inbox_status',
   'get_operator_instance_knowledge',
   'update_operator_instance_knowledge',
   'list_host_inbox',
@@ -441,6 +442,9 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(tenantInstructions).not.toContain('get_operator_instance_knowledge');
     expect(hostInstructions).toContain('docs/HYBRID.md#adding-a-further-owner-guided');
     expect(tenantInstructions).not.toContain('docs/HYBRID.md#adding-a-further-owner-guided');
+    // Both keys learn the scheduled check (PM-1466): the status first, the list only when something is open.
+    for (const instructions of [hostInstructions, tenantInstructions])
+      expect(instructions).toContain('get_integrator_inbox_status');
   });
 
   it('refuses production compute jobs through a further owner’s authenticated MCP scope', async () => {
@@ -563,6 +567,111 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     }).secret;
     const listed = await call(tenantKey, 'list_projects');
     expect(listed.structuredContent?.projects.map((p: { key: string }) => p.key)).toEqual(['BR']);
+  });
+
+  describe('the integrator inbox status (PM-1466)', () => {
+    const openTodo = (projectKey: string, title: string) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey,
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title,
+        payload: {
+          question: title,
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: title, where: 'Machine', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const status = async (secret: string, args: Record<string, unknown> = {}) => {
+      const result = await call(secret, 'get_integrator_inbox_status', args);
+      expect(result.isError, result.content[0]!.text).toBeUndefined();
+      expect(JSON.parse(result.content[0]!.text!)).toEqual(result.structuredContent);
+      return result.structuredContent;
+    };
+
+    it('answers only the flag, for the key’s own projects, and follows the queue as items open and close', async () => {
+      const { secret } = key('super');
+      const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+      const tenantSecret = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+        mode: 'super',
+        expiresInDays: 7,
+      }).secret;
+      expect(await status(secret)).toEqual({ hasPending: false });
+
+      const todo = openTodo('AR', 'Install the secret-free helper');
+      expect(await status(secret)).toEqual({ hasPending: true });
+      expect(await status(secret, { project_key: 'AR' })).toEqual({ hasPending: true });
+      const text = (await call(secret, 'get_integrator_inbox_status')).content[0]!.text!;
+      expect(text).not.toContain('helper');
+      // The further owner's key sees none of the host's queue, and reaches none of its projects.
+      expect(await status(tenantSecret)).toEqual({ hasPending: false });
+      const foreign = await call(tenantSecret, 'get_integrator_inbox_status', { project_key: 'AR' });
+      expect(foreign).toMatchObject({
+        isError: true,
+        structuredContent: { errorCode: 'insufficient_access' },
+      });
+      expect(audit().some((entry) => entry.operation === 'mcp_get_integrator_inbox_status')).toBe(true);
+
+      await call(secret, 'resolve_integrator_todo', {
+        project_key: 'AR',
+        item_id: todo.id,
+        option_id: 'todo_done',
+      });
+      expect(await status(secret)).toEqual({ hasPending: false });
+      await heldCard();
+      expect(await status(secret, { project_key: 'AR' })).toEqual({ hasPending: true });
+    });
+
+    it('is refused to a read key and a revoked key, never answered as an empty queue', async () => {
+      openTodo('AR', 'Measure');
+      const read = key('read').secret;
+      expect((await listTools(read)).map((tool) => tool.name)).not.toContain('get_integrator_inbox_status');
+      const denied = await call(read, 'get_integrator_inbox_status');
+      expect(denied.isError).toBe(true);
+      expect(denied.structuredContent?.hasPending).toBeUndefined();
+      const revocable = key('super');
+      h.app.projectman.auth.revokeIntegratorAccessKey(revocable.userId, revocable.keyId);
+      const revoked = await post(
+        revocable.secret,
+        rpc('tools/call', { name: 'get_integrator_inbox_status', arguments: {} }),
+      );
+      expect(revoked.statusCode).toBe(401);
+    });
+
+    it('keeps an older integrator item in the status and the list behind 500 newer items for others', async () => {
+      const { secret } = key('super');
+      const todo = openTodo('AR', 'Old todo');
+      for (let i = 0; i < 500; i++)
+        h.app.projectman.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'decision',
+          assignees: ['owner'],
+          source: 'system',
+          title: `Plain ${i}`,
+          payload: {},
+          options: [{ id: 'yes', label: 'Yes', style: 'primary' }],
+        });
+      expect(await status(secret, { project_key: 'AR' })).toEqual({ hasPending: true });
+      const listed = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+      expect(listed.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([todo.id]);
+      // The limit cuts the selected items: the newest of them stay.
+      now = new Date(now.getTime() + 1000);
+      const newer = openTodo('AR', 'New todo');
+      const viewer = { access: 'owner' as const, handle: 'owner' };
+      expect(
+        h.app.projectman.domain.inbox.integratorQueue('AR', 'open', viewer, 1).map((item) => item.id),
+      ).toEqual([newer.id]);
+    });
   });
 
   it('initializes, lists, reads and writes with no session and no engine', async () => {
@@ -733,6 +842,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',
       'list_integrator_inbox',
+      'get_integrator_inbox_status',
       'get_operator_instance_knowledge',
       'update_operator_instance_knowledge',
     ];

@@ -61,6 +61,7 @@ import type {
   ExternalAttachmentRead,
   ExternalDocWriteState,
   ExternalQuestionRead,
+  IntegratorInboxStatus,
   StructuralReviewResult,
   ComputeJobRunView,
   DocumentHeading,
@@ -1453,6 +1454,15 @@ export interface ExternalToolsHandler {
     requestId: string,
     args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
+  /**
+   * get_integrator_inbox_status (PM-1466): whether anything is open for the integrator, in one project or in
+   * every project of the key; only the flag, so a scheduled check reads little before it lists.
+   */
+  getIntegratorInboxStatus(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { projectKey?: string },
+  ): Promise<IntegratorInboxStatus>;
   /** The connected Claude's own knowledge (PM-1046): one document for the whole instance, no project. */
   getInstanceKnowledge(
     principal: IntegratorPrincipal,

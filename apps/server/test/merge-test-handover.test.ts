@@ -656,6 +656,18 @@ describe('selection rules', () => {
     },
   );
 
+  it.each([
+    ['packages/shared/src/api/dto.ts', [SNAPSHOT_TEST]],
+    ['apps/server/src/mcp/super/tools.ts', [SNAPSHOT_TEST, 'apps/server/src/context/context-pack.test.ts']],
+    ['apps/server/src/mcp/tools.ts', [SNAPSHOT_TEST, 'apps/server/src/context/context-pack.test.ts']],
+  ])('selects the affected snapshots when %s changes without an import path (PM-1476)', (changed, tests) => {
+    const tree = [file(SNAPSHOT_TEST), file('apps/server/src/context/context-pack.test.ts')];
+    const selection = select(tree, [changed]);
+    expect(selection.tests).toEqual([{ workspace: 'apps/server', files: expect.arrayContaining(tests) }]);
+    expect(selection.tests[0]!.files).toHaveLength(tests.length);
+    expect(selection.unmapped).toEqual([]);
+  });
+
   it('selects the snapshot-reading context test when a prompt snapshot changes, though it is no .snap file', () => {
     const tree = [file('apps/server/src/context/context-pack.test.ts')];
     const changed = 'apps/server/src/context/__snapshots__/analyst.role-instructions.txt';

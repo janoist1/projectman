@@ -30,7 +30,12 @@ export { createSuperOperations } from './facade';
 export type { SuperOperations } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
-export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
+export {
+  getIntegratorInboxStatus,
+  INTEGRATOR_INBOX_LIMIT,
+  listIntegratorInbox,
+  resolveIntegratorFixLimit,
+} from './fix-limit';
 export { updateInstanceKnowledge } from './instance-knowledge';
 
 /** The actor a step made with the principal is recorded as: the holder's, or the queue item issuer's (decision 66). */

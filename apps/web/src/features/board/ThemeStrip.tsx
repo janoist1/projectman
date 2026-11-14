@@ -101,8 +101,15 @@ export function ThemeStrip({
                     ) : !isOpenTask(theme) ? (
                       <Icon name="lock" size={12} />
                     ) : null}
-                    {theme.priority === 'urgent' || theme.priority === 'high' ? (
-                      <PriorityMark priority={theme.priority} />
+                    {theme.priority ? (
+                      <span
+                        title={t('priority.markLabel', { level: t(`priority.levels.${theme.priority}`) })}
+                      >
+                        <PriorityMark priority={theme.priority} />
+                        <span className="visually-hidden">
+                          {t('priority.markLabel', { level: t(`priority.levels.${theme.priority}`) })}
+                        </span>
+                      </span>
                     ) : null}
                     <span className={styles.nameText}>{theme.title}</span>
                   </span>

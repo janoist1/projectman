@@ -26,7 +26,7 @@ export const pairing = {
     createsEngine: '{name} a Gépeid között',
     createsEngineNote: 'A te nevedben, ezen dolgoznak a projektjeid AI-tagjai.',
     createsKey: 'Claude Code-kulcs teljes jogosítvánnyal',
-    createsKeyNote: 'Csak a saját projektjeidhez fér hozzá, kiadást nem tehet közzé. Lejár: {date}.',
+    createsKeyNote: 'Csak a saját projektjeidhez fér hozzá, kiadást nem tehet közzé. Lejár: {date}',
     replaces:
       'A mostani Claude Code-kulcsod ({prefix}…) érvényét veszti, a csatlakoztatott Claude az újjal dolgozik tovább.',
     keysNote: 'A kulcsokat a gép közvetlenül kapja meg, te nem látod őket.',

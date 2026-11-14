@@ -884,7 +884,6 @@ export const ProjectManagerOperation = z.discriminatedUnion('op', [
     }),
 ]);
 export type ProjectManagerOperation = z.infer<typeof ProjectManagerOperation>;
-export type SetupApplyOperation = Extract<ProjectManagerOperation, { op: 'setup_apply' }>;
 
 export const ProposeProjectManagerKnowledgeRequest = z
   .strictObject({

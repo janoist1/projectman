@@ -26,6 +26,7 @@ function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>
   );
 }
 
+const pairPage = lazyPage(() => import('../features/pairing/PairPage'), 'PairPage');
 const invitePage = lazyPage(() => import('../features/invites/AcceptInvitePage'), 'AcceptInvitePage');
 const ownerInvitePage = lazyPage(
   () => import('../features/owner-onboarding/AcceptOwnerInvitePage'),
@@ -87,6 +88,8 @@ export function AppRoutes() {
       <Route path="/login/password" element={passwordResetPage} />
       <Route element={<AuthGate />}>
         <Route index element={<HomeRedirect />} />
+        <Route path="/pair" element={pairPage} />
+        <Route path="/pair/:code" element={pairPage} />
         <Route path="/welcome" element={welcomePage} />
         <Route path="/welcome/:projectKey" element={projectSetupPage} />
         <Route path="/projects/new" element={createProjectPage} />

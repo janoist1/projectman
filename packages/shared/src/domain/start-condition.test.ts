@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest } from '../config/edit';
 import { validateProjectConfig } from '../config/invariants';
 import { ownerOnlyChanges } from '../config/owner-only';
-import { ProjectConfig, StartCondition } from '../config/schema';
+import { AiMemberConfig, ProjectConfig, StartCondition } from '../config/schema';
+import type { LabelSetBy } from './label';
 import {
   startConditionGoes,
   startConditionHeld,
@@ -176,13 +177,13 @@ describe('start condition', () => {
       PatchConfigRequest.parse({ baseVersion: 'v1', startCondition: { priority: 'any' } }),
     );
     expect(next.team.startCondition).toMatchObject({ graceMinutes: 5, combine: 'any', hold: [] });
-    expect(ownerOnlyChanges(base, next)).toContain('project_manager_authority');
+    expect(ownerOnlyChanges(base, next)).toEqual(['start_condition']);
     const cleared = applyConfigPatch(
       next,
       PatchConfigRequest.parse({ baseVersion: 'v2', startCondition: null }),
     );
     expect(cleared.team.startCondition).toBeUndefined();
-    expect(ownerOnlyChanges(next, cleared)).toContain('project_manager_authority');
+    expect(ownerOnlyChanges(next, cleared)).toEqual(['start_condition']);
   });
 
   it.each(['missing', 'dev', 'late'])('rejects invalid stage reference %s', (stage) => {
@@ -193,6 +194,42 @@ describe('start condition', () => {
   it.each(['labels', 'hold'])('rejects undefined %s references', (field) => {
     expect(validateProjectConfig(config({ priority: 'any', [field]: ['missing'] }))).toContainEqual(
       expect.objectContaining({ code: 'unknown_label' }),
+    );
+  });
+
+  it.each<{ setBy: LabelSetBy; warns: boolean }>([
+    { setBy: 'anyone', warns: true },
+    { setBy: { members: ['dev'] }, warns: true },
+    { setBy: { duties: ['implementation'] }, warns: true },
+    { setBy: 'humans', warns: false },
+    { setBy: 'system', warns: false },
+    { setBy: { members: ['owner'] }, warns: false },
+    { setBy: { members: ['owner', 'dev'], humansOnly: true }, warns: false },
+    { setBy: { duties: ['implementation'], humansOnly: true }, warns: false },
+  ])('warns only when an AI member holds the hold label (%j)', ({ setBy, warns }) => {
+    const c = structuredClone(config());
+    c.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'dev',
+        displayName: 'Developer',
+        role: 'developer',
+        sponsor: 'owner',
+      }),
+    );
+    c.pipeline.labels.find((label) => label.id === 'hold')!.setBy = setBy;
+    const warnings = validateProjectConfig(c).filter((issue) => issue.code === 'start_condition_ai_hold');
+    expect(warnings).toEqual(
+      warns
+        ? [
+            {
+              code: 'start_condition_ai_hold',
+              severity: 'warning',
+              path: 'team.startCondition.hold[0]',
+              detail: 'hold',
+            },
+          ]
+        : [],
     );
   });
   it.each([{}, { labels: ['go'], hold: ['go'] }, { priority: 'any', graceMinutes: -1 }])(

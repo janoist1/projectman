@@ -558,6 +558,7 @@ export const inbox = {
       task_create_access: 'only the owner changes who may open cards',
       owner_decision_topics: 'only the owner changes the topics decided by the owner',
       project_manager_authority: "only the owner changes the project manager's authority",
+      start_condition: 'only the owner changes the start condition',
     },
   },
   /** A todo the project manager made out of a question (PM-556): the step box and the result field. */

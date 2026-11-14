@@ -183,6 +183,7 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   task_create_access: 'member',
   owner_decision_topics: 'project',
   project_manager_authority: 'project',
+  start_condition: 'project',
   locations: 'project',
   admin_or_account: 'member',
   approval_policy: 'gate',

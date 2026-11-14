@@ -5,6 +5,7 @@ import {
   startConditionMarkChanges,
   startConditionOf,
 } from '@projectman/shared';
+import type { ProjectConfig } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
@@ -29,10 +30,10 @@ export class StartConditionMarks {
     this.deps = deps;
   }
 
-  update(projectKey: string): Promise<ReadonlyMap<string, string>> {
+  update(projectKey: string, loadedConfig?: ProjectConfig): Promise<ReadonlyMap<string, string>> {
     return this.locks.run(projectKey, async () => {
       const { ctx, projects, tasks } = this.deps;
-      const config = await projects.config(projectKey);
+      const config = loadedConfig ?? (await projects.config(projectKey));
       const repo = ctx.repos.startConditionMarks;
       const timer = this.timers.get(projectKey);
       if (timer) clearTimeout(timer);

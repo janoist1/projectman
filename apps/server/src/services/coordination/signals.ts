@@ -1009,10 +1009,18 @@ export class ProjectManagerSignals {
     let cards: Task[] | undefined;
     const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
-    const closedCards = (s: ProjectManagerSignalRecord) =>
-      ctx.repos.tasks
-        .readClosedSince(projectKey, s.subject ?? s.raisedAt)
-        .filter((task) => task.status === 'done');
+    // facts and facts_more both need a cards_closed signal's completed cards: read them once per signal.
+    const closedBySignal = new Map<string, ReturnType<typeof ctx.repos.tasks.readClosedSince>>();
+    const closedCards = (s: ProjectManagerSignalRecord) => {
+      let closed = closedBySignal.get(s.id);
+      if (!closed) {
+        closed = ctx.repos.tasks
+          .readClosedSince(projectKey, s.subject ?? s.raisedAt)
+          .filter((task) => task.status === 'done');
+        closedBySignal.set(s.id, closed);
+      }
+      return closed;
+    };
     const sourceFacts = (s: ProjectManagerSignalRecord): unknown => {
       if (s.inboxItemId) return ctx.repos.inbox.get(s.inboxItemId)?.payload;
       if (s.kind === 'outage') return this.deps.outageFacts(s.projectKey, s.subject ?? '');

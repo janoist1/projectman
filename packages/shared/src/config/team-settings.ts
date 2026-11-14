@@ -66,7 +66,7 @@ export const TEAM_SETTING_POLICY = {
   merger: { ownerOnly: null },
   // PM-1379: the merger's own approval queues the merge (decisions 21, 71, 77, 78); off keeps today's rule.
   mergeAfterReview: { ownerOnly: null, default: false, stored: true },
-  startCondition: { ownerOnly: 'project_manager_authority' },
+  startCondition: { ownerOnly: 'start_condition' },
   // PM-1464: the project manager reviews the week on its own; `off` stops it.
   operationsReview: { ownerOnly: null, default: 'weekly' },
   members: { ownerOnly: null },

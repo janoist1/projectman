@@ -150,7 +150,7 @@ export class StartRound implements StartRounding {
     const { ctx, projects, tasks, messaging, waits } = this.deps;
     try {
       const config = await projects.config(task.projectKey);
-      const marks = await this.deps.startConditionMarks.update(task.projectKey);
+      const marks = await this.deps.startConditionMarks.update(task.projectKey, config);
       const source = pullSourceStage(config);
       const development = developmentStage(config);
       if (!source || !development) return;
@@ -253,11 +253,15 @@ export class StartRound implements StartRounding {
 
   private async forProject(key: string): Promise<void> {
     const { ctx, projects, tasks, seniorDecisions, admission } = this.deps;
-    const marks = await this.deps.startConditionMarks.update(key);
     const config = await projects.config(key).catch(() => null);
-    const source = config && pullSourceStage(config);
-    const development = config && developmentStage(config);
-    if (!config || !source || !development) {
+    if (!config) {
+      this.states.delete(key);
+      return;
+    }
+    const marks = await this.deps.startConditionMarks.update(key, config);
+    const source = pullSourceStage(config);
+    const development = developmentStage(config);
+    if (!source || !development) {
       this.states.delete(key);
       return;
     }

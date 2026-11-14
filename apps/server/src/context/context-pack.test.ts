@@ -7,6 +7,7 @@ import {
   StartCondition,
   startConditionSummary,
   TEAM_RULE_IDS,
+  machineAccessOf,
   teamRules,
 } from '@projectman/shared';
 import type {
@@ -198,6 +199,7 @@ describe('context preview sections', () => {
       content: 11_800,
       translator: 11_800,
       docs: 11_800,
+      accountant: 12_500,
     };
     expect(bytes).toBeLessThanOrEqual(budgets[role] + CLAUDE_TOOL_BATCH_BYTES);
   });
@@ -1110,6 +1112,38 @@ describe('Claude team tool loading', () => {
 });
 
 describe('context pack snapshots', () => {
+  it.each(['hu', 'en'])(
+    'builds an English accounting prompt for a %s project without machine access',
+    async (language) => {
+      const project = buildProject('web-client-project', language);
+      const member = addMember(project, 'accountant', 'accountant');
+      expect(machineAccessOf(member)).toBe(false);
+      const pack = builder.build(
+        input({
+          project,
+          handle: 'accountant',
+          workItem: { type: 'general' },
+          task: null,
+          stage: null,
+          timeline: [],
+          memory: '',
+        }),
+      );
+      const role = pack.appendSystemPrompt;
+      expect(role).toContain(DUTIES.accounting.prompt);
+      expect(role).toContain(ROLE_PURPOSES.accountant);
+      expect(pack.appendSystemPrompt).toContain(
+        `in ${language === 'hu' ? 'Hungarian' : 'English'} (\`${language}\`), the project's language`,
+      );
+      expect(visibleTeamTools(memberAudience(project, member.handle)).map((tool) => tool.name)).not.toContain(
+        'open_integrator_todo',
+      );
+      if (language === 'en')
+        await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+          '__snapshots__/accountant-general.system-prompt.txt',
+        );
+    },
+  );
   it('communication member with system-enforced email approval', async () => {
     const project = buildProject();
     addMember(project, 'liaison', 'communication');

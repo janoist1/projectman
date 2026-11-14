@@ -256,7 +256,8 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         'Asks the owner whose open request you work on which of their other projects (same e-mail) you may ' +
-        'look at for setup ideas, or none. Once per setup. None owned: setup_source_none. Their own answer ' +
+        'look at for setup ideas, or none. Once per setup; one still open: setup_source_open. None owned: ' +
+        'setup_source_none. Their own answer ' +
         'lets read_setup_source read that project for a day.',
       input: {},
       async run({ ctx, handler }) {

@@ -116,6 +116,15 @@ describe('aiMemberDefaults', () => {
 });
 
 describe('defaultMemberName', () => {
+  it.each(['hu', 'en'])('names accountants in %s with generic AI defaults and unique handles', (language) => {
+    expect(defaultMemberName('accountant', language, 1)).toBe(getLocale(language).roles.accountant.name);
+    expect(defaultMemberName('accountant', language, 2)).toBe(
+      `${getLocale(language).roles.accountant.name} 2`,
+    );
+    expect(defaultMemberHandle('accountant', [])).toBe('accountant');
+    expect(defaultMemberHandle('accountant', ['accountant'])).toBe('accountant-2');
+    expect(aiRoleDefaults('accountant')).toEqual(aiMemberDefaults('data_steward', [dataSteward]));
+  });
   it('names members after their role in the project language', () => {
     expect(defaultMemberName('developer', 'en', 1)).toBe('Developer');
     expect(defaultMemberName('developer', 'en', 2)).toBe('Developer 2');

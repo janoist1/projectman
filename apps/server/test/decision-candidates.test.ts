@@ -51,6 +51,7 @@ function answered(
     note?: string | null;
     title?: string;
     body?: string | null;
+    payload?: InboxItem['payload'];
   } = {},
 ): string {
   seq += 1;
@@ -64,7 +65,7 @@ function answered(
     taskKey: extra.taskKey === undefined ? 'AR-1' : extra.taskKey,
     title: extra.title ?? `Question ${seq}?`,
     body: extra.body === undefined ? null : extra.body,
-    payload: {},
+    payload: extra.payload ?? {},
     options: [
       { id: 'option_1', label: 'Use SQLite', style: 'primary' },
       { id: 'option_2', label: 'Use files', style: 'secondary' },
@@ -193,6 +194,18 @@ describe('the decision candidates (PM-496)', () => {
   it('leaves out the integrator own work even though resolution.by names an owner', async () => {
     await setup();
     answered('inb_integrator_todo', '2026-10-11T09:00:00.000Z', { via: 'integrator', integratorTodo: true });
+    expect((await candidates()).candidates).toHaveLength(0);
+  });
+
+  it("leaves out the owner's answer naming another project of theirs as a setup source (PM-1487)", async () => {
+    await setup();
+    answered('inb_setup_source', '2026-10-11T09:00:00.000Z', {
+      source: 'pm',
+      taskKey: null,
+      optionId: 'BX',
+      payload: { question: 'Another project?', setupSource: { owner: 'owner', candidates: ['BX'] } },
+    });
+    expect(h.domain.decisionCandidates.unseen('AR', await config())).toBe(0);
     expect((await candidates()).candidates).toHaveLength(0);
   });
 

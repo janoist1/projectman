@@ -1207,7 +1207,12 @@ export class InboxService {
             sessionId: row.sessionId,
             actor: attributedActor(by),
             type: 'question_answered',
-            data: { inboxItemId: row.id, answer: answerText(resolved), groupPrimaryItemId: id },
+            data: {
+              inboxItemId: row.id,
+              answer: answerText(resolved),
+              groupPrimaryItemId: id,
+              ...ownerOnlyAnswer(resolved),
+            },
           });
         }
         if (!members.some((member) => member.id === id)) {
@@ -1269,7 +1274,7 @@ export class InboxService {
           data: {
             inboxItemId: id,
             answer: answerText(resolved),
-            ...(questionPayloadOf(resolved)?.setupSource ? { ownerOnly: true as const } : {}),
+            ...ownerOnlyAnswer(resolved),
             ...(integratorTodo
               ? { integratorTodo: { optionId: req.optionId as 'todo_done' | 'todo_cannot', note } }
               : {}),
@@ -2558,4 +2563,12 @@ export function answerText(item: InboxItem): string {
   if (resolution.optionId === ANSWER_OPTION.id) return resolution.note ?? '';
   const label = item.options.find((o) => o.id === resolution.optionId)?.label ?? resolution.optionId;
   return resolution.note ? `${label}\n\n${resolution.note}` : label;
+}
+
+/**
+ * The answer of a setup source question names the owner's other project: its `question_answered` entry is for
+ * owners and admins alone (PM-1463), answered alone or for a group (PM-1487).
+ */
+function ownerOnlyAnswer(item: InboxItem): { ownerOnly?: true } {
+  return questionPayloadOf(item)?.setupSource ? { ownerOnly: true } : {};
 }

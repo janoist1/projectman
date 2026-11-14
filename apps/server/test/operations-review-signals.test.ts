@@ -66,7 +66,7 @@ async function closeCard(title = 'Finished card') {
 describe('the weekly operations review (PM-1464)', () => {
   it('raises one informational review a week after the project began, when a card closed', async () => {
     await setup();
-    const key = await closeCard();
+    await closeCard();
     await sweep();
     expect(reviews()).toEqual([]);
     later(7);
@@ -79,7 +79,20 @@ describe('the weekly operations review (PM-1464)', () => {
     expect(line).toMatchObject({ kind: 'operations_review', steps_left: 0, next_step_at: null });
     expect(line.facts.measures).toMatchObject({ closedCards: 1 });
     expect(line.facts.measures.medianLeadHours).toBeGreaterThanOrEqual(0);
-    expect(key).toMatch(/^AR-/);
+  });
+
+  it('counts a new card as movement only after it changes stage', async () => {
+    await setup();
+    later(8);
+    const task = await h.domain.tasks.create('AR', { title: 'New card' }, OWNER_ACTOR);
+    await sweep();
+    expect(reviews()).toEqual([]);
+
+    later(1);
+    await h.domain.tasks.moveToStage('AR', task.key, 'development', OWNER_ACTOR);
+    await sweep();
+    expect(reviews()).toHaveLength(1);
+    expect((await notice(reviews()[0]!.id)).facts.measures.closedCards).toBe(0);
   });
 
   it('raises none in a week without movement, and the next week after one with it', async () => {

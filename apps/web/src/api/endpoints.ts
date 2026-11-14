@@ -606,10 +606,10 @@ export const api = {
   answerHostRequest: (id: string, body: AnswerHostRequestRequest) =>
     apiRequest(routes.answerHostRequest(id), { method: 'POST', body, schema: HostRequestView }),
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
-  configHistory: (key: string, page: { limit: number; offset: number }) =>
+  configHistory: (key: string, page: { limit: number; offset: number }, signal?: AbortSignal) =>
     apiRequest(
       `${routes.configHistory(key)}?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}`,
-      { schema: ConfigHistoryView },
+      { schema: ConfigHistoryView, signal },
     ),
   patchConfig: (key: string, body: PatchConfigRequest) =>
     apiRequest(routes.patchConfig(key), { method: 'PATCH', body, schema: ConfigView }),

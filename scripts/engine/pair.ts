@@ -7,7 +7,6 @@ import {
   CLIENT_CONFIG_RELATIVE_PATH,
   EnginePairingStatus,
   formatPairingCode,
-  isSafeDisplayText,
   normalizePairingCode,
   PAIRING_TTL_MS,
   printableText as printable,
@@ -17,6 +16,7 @@ import {
 import type { StartEnginePairingRequest } from '@projectman/shared';
 import {
   cloudOrigin,
+  EngineConfig,
   EngineConfigError,
   engineFiles,
   httpUrl,
@@ -475,10 +475,11 @@ function finish(
   }
   const force = pending.force || flags.has('force');
   const replace = pending.replace || flags.has('replace');
-  if (!isSafeDisplayText(approved.engineName)) {
+  // The same schema engine.json is read with (1 to 64 characters, no control/formatting/separator character).
+  if (!EngineConfig.shape.name.safeParse(approved.engineName).success) {
     // The hub's own answer: it repeats on every run, so exit 5 ("run it again") would send the AI into a loop.
     io.err(
-      `PAIRING FAILED [config_invalid]: the hub sent the engine name "${printable(approved.engineName)}" with a control, formatting or separator character in it, and a retry gets the same name. Nothing was written; the pending file stays so that "pair cancel" can withdraw it.`,
+      `PAIRING FAILED [config_invalid]: the hub sent the engine name "${printable(approved.engineName)}", which is empty, longer than 64 characters or has a control, formatting or separator character in it, and a retry gets the same name. Nothing was written; the pending file stays so that "pair cancel" can withdraw it.`,
     );
     return EXIT_ENDED;
   }

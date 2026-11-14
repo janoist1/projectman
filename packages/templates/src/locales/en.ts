@@ -61,7 +61,7 @@ export const en: TemplateLocale = {
   setupSource: {
     question: 'May I look at the setup of another project of yours for ideas?',
     details:
-      'I read only its process, labels, roles, the role and provider of its AI members and its lessons; no cards, messages, documents or names. The permission lasts one day, and what I see there is an idea, not a rule.',
+      'I read only its process, labels, roles, the role and provider of its AI members and its lessons; no cards, messages, documents or names. What I read there lands in my conversation in this project, which this project’s admins can read too, even when they are not members of that project. The permission lasts one day, and what I see there is an idea, not a rule.',
     none: "Don't look at any other",
   },
   language: 'en',
@@ -89,6 +89,11 @@ export const en: TemplateLocale = {
     done: 'Done',
   },
   duties: {
+    accounting: {
+      name: 'Accounting',
+      description:
+        'Prepare invoice drafts, track invoices and costs, and answer questions using authorised records.',
+    },
     boundary_authorization: {
       name: 'Permission request decisions',
       description:
@@ -342,6 +347,15 @@ export const en: TemplateLocale = {
       summary: 'Keeps the documentation and the decision log up to date.',
       notTheirJob: 'Does not make decisions, only records them.',
       whenToAsk: 'When the documentation or the decision log needs updating.',
+    },
+    accountant: {
+      name: 'Accountant',
+      summary:
+        'Prepares invoice drafts, tracks invoices and costs, and answers accounting questions using supplied records.',
+      notTheirJob:
+        'Issuing or sending invoices and moving money require prior approval from the agreed decision maker; without an agreement, the owner decides.',
+      whenToAsk:
+        'For invoice preparation, invoice status, cost tracking or accounting questions supported by records.',
     },
   },
   members: {

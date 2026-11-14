@@ -162,17 +162,24 @@ export class DocWrites {
     return this.queue.slot(projectKey, repo) !== undefined;
   }
 
-  /** The text of the project document on the default branch's head, on the project manager's engine. */
+  /**
+   * The text of the project document on the default branch's head, on the project manager's engine; without a
+   * member (a project with no project manager, PM-1487) on the project's own engine.
+   */
   async read(
     projectKey: string,
-    member: string,
+    member: string | null,
     doc: ProjectDoc,
   ): Promise<{ repo: RepoConfig; path: string; commit: string; text: string | null }> {
     const config = await this.deps.projects.config(projectKey);
     const docs = projectDocsOf(config);
     const path = docs?.[doc] ?? null;
     if (!docs || !path) throw this.notConfigured(doc);
-    const merger = this.mergerOf(this.engineOf(projectKey, member));
+    const merger = this.mergerOf(
+      member === null
+        ? (this.deps.engines.projectEngine(projectKey) ?? LOCAL_ENGINE_ID)
+        : this.engineOf(projectKey, member),
+    );
     const read = await merger
       .readFile({ projectKey, repo: docs.repo.name }, { at: { base: docs.repo.defaultBranch }, path })
       .catch((err: unknown) => {

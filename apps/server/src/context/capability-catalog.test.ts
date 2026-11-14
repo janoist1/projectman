@@ -36,7 +36,7 @@ function project(): ProjectConfig {
     owner: { handle: 'owner', displayName: 'Anna Example', email: OWNER_EMAIL },
   });
   config.team.roles.push({
-    id: 'accountant',
+    id: 'ledger_assistant',
     name: 'Accountant',
     summary: 'Keeps the books.',
     notTheirJob: 'Writes code.',
@@ -68,8 +68,8 @@ describe('the capability catalog (PM-1468)', () => {
 
   it('lists the built-in and the custom roles of the project, as roleViews has them', () => {
     expect(ids('roles')).toEqual(roleViews(config).map((role) => role.id));
-    expect(ids('roles')).toContain('accountant');
-    expect(capabilityDetail(catalog, 'roles', 'accountant')).toContain('Keeps the books.');
+    expect(ids('roles')).toContain('ledger_assistant');
+    expect(capabilityDetail(catalog, 'roles', 'ledger_assistant')).toContain('Keeps the books.');
   });
 
   it('lists every field the project manager edits a member or the project with, and every limit', () => {

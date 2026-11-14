@@ -436,14 +436,21 @@ describe('engine pair (PM-1449)', () => {
       expect(err.join('\n')).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
     });
 
-    it('ends with exit 1, not 5, on an engine name with a bidi character from the hub, keeping the pending file for "pair cancel"', async () => {
-      await startPairing();
-      replies.push({ status: 200, json: { ...approved(), engineName: 'Mac\u202e' } });
-      expect(await run('pair', 'wait')).toBe(1);
-      expect(err.join('\n')).toContain('[config_invalid]');
-      expect(existsSync(pendingFile())).toBe(true);
-      expect(existsSync(path.join(home, 'engine.json'))).toBe(false);
-    });
+    it.each([
+      ['a bidi character', 'Mac\u202e'],
+      ['no characters', ''],
+      ['more than 64 characters', 'x'.repeat(65)],
+    ])(
+      'ends with exit 1, not 5, on an engine name with %s from the hub, keeping the pending file for "pair cancel"',
+      async (_case, engineName) => {
+        await startPairing();
+        replies.push({ status: 200, json: { ...approved(), engineName } });
+        expect(await run('pair', 'wait')).toBe(1);
+        expect(err.join('\n')).toContain('[config_invalid]');
+        expect(existsSync(pendingFile())).toBe(true);
+        expect(existsSync(path.join(home, 'engine.json'))).toBe(false);
+      },
+    );
 
     it.each([
       ['the hub cannot be reached', [], 'hub_unreachable'],

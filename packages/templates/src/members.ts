@@ -55,6 +55,7 @@ const ROLE_HANDLES: Record<Exclude<BuiltInRoleId, 'developer'>, string> = {
   content: 'content',
   translator: 'translator',
   docs: 'docs',
+  accountant: 'accountant',
 };
 
 const SPECIALTY_HANDLES: Record<string, string> = { frontend: 'fe', backend: 'be' };

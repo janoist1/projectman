@@ -211,10 +211,10 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
      file, the home folder) and run `pair wait` again. Example: the approval came, but this Mac's
      `~/.projectman/engine.json` is not valid; `pair wait` stops with
      `REFUSED [config_invalid]: … engine.json is not a valid engine configuration: …` and every
-     `pair wait` repeats it until the cause is gone. Tell the friend what is wrong; move the broken file aside only if the friend
-     agrees (`mv ~/.projectman/engine.json ~/.projectman/engine.json.broken`) and run `pair wait`
-     again. If it keeps failing, run `"$engine" pair cancel` and tell the friend and the hub's
-     owner.
+     `pair wait` repeats it until the cause is gone. Tell the friend what is wrong; move the broken
+     file aside only if the friend agrees
+     (`mv ~/.projectman/engine.json ~/.projectman/engine.json.broken`) and run `pair wait` again.
+     If it keeps failing, run `"$engine" pair cancel` and tell the friend and the hub's owner.
    - **`4` – approved, but not written**, because a file appeared on this Mac meanwhile
      (`PAIRING APPROVED BUT NOT WRITTEN [config_exists]` or `[connect_file_exists]`). The approval
      stays pending here. Tell the friend what would be replaced (the engine configuration, or the
@@ -278,11 +278,10 @@ _Steps 4.1 and 4.2 are the copy path._ After a successful pairing, start at step
 5. Once `init` has run (or `pair wait` has written the engine configuration; the app reads the same
    `engine.json`, and `pair wait` writes the key before it), the app notices it within seconds,
    installs the engine's service (LaunchAgent) and opens _System Settings → General → Login
-   Items_. **[FRIEND]** switches
-   **projectman motor** on there when the app asks (macOS asks for this once; the app starts the
-   engine as soon as it is on). **[AI]** poll `"$engine" status --json` every few seconds until
-   `service.installed` and `service.running` are both `true`. The engine reports its projects when
-   it starts, so:
+   Items_. **[FRIEND]** switches **projectman motor** on there when the app asks (macOS asks for
+   this once; the app starts the engine as soon as it is on). **[AI]** poll
+   `"$engine" status --json` every few seconds until `service.installed` and `service.running` are
+   both `true`. The engine reports its projects when it starts, so:
    - if it started **after** `project set` (the usual case: the friend's approval takes longer),
      nothing more is needed;
    - if it was already running when you ran `project set` (step 4), run

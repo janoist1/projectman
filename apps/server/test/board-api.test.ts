@@ -47,12 +47,14 @@ describe('board API', () => {
       return 'Configure start condition';
     });
     const task = await domain.tasks.create('AR', { title: 'Idea' }, OWNER_ACTOR);
+    const viewer = await addHumanAndLogin(h.app, { handle: 'reader', access: 'viewer' });
+    // Drain the config/task-triggered sweeps before inserting deliberately stale persisted state.
+    await domain.projectManagerSignals.sweep('AR');
     // A persisted mark with a condition that no longer matches proves this route never updates the tracker.
     repos.startConditionMarks.apply('AR', {
       add: [{ taskKey: task.key, metSince: '2026-11-14T00:00:00.000Z' }],
       remove: [],
     });
-    const viewer = await addHumanAndLogin(h.app, { handle: 'reader', access: 'viewer' });
     const response = await inject(h.app, 'GET', routes.startConditionMarks('AR'), viewer);
     expect(response.statusCode).toBe(200);
     expect(StartConditionMarksResponse.parse(response.json())).toEqual({

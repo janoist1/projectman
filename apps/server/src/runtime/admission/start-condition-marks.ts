@@ -3,6 +3,7 @@ import {
   stageIndex,
   startConditionImmediate,
   startConditionMarkChanges,
+  startConditionOf,
 } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
@@ -36,7 +37,7 @@ export class StartConditionMarks {
       const timer = this.timers.get(projectKey);
       if (timer) clearTimeout(timer);
       this.timers.delete(projectKey);
-      const condition = config.team.startCondition;
+      const condition = startConditionOf(config);
       if (!condition) {
         repo.clearProject(projectKey);
         return new Map();

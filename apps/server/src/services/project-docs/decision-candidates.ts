@@ -12,7 +12,7 @@ const DEFAULT_CANDIDATE_LIMIT = 20;
 /**
  * Owner answers on cards that may be decisions (PM-496). A question is a candidate when an owner of the
  * project answered it (through the integrator too), no rule closed it, someone but the retired Operator asked
- * it, the answer came after the project's `since`, and the owner has not given a verdict on it yet.
+ * it, it is no setup source question, the answer came after the project's `since`, and the owner has not given a verdict on it yet.
  */
 export class DecisionCandidates {
   private readonly ctx: DomainContext;
@@ -34,6 +34,8 @@ export class DecisionCandidates {
       if (!resolution || resolution.rule || !owners.includes(resolution.by)) return false;
       // An answer the integrator relayed is no decision of the owner (PM-762).
       if (resolution.ownerAnswerRelayed || resolution.integratorTodo) return false;
+      // A setup source answer names the owner's other project, which the public decision log must not (PM-1487).
+      if ('setupSource' in item.payload) return false;
       // A question the retired Operator asked is no owner decision either.
       return this.askerOf(item) !== RETIRED_OPERATOR_HANDLE;
     });

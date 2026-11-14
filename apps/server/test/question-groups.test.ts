@@ -123,6 +123,33 @@ describe('combined owner questions', () => {
     expect(h.repos.messages.list('AR', {}).filter((m) => m.origin?.kind === 'answer')).toHaveLength(2);
   });
 
+  it("keeps every grouped setup source answer owners' own, like a single one (PM-1487)", async () => {
+    const [primary, linked] = await pair();
+    await h.domain.inbox.releaseScreened(primary, {
+      outcome: 'decision',
+      by: 'pm',
+      ownerTopic: 'cost',
+      note: 'Owner decides',
+    });
+    // No group holds a setup source question today; the grouped answer still marks it as the single one does.
+    for (const id of [primary, linked]) {
+      const item = h.repos.inbox.get(id)!;
+      h.repos.inbox.updatePayload(
+        id,
+        { ...item.payload, setupSource: { owner: 'owner', candidates: ['BX'] } },
+        now.toISOString(),
+      );
+    }
+    await resolve(primary);
+    const answered = h.repos.timeline.ofProjectType('AR', 'question_answered', 10);
+    expect(answered.map((event) => [event.data.inboxItemId, event.data.ownerOnly]).sort()).toEqual(
+      [
+        [primary, true],
+        [linked, true],
+      ].sort(),
+    );
+  });
+
   it.each(['primary', 'linked', 'both'] as const)(
     'answers a cardless %s source on its original general route',
     async (cardless) => {

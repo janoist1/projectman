@@ -61,7 +61,7 @@ export const en: TemplateLocale = {
   setupSource: {
     question: 'May I look at the setup of another project of yours for ideas?',
     details:
-      'I read only its process, labels, roles, the role and provider of its AI members and its lessons; no cards, messages, documents or names. The permission lasts one day, and what I see there is an idea, not a rule.',
+      'I read only its process, labels, roles, the role and provider of its AI members and its lessons; no cards, messages, documents or names. What I read there lands in my conversation in this project, which this project’s admins can read too, even when they are not members of that project. The permission lasts one day, and what I see there is an idea, not a rule.',
     none: "Don't look at any other",
   },
   language: 'en',

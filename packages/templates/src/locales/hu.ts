@@ -70,7 +70,7 @@ export const hu: TemplateLocale = {
   setupSource: {
     question: 'Megnézhetem egy másik projekted beállítását ötletforrásnak?',
     details:
-      'Csak a folyamatát, a címkéit, a szerepeit, az AI-tagok szerepét és szolgáltatóját, valamint a tanulságait nézem meg; kártyát, üzenetet, dokumentumot és nevet nem. Az engedély egy napig érvényes, és amit ott látok, az ötlet, nem szabály.',
+      'Csak a folyamatát, a címkéit, a szerepeit, az AI-tagok szerepét és szolgáltatóját, valamint a tanulságait nézem meg; kártyát, üzenetet, dokumentumot és nevet nem. Amit ott látok, az ebben a projektben futó beszélgetésembe kerül, amelyet ennek a projektnek az adminjai is olvashatnak, akkor is, ha a másik projektnek nem tagjai. Az engedély egy napig érvényes, és amit ott látok, az ötlet, nem szabály.',
     none: 'Ne nézz meg mást',
   },
   language: 'hu',

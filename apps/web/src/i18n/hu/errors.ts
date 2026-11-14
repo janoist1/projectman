@@ -412,6 +412,7 @@ export const errors = {
     setup_source_none: 'A tulajdonosnak nincs másik saját projektje, amelyből ötletet lehetne meríteni.',
     setup_source_not_allowed:
       'Ezt a projektet csak akkor lehet megnézni, ha a tulajdonosa az elmúlt egy napban maga megengedte.',
+    setup_source_open: 'A tulajdonos még nem válaszolt a másik projektről szóló korábbi kérdésre.',
     super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
     super_operation_unsupported:
       'Ezt a műveletet a csatlakoztatott Claude super jogosítvánnyal sem tudja végrehajtani.',

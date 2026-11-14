@@ -361,9 +361,11 @@ export const ERROR_CODES = [
   'setup_owner_only_step',
   'setup_requires_localhost',
   // The project manager's idea source for a setup (PM-1463): the owner has no other own project to offer
-  // (409), or no current owner permission names the project it wants to read (403).
+  // (409), or no current owner permission names the project it wants to read (403). One question at a time: an
+  // open one is answered first (409, PM-1487).
   'setup_source_none',
   'setup_source_not_allowed',
+  'setup_source_open',
   'specialty_labels_not_developer',
   'stage_in_use',
   // The member's automatic starts at a place failed (PM-1335): they back off, then stop until released.

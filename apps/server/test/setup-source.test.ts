@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { memberOf, SETUP_SOURCE_NONE_OPTION } from '@projectman/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isProjectManager, memberOf, SETUP_SOURCE_NONE_OPTION } from '@projectman/shared';
 import type { AiMemberConfig, InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale, getTemplate } from '@projectman/templates';
-import type { ToolContext } from '../src/contracts';
+import type { EngineDirectory, EngineHost, ToolContext } from '../src/contracts';
 import { canSeeInboxItem, canSeeProjectEvent } from '../src/core/projects';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -16,13 +16,39 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-// The test template's project manager is on leave; the tool surface is its alone.
-const pmActive = (config: ProjectConfig) => {
+/** A second owner of this project, who owns the other project too (PM-1487). */
+const CO_OWNER = {
+  kind: 'human',
+  handle: 'co-owner',
+  displayName: 'Co-owner',
+  email: 'co-owner@example.test',
+  access: 'owner',
+  roles: [],
+} as const;
+
+// The test template's project manager is on leave; the tool surface is its alone. A developer and a guest of
+// the project manager are there for the refusals.
+const adjust = (config: ProjectConfig) => {
   (memberOf(config, 'pm') as AiMemberConfig).onLeave = false;
+  config.team.members.push(
+    { ...CO_OWNER, roles: [] },
+    {
+      kind: 'human',
+      handle: 'dana',
+      displayName: 'Dana',
+      email: 'dana@example.test',
+      access: 'developer',
+      roles: [],
+    },
+    { kind: 'human', handle: 'guest', displayName: 'Guest', access: 'client', roles: [] },
+  );
 };
 
-async function setup(others: { key: string; owner: { name: string; email: string } }[] = []) {
-  h = await createDomainHarness({ adjust: pmActive });
+async function setup(
+  others: { key: string; owner: { name: string; email: string } }[] = [],
+  engines?: EngineDirectory,
+) {
+  h = await createDomainHarness({ adjust, ...(engines ? { engines } : {}) });
   for (const other of others) {
     const workspace = join(h.dir, other.key.toLowerCase());
     mkdirSync(workspace);
@@ -115,6 +141,56 @@ describe('ask_setup_source (PM-1463)', () => {
     await setup([FOREIGN]);
     await expect(h.domain.teamTools.askSetupSource(ctx)).rejects.toThrow('setup_source_none');
   });
+
+  it('opens no second question while one is unanswered, and asks again after the answer (PM-1487)', async () => {
+    await setup([MINE]);
+    const asked = await h.domain.teamTools.askSetupSource(ctx);
+    await expect(h.domain.teamTools.askSetupSource(ctx)).rejects.toThrow('setup_source_open');
+    const questions = () =>
+      h.repos.inbox.list('AR', { kind: 'question' }).filter((item) => 'setupSource' in item.payload);
+    expect(questions()).toHaveLength(1);
+    close(asked.inbox_item_id, { optionId: SETUP_SOURCE_NONE_OPTION });
+    await h.domain.teamTools.askSetupSource(ctx);
+    expect(questions()).toHaveLength(2);
+  });
+});
+
+describe('the setup idea tools refuse (PM-1487)', () => {
+  const calls: [string, (at: ToolContext) => Promise<unknown>][] = [
+    ['preview_template', (at) => h.domain.teamTools.previewTemplate(at, {})],
+    ['ask_setup_source', (at) => h.domain.teamTools.askSetupSource(at)],
+    ['read_setup_source', (at) => h.domain.teamTools.readSetupSource(at, { projectKey: 'BX' })],
+  ];
+  it.each(calls)(
+    "%s on a request of someone who is not an owner, and in a guest's conversation",
+    async (_tool, call) => {
+      await setup([MINE]);
+      // The owner's own permission is there: only the request or the conversation is wrong.
+      const asked = await h.domain.teamTools.askSetupSource(ctx);
+      close(asked.inbox_item_id, {});
+      // A developer's request in the owners' conversation, in place of the owner's.
+      const at = new Date().toISOString();
+      for (const request of h.repos.projectManagerRequests.openOfSession(ctx.sessionId))
+        h.repos.projectManagerRequests.close(request.id, at);
+      h.repos.projectManagerRequests.insert({
+        id: 'opr_dana',
+        projectKey: 'AR',
+        sessionId: ctx.sessionId,
+        source: 'message',
+        messageId: null,
+        inboxItemId: null,
+        fromHandle: 'dana',
+        quote: 'Show me another project.',
+        openedAt: at,
+      });
+      const guest = seedProjectManagerRequest(h, 'AR', { member: 'pm', from: 'guest', with: 'guest' });
+      for (const sessionId of [ctx.sessionId, guest.session.id])
+        await expect(call({ ...ctx, sessionId })).rejects.toMatchObject({
+          code: 'forbidden',
+          message: expect.stringContaining('operator_owner_only'),
+        });
+    },
+  );
 });
 
 describe('read_setup_source (PM-1463)', () => {
@@ -162,6 +238,17 @@ describe('read_setup_source (PM-1463)', () => {
       answer: (item) => close(item, { via: 'integrator' }),
     },
     {
+      // Another owner of this project who owns that project too: only the owner asked may allow it (PM-1487).
+      name: 'when another owner answered the question',
+      answer: async (item) => {
+        await h.domain.projects.update('BX', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+          draft.team.members.push({ ...CO_OWNER, roles: [] });
+          return 'Add a co-owner';
+        });
+        close(item, { by: CO_OWNER.handle });
+      },
+    },
+    {
       name: 'when the owner no longer owns that project',
       answer: async (item) => {
         close(item, {});
@@ -184,6 +271,49 @@ describe('read_setup_source (PM-1463)', () => {
     await answer(asked.inbox_item_id);
     await expect(h.domain.teamTools.readSetupSource(ctx, { projectKey: 'BX' })).rejects.toThrow(
       'setup_source_not_allowed',
+    );
+  });
+
+  it('reads the lessons of a project without a project manager on its own engine (PM-1487)', async () => {
+    const LESSONS = 'docs/LESSONS.md';
+    const readFile = vi.fn(async (_ref: unknown, input: { path: string }) => ({
+      commit: 'c'.repeat(40),
+      text: input.path === LESSONS ? '# Lessons\n- Keep the cards small.' : null,
+    }));
+    // The project's own engine is connected; the engine a member's setting would name is not.
+    const engines = {
+      get: (id: string) =>
+        id === 'project'
+          ? ({ merger: { readFile }, workspaceState: async () => 'directory' } as unknown as EngineHost)
+          : null,
+      ids: () => ['project'],
+      engineFor: () => 'member',
+      projectEngine: () => 'project',
+      hostEngine: () => 'project',
+      onChange: () => () => {},
+    } as unknown as EngineDirectory;
+    await setup([MINE], engines);
+    await h.domain.projects.update('BX', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      draft.project.repos[0]!.docs = { lessons: LESSONS };
+      return 'Keep lessons';
+    });
+    // The invariants keep a project manager in a stored configuration; the read must not rely on one.
+    const config = h.domain.projects.config.bind(h.domain.projects);
+    vi.spyOn(h.domain.projects, 'config').mockImplementation(async (key) => {
+      const read = await config(key);
+      if (key !== 'BX') return read;
+      const members = read.team.members.filter((member) => !isProjectManager(member));
+      return { ...read, team: { ...read.team, members } };
+    });
+    const asked = await h.domain.teamTools.askSetupSource(ctx);
+    close(asked.inbox_item_id, {});
+
+    const read = await h.domain.teamTools.readSetupSource(ctx, { projectKey: 'BX' });
+    expect(read.lessons).toBe('# Lessons\n- Keep the cards small.');
+    expect(read).not.toHaveProperty('lessonsUnavailable');
+    expect(readFile).toHaveBeenCalledWith(
+      expect.objectContaining({ projectKey: 'BX' }),
+      expect.objectContaining({ path: LESSONS }),
     );
   });
 

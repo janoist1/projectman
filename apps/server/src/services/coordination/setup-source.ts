@@ -16,10 +16,11 @@ import { conflict, DomainError, forbidden } from '../../kernel';
 const SETUP_SOURCE_PERMISSION_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The lessons document of a project on the member's engine, as its default branch has it. Throws
- * `docs_not_configured` when the project keeps none, another error when the engine cannot be reached.
+ * The lessons document of a project on the member's engine (null: the project's default engine), as its default
+ * branch has it. Throws `docs_not_configured` when the project keeps none, another error when the engine cannot be
+ * reached.
  */
-type LessonsReader = (projectKey: string, member: string) => Promise<{ text: string | null }>;
+type LessonsReader = (projectKey: string, member: string | null) => Promise<{ text: string | null }>;
 
 /**
  * The project manager's setup ideas (PM-1463): a template built from this project's data, and another project of
@@ -82,6 +83,15 @@ export class SetupSources {
     const candidates = email ? await this.ownedElsewhere(projectKey, email) : [];
     if (candidates.length === 0)
       throw conflict('setup_source_none', 'The owner has no other project of their own.');
+    // Once per setup: while an owner has not answered the last one, no other opens (PM-1487).
+    const open = this.deps.ctx.repos.inbox
+      .list(projectKey, { kind: 'question', state: ['open', 'screening'] })
+      .find((item) => 'setupSource' in item.payload);
+    if (open)
+      throw conflict(
+        'setup_source_open',
+        `The setup source question ${open.id} is still open; wait for the owner's answer.`,
+      );
     const text = getLocale(config.project.language).setupSource;
     const asked = await this.deps.questions.ask(
       projectKey,
@@ -108,11 +118,12 @@ export class SetupSources {
         'setup_source_not_allowed',
         `No owner allowed reading ${sourceKey} with their own login in the last day.`,
       );
-    // Read where the other project's own project manager reads them; a project that keeps none has none.
+    // Read where the other project's own project manager reads them, without one on the project's default engine
+    // (PM-1487); a project that keeps none has none.
     let lessons: string | null = null;
     let lessonsUnavailable = false;
     try {
-      lessons = (await this.deps.readLessons(sourceKey, projectManagerOf(sourceConfig)?.handle ?? '')).text;
+      lessons = (await this.deps.readLessons(sourceKey, projectManagerOf(sourceConfig)?.handle ?? null)).text;
     } catch (err) {
       if (!(err instanceof DomainError && err.code === 'docs_not_configured')) lessonsUnavailable = true;
     }

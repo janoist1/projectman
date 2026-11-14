@@ -560,6 +560,45 @@ Only the current conversation's five validated preference enums enter the prompt
 Signal and screening launches receive none. Corrupt preferences are logged and omitted at
 launch without overwriting; explicit reads and writes retain their errors.
 
+### Another project as a setup idea source (PM-1463, PM-1487)
+
+The project manager of project A may read the process of another project B only with the
+explicit permission of an owner of A. `preview_template`, `ask_setup_source` and
+`read_setup_source` (`SETUP_IDEA_TOOLS` in `apps/server/src/mcp/caller.ts`) run only in the
+selected manager's internal session (`assertCoordinationSession`). A guest conversation and an
+open request from someone other than an owner are refused with `operator_owner_only`.
+`ask_setup_source` also needs an owner's own open message or answer (`operator_no_request`).
+
+- **The question.** `SetupSources.ask` (`apps/server/src/services/coordination/setup-source.ts`)
+  offers only the requesting owner's other projects, matched by the same e-mail
+  (`holdsOwnershipByEmail`). It asks that owner alone. The option ids are the project keys.
+  While one setup source question is open or in screening, another is refused
+  (`setup_source_open`). The question is never screened or delegated: `superDecisionRefusal`
+  and `hasProtectedQuestionPayload` keep it for the owner's own login.
+- **The permission.** `read_setup_source` succeeds only for an answer from the last 24 hours that
+  meets all of these conditions. It names exactly that offered project. It was given by the very
+  owner it asked (`resolution.by === setupSource.owner`), who is still an owner of A. It was given
+  on their own login: no `via`, actor, super decision, relay, integrator todo, operator queue or
+  rule. That owner still owns B under the same e-mail. Otherwise the call fails with
+  `setup_source_not_allowed`. An answer by another owner of A grants nothing.
+- **The returned fields.** Only B's key and name, its stages, gates, labels, roles, the role,
+  provider and specialty of its AI members, and B's lessons document. The lessons are read on
+  B's project manager's engine, or on B's project engine when B has none. No card, message,
+  document other than the lessons, member handle, display name, e-mail or workspace path is
+  returned.
+- **Visibility of the question and its answer.** The inbox item, its live events and its
+  `question_answered` timeline entry (`ownerOnly`, for a single and a grouped answer alike) are
+  visible only to owners and admins on their own login (`canSeeInboxItem`,
+  `canSeeProjectEvent`), never through the integrator. Its answer is never offered as a
+  decision candidate (`DecisionCandidates`), because `docs/DECISIONS.md` may be in a public
+  repository and the option label is B's name.
+
+**Accepted risk.** The output of `read_setup_source` enters A's internal project-manager
+session. A's admins may read that session (`canSeeProjectManagerSessions`) even if they are not
+members of B, so they can see B's process and lessons. The owner question text states this. The
+data excludes people, cards and messages, and the owner decides with this knowledge.
+`apps/server/test/setup-source.test.ts` covers these boundaries.
+
 ## Automatic command decisions
 
 ### Merge-fix worktrees (PM-471)

@@ -148,8 +148,8 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
      if the friend confirms they want to replace the old engine link.
    - `REFUSED [connect_file_exists]`: a client key or client configuration already exists with
      different content. Add `--replace` only if the friend confirms they want to replace it.
-   - `REFUSED [pairing_in_progress]`: an earlier pairing is still pending here. Go on with step 4
-     (`pair wait`), or, if the friend wants to start over, run `"$engine" pair cancel` first.
+   - `REFUSED [pairing_in_progress]`: an earlier pairing is still pending here. Go on with the wait step
+     (`pair wait`, below), or, if the friend wants to start over, run `"$engine" pair cancel` first.
    - `REFUSED [too_many_attempts]`: the hub takes no more pairing requests for now. Wait the
      seconds it names, then run the same command again.
    - `REFUSED [pairing_unavailable]`, or exit code `2` with a usage text whose command list has no
@@ -171,7 +171,8 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
    ```
 
    Each run waits up to 30 seconds. Exit code `3` means the code is not approved yet: run it again,
-   as long as it exits `3`. Do not start a new code meanwhile.
+   as long as it exits `3`. Exit code `5` also means "run it again", after a failure (below). Do not
+   start a new code meanwhile.
 
 5. **[AI]** go on by the exit code of `pair wait`:
    - **`0` – approved and written.** It prints `Approved by …` with the approver's name and
@@ -193,12 +194,23 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
      - `PAIRING ENDED [approver_mismatch]`: a different account approved it than the e-mail you
        gave. Nothing was written. Stop, tell the friend and the hub's owner: the line names the
        engine and its key that were made in that other account; its owner should remove them in
-       _Settings_.
-     - Any other line, such as `REFUSED [hub_unreachable]`, `REFUSED [hub_error]`,
-       `REFUSED [hub_access_refused]` or `REFUSED [home_in_use]`: the pairing has **not** ended and
-       is still pending here. Fix the cause it names (network, the hub's address, the Access file)
-       and run `pair wait` again. If it keeps failing, run `"$engine" pair cancel` and tell the
-       friend and the hub's owner.
+       _Settings_. The approval also replaced that account's earlier _Connected Claude_ key with
+       the new one, so that account's owner has to create a key again.
+     - `REFUSED [pairing_missing]`: no pairing is pending here (nothing to wait for). Start one
+       (step 2). `REFUSED [pairing_invalid]`: the pending file is not of this version; remove it as
+       the line says and start again (step 2).
+   - **`5` – failed for now, the pairing is still pending.** `pair wait` printed one of
+     `REFUSED [hub_unreachable]`, `REFUSED [hub_error]`, `REFUSED [hub_access_refused]`,
+     `REFUSED [home_in_use]` or `REFUSED [config_invalid]`. Nothing has ended and the approval, if it
+     came, is still waiting: fix the cause the line names (network, the hub's address, the Access
+     file, the home folder) and run `pair wait` again. Example: the approval came, but this Mac's
+     `~/.projectman/engine.json` is not valid; `pair wait` stops with
+     `REFUSED [config_invalid]: … engine.json is not a valid engine configuration: …` (an engine name
+     with control or direction characters in it ends here too) and every `pair wait` repeats it until
+     the cause is gone. Tell the friend what is wrong; move the broken file aside only if the friend
+     agrees (`mv ~/.projectman/engine.json ~/.projectman/engine.json.broken`) and run `pair wait`
+     again. If it keeps failing, run `"$engine" pair cancel` and tell the friend and the hub's
+     owner.
    - **`4` – approved, but not written**, because a file appeared on this Mac meanwhile
      (`PAIRING APPROVED BUT NOT WRITTEN [config_exists]` or `[connect_file_exists]`). The approval
      stays pending here. Tell the friend what would be replaced (the engine configuration, or the
@@ -221,7 +233,9 @@ Use sections 4 and 5 in full instead, and say so to the friend, when:
 - the code expires twice in a row.
 
 If the last pairing has not ended with a `PAIRING ENDED` line (for example when the friend could
-not approve), run `"$engine" pair cancel` first, so its code cannot be approved later. Never add `--force` or `--replace` to any command without the
+not approve), run `"$engine" pair cancel` first, so its code cannot be approved later. If nothing
+is pending, `pair cancel` prints `REFUSED [pairing_missing]` and exits `1`: that is fine, there was
+nothing to withdraw, carry on. Never add `--force` or `--replace` to any command without the
 friend's explicit yes.
 
 ## 4. Connecting the engine to the hub
@@ -249,14 +263,15 @@ _Steps 4.1 and 4.2 are the copy path._ After a successful pairing, start at step
    which folder on this Mac holds the project's code. If the friend
    has no folder yet, agree on one, for example `~/projects/<name>`; create it, and run `git init`
    in it if it is empty.
-4. **[AI]** bind the project right after `init`. First note whether the engine already runs
+4. **[AI]** bind the project right after `init` (or right after the pairing, which has done `init`). First note whether the engine already runs
    (`"$engine" status --json`, `service.running`), then:
 
    ```sh
    "$engine" project set <KEY> <absolute folder path>
    ```
 
-5. Once `init` has run, the app notices it within seconds, installs the engine's service
+5. Once `init` has run (or `pair wait` has written the engine configuration; the app reads the same
+   `engine.json`, and `pair wait` writes the key before it), the app notices it within seconds, installs the engine's service
    (LaunchAgent) and opens _System Settings → General → Login Items_. **[FRIEND]** switches
    **projectman motor** on there when the app asks (macOS asks for this once; the app starts the
    engine as soon as it is on). **[AI]** poll `"$engine" status --json` every few seconds until

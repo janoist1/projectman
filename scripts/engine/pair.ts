@@ -9,6 +9,7 @@ import {
   formatPairingCode,
   normalizePairingCode,
   PAIRING_TTL_MS,
+  printableText as printable,
   routes,
   StartEnginePairingResponse,
 } from '@projectman/shared';
@@ -31,7 +32,14 @@ import {
 } from '../projectman/connect';
 import { ClientFileError } from '../projectman/files';
 import type { EngineCliIo } from './commands';
-import { absoluteFile, buildEngineConfig, previousEngineConfig, UsageError, writeEngineSetup } from './setup';
+import {
+  absoluteFile,
+  buildEngineConfig,
+  previousEngineConfig,
+  refusalOf,
+  UsageError,
+  writeEngineSetup,
+} from './setup';
 
 /**
  * `pair start | wait | cancel` (PM-1449, plan PM-1437 §6): device pairing instead of copying two keys. The machine
@@ -40,13 +48,19 @@ import { absoluteFile, buildEngineConfig, previousEngineConfig, UsageError, writ
  * `projectman connect` write. The keys live only in files (the pending file, then the key files): never in an
  * argument, the environment or the output.
  *
- * Exit status of `pair wait`: 0 written; 1 ended with nothing written (or refused); 3 still pending; 4 approved,
- * but a file is in the way (the pending pairing stays); 2 wrong usage.
+ * Every text that came from the hub (names, e-mail, ids, dates) goes to the terminal through `printable`: no
+ * control, formatting or bidi character reaches it.
+ *
+ * Exit status of `pair wait`: 0 written; 1 ended with nothing written (or refused, nothing pending); 3 still
+ * pending; 4 approved, but a file is in the way (the pending pairing stays); 5 stopped by a failure that may pass
+ * (hub unreachable or answering wrongly, home in use, invalid engine configuration; the pending pairing stays, run
+ * it again); 2 wrong usage.
  */
 
 const EXIT_ENDED = 1;
 const EXIT_PENDING = 3;
 const EXIT_CONFLICT = 4;
+const EXIT_RETRY = 5;
 
 const WAIT_DEFAULT_SECONDS = 30;
 const WAIT_MAX_SECONDS = 600;
@@ -135,9 +149,6 @@ function onlyFlags(flags: Map<string, string>, sub: string, allowed: string[]): 
     if (name !== 'home' && !allowed.includes(name))
       throw new UsageError(`--${name} is not an option of pair ${sub}`);
 }
-
-/** Text from the hub shown in the terminal: no control characters, so it cannot move the cursor or recolour. */
-const printable = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
 
 function integratorOrigin(text: string): string {
   try {
@@ -353,7 +364,7 @@ async function start(ctx: PairContext, flags: Map<string, string>): Promise<numb
   io.out(
     `The code is valid for ${PAIRING_TTL_MS / 60_000} minutes (until ${printable(started.data.expiresAt)}).`,
   );
-  io.out('next: run "pair wait" (again while it exits 3); "pair cancel" withdraws the request');
+  io.out('next: run "pair wait" (again while it exits 3 or 5); "pair cancel" withdraws the request');
   return 0;
 }
 
@@ -381,9 +392,38 @@ function ended(ctx: PairContext, reason: keyof typeof ENDED): number {
   return EXIT_ENDED;
 }
 
+/** The refusals that may pass or be fixed, with the pending file kept: the hub, a server database in the home, the engine configuration. */
+const RETRY_CODES = new Set([
+  'hub_unreachable',
+  'hub_error',
+  'hub_access_refused',
+  'home_in_use',
+  'config_invalid',
+]);
+
+/**
+ * A refusal of that kind while a pairing is pending leaves the pending file: exit 5, "run it again", not exit 1,
+ * which means "ended". Any other refusal (no pending pairing, a pending file that cannot be used) stays exit 1.
+ */
 async function wait(ctx: PairContext, flags: Map<string, string>): Promise<number> {
   const seconds = waitSeconds(flags);
   const pending = readPending(ctx.pendingFile);
+  try {
+    return await pollUntilDecided(ctx, flags, pending, seconds);
+  } catch (error) {
+    const refusal = refusalOf(error);
+    if (refusal === null || !RETRY_CODES.has(refusal.code) || !pendingExists(ctx.pendingFile)) throw error;
+    ctx.io.err(refusal.line);
+    return EXIT_RETRY;
+  }
+}
+
+async function pollUntilDecided(
+  ctx: PairContext,
+  flags: Map<string, string>,
+  pending: PendingPairing,
+  seconds: number,
+): Promise<number> {
   const sleep = ctx.io.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const interval = pending.pollIntervalSeconds * 1000;
   const deadline = ctx.now() + seconds * 1000;
@@ -428,7 +468,7 @@ function finish(
   ) {
     removePending(ctx.pendingFile);
     io.err(
-      `PAIRING ENDED [approver_mismatch]: approved by ${approver}, not by ${pending.expectEmail}. Nothing was written. The engine "${printable(approved.engineName)}" (${printable(approved.engineId)}) and its key were made in that account; ask its owner to remove them in Settings.`,
+      `PAIRING ENDED [approver_mismatch]: approved by ${approver}, not by ${printable(pending.expectEmail)}. Nothing was written. The engine "${printable(approved.engineName)}" (${printable(approved.engineId)}) and its key were made in that account; ask its owner to remove them in Settings.`,
     );
     return EXIT_ENDED;
   }
@@ -479,7 +519,7 @@ function finish(
   removePending(ctx.pendingFile);
   io.out(`Approved by ${approver}.`);
   io.out(
-    `engine "${prepared.config.name ?? ''}" (${prepared.config.engineId}) configured at ${files.config}; the machine key is in ${keyFile} (mode 0600)`,
+    `engine "${printable(prepared.config.name ?? '')}" (${printable(prepared.config.engineId)}) configured at ${files.config}; the machine key is in ${keyFile} (mode 0600)`,
   );
   io.out(
     `the client key is in ${clientKeyFile(ctx.userHome)} (mode 0600, valid until ${printable(approved.integratorKeyExpiresAt)}); the client configuration is ${path.join(ctx.userHome, CLIENT_CONFIG_RELATIVE_PATH)}`,

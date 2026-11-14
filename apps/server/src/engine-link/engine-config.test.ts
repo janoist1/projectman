@@ -64,6 +64,17 @@ describe('engine configuration', () => {
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
   });
 
+  it.each(['\u0000', '\n', '​', '‮', '⁦', ' ', ' '])(
+    'refuses an engine name with the control, formatting or separator character %j (PM-1472)',
+    (character) => {
+      expect(() => base({ name: `Mac${character}` })).toThrow();
+    },
+  );
+
+  it('keeps an ordinary Unicode engine name', () => {
+    expect(base({ name: 'Árvíztűrő 日本 Mac' }).name).toBe('Árvíztűrő 日本 Mac');
+  });
+
   it('keeps the compute jobs of a repo with their defaults, and refuses a duplicated job id (PM-1147)', () => {
     const job = {
       id: 'cloud-image',

@@ -12,7 +12,12 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { AgentProvider, ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
+import {
+  AgentProvider,
+  ComputeJobDefinitions,
+  isSafeDisplayText,
+  SelectablePermissionMode,
+} from '@projectman/shared';
 import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
@@ -33,7 +38,8 @@ export const EngineConfig = z.strictObject({
   /** `https://…`; `http://` only for a loopback host (tests). */
   cloudUrl: z.string().url(),
   engineId: z.string().regex(/^eng_[a-z0-9]{12}$/),
-  name: z.string().min(1).max(64).optional(),
+  /** No control, formatting or bidi character: the name is printed in terminals (PM-1472, same rule as the hub's). */
+  name: z.string().min(1).max(64).refine(isSafeDisplayText).optional(),
   /** Absolute path of the machine key file; default `<home>/engine.key`. */
   keyFile: z.string().optional(),
   /**

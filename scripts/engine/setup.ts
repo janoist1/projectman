@@ -10,6 +10,7 @@ import {
   saveEngineConfig,
   writeSecretFile,
 } from '../../apps/server/src/engine-link/engine-config';
+import { ClientFileError } from '../projectman/files';
 
 /**
  * What `init` and `pair wait` (PM-1449) both write: the engine's configuration and its machine key. Kept apart from
@@ -17,6 +18,23 @@ import {
  */
 
 export class UsageError extends Error {}
+
+/**
+ * A refusal the CLI reports with its code and the line it prints (a known configuration, file or schema error);
+ * null for any other error.
+ */
+export function refusalOf(error: unknown): { code: string; line: string } | null {
+  if (error instanceof EngineConfigError || error instanceof ClientFileError)
+    return { code: error.code, line: `REFUSED [${error.code}]: ${error.message}` };
+  if (error instanceof Error && error.name === 'ZodError') {
+    const issue = (error as Error & { issues?: Array<{ path: unknown[]; message: string }> }).issues?.[0];
+    return {
+      code: 'config_invalid',
+      line: `REFUSED [config_invalid]: ${issue?.path.join('.') || 'value'}: ${issue?.message ?? 'invalid'}`,
+    };
+  }
+  return null;
+}
 
 /** PM-1187: the providers a new engine starts sessions for; Gemini's commands run without an OS sandbox. */
 const DEFAULT_ALLOWED_PROVIDERS: AgentProvider[] = ['claude', 'codex', 'nanogpt'];

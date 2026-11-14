@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSafeDisplayText } from '../domain/engine-pairing';
 
 /** A SHA-256 hash in lower-case hex: the hub stores only this of a key the machine made (PM-1437). */
 const KeyHash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -8,12 +9,7 @@ const KeyHash = z.string().regex(/^[0-9a-f]{64}$/);
  * machine key and the integrator key it made. The prefixes are as long as the hub's own (`pme_` + 6, `pmi_` + 8).
  */
 export const StartEnginePairingRequest = z.strictObject({
-  name: z
-    .string()
-    .regex(/^[^\p{Cc}\p{Cf}]*$/u)
-    .trim()
-    .min(1)
-    .max(64),
+  name: z.string().refine(isSafeDisplayText).trim().min(1).max(64),
   machineKey: z.strictObject({ hash: KeyHash, prefix: z.string().regex(/^pme_[A-Za-z0-9_-]{6}$/) }),
   integratorKey: z.strictObject({ hash: KeyHash, prefix: z.string().regex(/^pmi_[A-Za-z0-9_-]{8}$/) }),
 });

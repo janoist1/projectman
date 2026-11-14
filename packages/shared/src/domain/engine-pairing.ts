@@ -15,6 +15,21 @@ export const PAIRING_KEY_DAYS = 365;
 /** How often the machine asks for the pairing's state. */
 export const PAIRING_POLL_SECONDS = 3;
 
+/**
+ * Characters a machine name or any text the hub sends to a terminal must not carry: control characters (Cc),
+ * formatting characters (Cf: zero-width and the bidi controls U+202A–202E, U+2066–2069) and the line and
+ * paragraph separators U+2028/U+2029 (Zl, Zp). One rule for the hub's name check, the engine configuration and
+ * the CLI's output.
+ */
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const UNSAFE_TEXT_ALL = new RegExp(UNSAFE_TEXT.source, 'gu');
+
+/** Whether the text holds none of the unsafe characters (see `UNSAFE_TEXT`). */
+export const isSafeDisplayText = (text: string): boolean => !UNSAFE_TEXT.test(text);
+
+/** The text with every unsafe character replaced by `?`, for printing in a terminal. */
+export const printableText = (text: string): string => text.replace(UNSAFE_TEXT_ALL, '?');
+
 const CODE_SHAPE = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);
 
 /**

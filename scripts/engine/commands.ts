@@ -12,9 +12,15 @@ import {
   saveEngineConfig,
   writeSecretFile,
 } from '../../apps/server/src/engine-link/engine-config';
-import { ClientFileError } from '../projectman/files';
 import { runPair } from './pair';
-import { absoluteFile, buildEngineConfig, previousEngineConfig, UsageError, writeEngineSetup } from './setup';
+import {
+  absoluteFile,
+  buildEngineConfig,
+  previousEngineConfig,
+  refusalOf,
+  UsageError,
+  writeEngineSetup,
+} from './setup';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import type { EngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { assertHomeMayStart } from '../../apps/server/src/instance';
@@ -74,7 +80,7 @@ const USAGE = `usage:
   npm run engine -- app uninstall   (removes the menu bar app of PM-1088; the downloaded app installs itself)
   npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--link-headers-file <path>] [--force]   (the key on standard input)
   npm run engine -- pair start --cloud <https-url> --name <name> [--link-headers-file <path>] --integrator-base-url <https-url> [--integrator-access-headers-file <path>] [--expect-email <email>] [--force] [--replace]   (device pairing: prints a code to approve on the web)
-  npm run engine -- pair wait [--timeout <seconds>] [--force] [--replace]   (exit 0 written, 1 ended with nothing written, 3 still pending, 4 approved but a file is in the way)
+  npm run engine -- pair wait [--timeout <seconds>] [--force] [--replace]   (exit 0 written, 1 ended with nothing written, 3 still pending, 4 approved but a file is in the way, 5 failed for now with the pairing still pending: run it again)
   npm run engine -- pair cancel
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
@@ -113,6 +119,9 @@ const VALUE_FLAGS = new Set([
   'path',
   'to',
 ]);
+
+/** Taken by `pair` alone; any other command refuses them rather than ignoring them (PM-1472). */
+const PAIR_ONLY_FLAGS = ['timeout', 'expect-email', 'integrator-base-url', 'integrator-access-headers-file'];
 
 function parse(argv: string[]): Parsed {
   const positional: string[] = [];
@@ -182,6 +191,9 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       flags.get('home') ?? io.env.PROJECTMAN_HOME ?? path.join(homedir(), '.projectman'),
     );
     const [command, sub, ...rest] = positional;
+    if (command !== 'pair')
+      for (const name of PAIR_ONLY_FLAGS)
+        if (flags.has(name)) throw new UsageError(`--${name} is an option of pair only`);
     const files = engineFiles(home);
     const resolveOptions = io.tmpdir ? { tmpdir: io.tmpdir } : {};
     switch (command) {
@@ -513,13 +525,9 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       io.err(`usage error: ${error.message}\n${USAGE}`);
       return 2;
     }
-    if (error instanceof EngineConfigError || error instanceof ClientFileError) {
-      io.err(`REFUSED [${error.code}]: ${error.message}`);
-      return 1;
-    }
-    if (error instanceof Error && error.name === 'ZodError') {
-      const issue = (error as Error & { issues?: Array<{ path: unknown[]; message: string }> }).issues?.[0];
-      io.err(`REFUSED [config_invalid]: ${issue?.path.join('.') || 'value'}: ${issue?.message ?? 'invalid'}`);
+    const refusal = refusalOf(error);
+    if (refusal !== null) {
+      io.err(refusal.line);
       return 1;
     }
     io.err(error instanceof Error ? error.message : String(error));

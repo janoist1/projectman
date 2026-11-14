@@ -36,7 +36,11 @@ the hub side is PM-1448 (`/engine/pairings`). Exit 2 is wrong usage in every com
 - `pair wait [--timeout <s>] [--force] [--replace]` (30 s by default, 1–600) polls at the hub's interval:
   0 written, 1 ended with nothing written (denied, expired, cancelled, unknown, or an approver other than
   `--expect-email`; the pending file is deleted), 3 still pending, 4 approved but a file is in the way (the
-  pending file stays; run again with `--force`/`--replace`).
+  pending file stays; run again with `--force`/`--replace`), 5 a failure that may pass (`hub_unreachable`,
+  `hub_error`, `hub_access_refused`, `home_in_use`, `config_invalid`; the pending file stays, run again). Every
+  text the hub sent goes to the terminal through the shared `printableText` (no control, formatting or bidi
+  character); the engine name rule is the shared `isSafeDisplayText`, also used by the hub's name check and
+  `engine.json`. `timeout`, `expect-email` and `integrator-*` are options of `pair` only (other commands: exit 2).
 - `pair cancel` withdraws the request (`DELETE`) and deletes the pending file.
 
 On approval `pair wait` writes exactly what `init` and `projectman connect` write: `scripts/engine/setup.ts`

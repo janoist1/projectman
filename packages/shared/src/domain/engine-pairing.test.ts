@@ -31,13 +31,22 @@ describe('pairing machine name', () => {
 });
 
 describe('printableText', () => {
-  it.each(['\u0000', '\u001b', '\u007f', '\u0085', '​', '‪', '‮', '⁦', '⁩', ' ', ' '])(
-    'replaces %j',
-    (character) => {
-      expect(printableText(`a${character}b`)).toBe('a?b');
-      expect(isSafeDisplayText(`a${character}b`)).toBe(false);
-    },
-  );
+  it.each([
+    '\u0000',
+    '\u001b',
+    '\u007f',
+    '\u0085',
+    '\u200b',
+    '\u202a',
+    '\u202e',
+    '\u2066',
+    '\u2069',
+    '\u2028',
+    '\u2029',
+  ])('replaces %j', (character) => {
+    expect(printableText(`a${character}b`)).toBe('a?b');
+    expect(isSafeDisplayText(`a${character}b`)).toBe(false);
+  });
 
   it('keeps ordinary Unicode text as it is', () => {
     expect(printableText('Árvíztűrő 日本 <a@b.hu>')).toBe('Árvíztűrő 日本 <a@b.hu>');

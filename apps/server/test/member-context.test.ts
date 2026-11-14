@@ -244,31 +244,46 @@ describe('the owner-account flag of the project manager context (PM-1069)', () =
   });
 
   it.each([
-    ['pm', 'host@example.test', true],
-    ['pm', OWNER.email, false],
-    ['dev-1', 'host@example.test', false],
-  ])('flags %s with the host %s: %s', async (handle, hostEmail, flagged) => {
-    h.repos.users.insert({
-      id: 'host-user',
-      name: 'Host',
-      email: hostEmail,
-      passwordHash: 'unused-test-hash',
-      createdAt: '2026-10-28T10:00:00.000Z',
-      language: 'hu',
-    });
-    await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
-    expect(h.contextBuilder.inputs.at(-1)!.hostOutsideOwners).toBe(flagged ? true : undefined);
-  });
+    { handle: 'pm', hostEmail: 'host@example.test', hasChecklist: true, flagged: true },
+    { handle: 'pm', hostEmail: 'host@example.test', hasChecklist: false, flagged: true },
+    { handle: 'pm', hostEmail: OWNER.email, hasChecklist: false, flagged: false },
+    { handle: 'dev-1', hostEmail: 'host@example.test', hasChecklist: true, flagged: false },
+    { handle: 'dev-1', hostEmail: 'host@example.test', hasChecklist: false, flagged: false },
+  ])(
+    'flags $handle with host $hostEmail and checklist=$hasChecklist: $flagged',
+    async ({ handle, hostEmail, hasChecklist, flagged }) => {
+      if (!hasChecklist) {
+        h.repos.db.prepare('DELETE FROM project_checklist_items WHERE project_key = ?').run('AR');
+        h.repos.db.prepare('DELETE FROM project_checklists WHERE project_key = ?').run('AR');
+      }
+      h.repos.users.insert({
+        id: 'host-user',
+        name: 'Host',
+        email: hostEmail,
+        passwordHash: 'unused-test-hash',
+        createdAt: '2026-10-28T10:00:00.000Z',
+        language: 'hu',
+      });
+      await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
+      const input = h.contextBuilder.inputs.at(-1)!;
+      expect(input.hostOutsideOwners).toBe(flagged ? true : undefined);
+      expect(input.checklist !== undefined).toBe(hasChecklist && handle === 'pm');
+    },
+  );
 
   it.each([
     ['pm', true],
     ['dev-1', false],
-  ])('gives the capability catalog to %s only if it is the project manager: %s (PM-1468)', async (handle, given) => {
-    await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
-    const catalog = h.contextBuilder.inputs.at(-1)!.capabilities;
-    expect(catalog !== undefined).toBe(given);
-    if (catalog) expect(catalog.team_tools.map((tool) => tool.id)).toEqual(teamToolCatalog().map((tool) => tool.name));
-  });
+  ])(
+    'gives the capability catalog to %s only if it is the project manager: %s (PM-1468)',
+    async (handle, given) => {
+      await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
+      const catalog = h.contextBuilder.inputs.at(-1)!.capabilities;
+      expect(catalog !== undefined).toBe(given);
+      if (catalog)
+        expect(catalog.team_tools.map((tool) => tool.id)).toEqual(teamToolCatalog().map((tool) => tool.name));
+    },
+  );
 });
 
 describe('member context endpoint', () => {

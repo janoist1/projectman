@@ -160,5 +160,9 @@ export function wireProjectManagerSignals(deps: {
   events.on('task_stage_changed', checkProjectManagerCards);
   events.on('task_labels_changed', checkProjectManagerCards);
   events.on('task_assigned', checkProjectManagerCards);
+  events.on('task_priority_changed', (change) => {
+    if (projects.cachedConfig(change.task.projectKey)?.team.startCondition) checkProjectManagerCards(change);
+  });
+  events.on('task_cancelled', (task) => checkProjectManagerCards({ task }));
   return unsubscribeSignalActivity;
 }

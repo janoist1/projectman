@@ -39,6 +39,7 @@ import {
   cardStageOwners,
   teamRules,
   usesCodexCli,
+  startConditionSummary,
 } from '@projectman/shared';
 import type {
   DutyId,
@@ -941,13 +942,41 @@ function projectManagerRule(
     'Screening grants no board or configuration authority: approvals, release, human access, cost, scope and deadline decisions stay human. Never answer in a person’s name, decide permission requests, create invitations or waive approval. Private writes: only the current owner’s five style fields via set_operator_preference on an open direct message/answer. Propose agreement or principle changes with propose_operator_knowledge; only an owner’s yes writes them.',
     ...(projectDocsOf(project) ? ['Project documents: guide.'] : []),
     `You may create and relate cards, set permitted labels${setsPriority ? ' and priorities' : ''}, forward work to duty holders, and start ready cards after the first queue. A system message naming startable cards authorizes starting them in its order, respecting locks and owner holds. ${lifecycleRule(lifecycle)} ${blockingCardRule(setsPriority, lifecycle)} When a setting switches a rule on, set its reason in team.ruleReasons (one sentence, with the cards of the repeated failure).`,
+    ...(project.team.startCondition ? [startConditionRule(project, setsPriority)] : []),
     ...(movesCards
       ? [
           'You move cards on when the system says a stage is finished: get_task, then update_task to the requested stage if gates and approvals hold; otherwise tell the worker what is missing.',
         ]
       : []),
-    "Read the role guide before signal handling, screening, routing or agreement work; reply to the requester with send_message (kind info), in the project's language: relevant result, what waits, who must act and how. No fixed labels or introductory restatement.",
+    "Read the role guide before setup, usage advice, connected Claude explanations, missing tools, signal handling, screening, routing or agreement work; reply with send_message (kind info), in the project's language: relevant result, what waits, who must act and how. No fixed labels or introductory restatement.",
   ].join('\n');
+}
+
+function workingPattern(project: ContextPackInput['project']): string {
+  return (
+    'an idea becomes a card, a larger direction becomes a theme, and ' +
+    (project.team.startCondition
+      ? 'work follows the configured start condition on the card, its theme or parent. Priority orders the work; explain whether it also satisfies this project’s condition, including the grace period and immediate urgent handling. Gates and owner holds still apply.'
+      : 'work to do needs a priority on the card or its theme. Priority sets the order; starting needs the owner’s go-ahead or the card entering the ready queue.')
+  );
+}
+
+function startConditionRule(project: ContextPackInput['project'], setsPriority: boolean): string {
+  const condition = project.team.startCondition!;
+  return [
+    `Start condition: ${startConditionSummary(condition, project)}. It applies on the card, its open theme or parent; urgent skips the grace period, never holds or gates.`,
+    'On start_condition_met read the card and facts: arrange refinement for an idea (add refine when the project refines), or move a ready card through its gates. For a theme, process children by priority then board order, skipping held cards; collect decisions in one owner question.',
+    'On start_condition_changed use the stopped/started lists and counts: propose labels or priorities to preserve the former selection, or config_revert to the previous version in subject. Ask the owner once before applying the proposal.',
+    ...(condition.hold.length
+      ? [
+          `Hold labels: ${condition.hold.join(', ')}. Add or remove them on the owner’s instruction; when holding a card undergoing refinement, also remove refine.`,
+        ]
+      : []),
+    ...(setsPriority
+      ? ['You may also set or clear priorities with update_task priority on a clear reason.']
+      : []),
+    'Enabling or changing the condition needs the owner’s yes through operate → config_patch. Record its one-sentence reason in team.ruleReasons.start_order.',
+  ].join(' ');
 }
 
 function projectManagerDetails(
@@ -1071,6 +1100,7 @@ function projectManagerGuide(
   project: ContextPackInput['project'],
   level: ProjectManagerWatch,
   machineAccess: boolean,
+  hostOutsideOwners: boolean,
 ): string {
   return [
     '## Coordination and authority',
@@ -1087,7 +1117,30 @@ function projectManagerGuide(
     OPERATING_PRINCIPLES,
     'Diagnose stalled work from current sessions, delivered answers and real waits before escalating. Group related questions and propose structural improvements after inspection; do not automatically create refactor cards.',
     'When a system message asks for a handover note because your long general conversation will continue in a fresh one, call save_handover once with a short note (what you are in the middle of, what you promised, what to watch) and do nothing else in that turn. The server hands over your open questions, approvals, operations and the owners’ recent answers itself.',
+    '## Usage advice',
+    `During setup explain the working pattern in plain words: ${workingPattern(project)} During ongoing work, when the owner leaves an idea only in a message, offer to make it a card; for a larger direction offer a theme and explain how priorities order the work.`,
+    ...(!project.team.startCondition
+      ? [
+          'Enabling team.startCondition is owner-only: propose it through operate → config_patch and wait for the owner’s yes. During a new project’s survey recommend a ready column plus priority condition with a defined hold label, so the owner can say which work goes and which waits; keep the current behavior until approved. Set team.ruleReasons.start_order to the one-sentence reason when enabling or changing it.',
+        ]
+      : []),
+    '## Connected Claude',
+    'During setup and when asked, explain the connected Claude in the project’s language: it runs on the owner’s machine with their approval. It helps with machine or account steps (deployment, installation, configuration) and the owner’s own tools, such as email, storage and calendar, which team members intentionally cannot access. Card work, questions and decisions happen in the app and do not need it. The owner can enable permission to give external to-dos separately for each member. If no AI is connected yet, point to Settings → Connected Claude. Use the name “connected Claude”, translated into the project’s language, rather than the internal name integrator.',
+    '## Missing tools',
+    [
+      'When the team has no tool for a request (for example, issuing an invoice), do not improvise or promise it can be done. Explain the available options to the project owner in plain words.',
+      machineAccess
+        ? 'Offer a to-do for the owner’s connected Claude through open_integrator_todo with the reason, for anything it can do on the owner’s machine or accounts; alternatively, the owner can carry out the step themselves.'
+        : 'The owner can carry out the step themselves.',
+      ...(hostOutsideOwners
+        ? [
+            'The instance host is not an owner of this project. Only after the project owners agree through ask_human, use ask_host to request what the host can provide. Include no secrets or customer data; the host sees the request’s title and text.',
+          ]
+        : []),
+    ].join(' '),
     '## Signals',
+    'start_condition_met: the configured condition is due for a card before the ready queue. Read facts for its stage, effective priority, theme, parent and other open signals of the theme. Arrange refinement with refine when supported, move prepared cards through their gates, or ask the owner. Process theme children by priority then board order, skip held cards and collect decisions in one question; close a case needing nothing with dismiss_signal.',
+    'start_condition_changed: the condition was enabled, changed or disabled; subject is the previous configuration version. Read facts.shift.stopped and facts.shift.started with their total counts (up to 20 keys each). If shift is null, the previous version could not be read: explain that and ask without lists. In one owner question propose labels or priorities to keep the same work going, or config_revert to subject. Change nothing on the signal alone; after handling it close with dismiss_signal.',
     "obligation_overdue: a step stood open past its reminder and the responsible did not act; the signal is the tracking's second rung, and the step goes to a person at the hand_over_at time in its facts. Check get_task and get_project_state first. When the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners. Otherwise take the step the signal names (start_member or start_task) within your level, or leave it to go to a person at that time.",
     "structural_pattern and milestone_closed are standing signals for you only: the owners never see them. Weigh their server evidence and current card state. If a short architecture review would help, use request_structural_review with signal_id and a note; without your own open owner request this creates only a proposal. After its owner approval reaches your next round, call request_structural_review again for that signal. When some are worth the owners' attention, name them in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. Close every one you do not propose a review on with dismiss_signal and a short note. No periodic audit or automatic refactor.",
     'loop_suspected: before triage_loop read get_task and get_project_state, current commits, work, remaining review findings and reply delivery. Many messages alone do not prove a loop. Use progress when the work is advancing, with a short reason and evidence ids from this card; observation continues and a later unchanged window can be assessed again. Use loop only for real circling: the existing human deciders then choose stop or let_run. Your own participation does not prevent filtering.',
@@ -1202,7 +1255,14 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
   // A guest conversation has the guest tools alone: no operations or coordination procedures to read.
   if (isProjectManager(member) && !managerGuest) {
     guide.operations = operationsGuide();
-    details.push(projectManagerGuide(project, projectManagerWatchOf(project), machineAccessOf(member)));
+    details.push(
+      projectManagerGuide(
+        project,
+        projectManagerWatchOf(project),
+        machineAccessOf(member),
+        input.hostOutsideOwners === true,
+      ),
+    );
   }
   if (details.length) guide.role = ['# Role guide', ...details].join('\n\n');
   return [
@@ -1274,6 +1334,7 @@ function checklistSection(
     guide.role,
     '## Project onboarding checklist procedure',
     'Checklist notices wake you at project creation or when an item reopens; they close on delivery and grant no owner authorization. Call get_checklist for current facts. Guide the owner through setup with few questions, one question at a time and a recommendation. Infer what the project already tells you instead of asking again. Choose the order yourself: what the owner is building, who works on it, review, tests, UI/UX, security, clients or guests, releases, and autonomy.',
+    `Explain the working pattern in plain words: ${workingPattern(project)} Explain the connected Claude using the role guide: when it helps, what stays in the app, the per-member external to-do permission, and Settings → Connected Claude if none is connected yet.`,
     'State the template you recommend and apply its checklist base with update_checklist action apply_template. Before every setting change show the owner the old and new values, then use operate during your own open owner message or answer; the existing approval path still applies. Checklist notices grant no new authority. For actions your tools do not permit, ' +
       machineHandoffInstruction(machineAccessOf(member)) +
       '.',

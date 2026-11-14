@@ -229,6 +229,26 @@ describe('the refresh of the project manager general conversation (PM-1461)', ()
       expect(restartEvents()).toMatchObject([{ taskKey: null, data: { reason: 'refreshed' } }]);
     });
 
+    it('asks once per refresh, and the saved note reaches the new conversation, though the session idles meanwhile (PM-1492)', async () => {
+      await refreshed('Remember the budget answer.');
+      // The old process is gone and the new conversation is not started: the session idles, the old measure stays.
+      await idleCheck();
+      await idleCheck();
+      expect(refresh()).toMatchObject({ state: 'pending', note: 'Remember the budget answer.' });
+
+      await h.domain.sessions.ensureSession('AR', 'pm', GENERAL);
+      await vi.waitFor(() =>
+        expect(h.runner.started.filter((spec) => spec.sessionId === ctx.sessionId)).toHaveLength(2),
+      );
+      await turnEnds();
+      expect(h.runner.stopped).toEqual([ctx.sessionId]);
+      expect(h.contextBuilder.inputs.at(-1)!.previousConversation?.handover?.note).toBe(
+        'Remember the budget answer.',
+      );
+      expect(h.runner.messages.filter((message) => message.text.includes('save_handover'))).toHaveLength(1);
+      expect(refresh()).toBeNull();
+    });
+
     it('hands over the open questions and the owners` recent answers of the project manager', async () => {
       const open = await h.domain.teamTools.askHuman(ctx, {
         question: 'Which budget line?',

@@ -2651,6 +2651,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   PM-1374: the monitor probes on demand, on the server: an account a live session uses every minute, the
   others every quarter of an hour, none while the project is paused or its AI is off, with a longer wait
   after a probe that gave no answer. The same `usage.plan` call runs on the engine, only less often.
+  PM-1471: `PlanUsageMonitor.engineOnline` forces a probe only for the reconnected engine's accounts,
+  including a follow-up when a round is in flight. Other engines keep their backoff and the regular
+  idle scan schedule. Account attribution remains `(engine, provider)`; the hub selects the engines
+  and uses the existing `usage.plan` RPC, with no new machine assumption or engine protocol.
   The review watch calls `SessionOrchestrator.sourceHead` for the pins of tasks whose assignee has a live
   session, once more when that session stops, and for every pin once in ten minutes; no new engine event.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the

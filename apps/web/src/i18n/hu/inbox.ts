@@ -556,6 +556,7 @@ export const inbox = {
       task_create_access: 'a kártyanyitás jogának megváltoztatása csak a tulajdonosé',
       owner_decision_topics: 'a tulajdonosi döntési témák megváltoztatása csak a tulajdonosé',
       project_manager_authority: 'a projektmenedzser jogkörének megváltoztatása csak a tulajdonosé',
+      start_condition: 'az indító feltétel megváltoztatása csak a tulajdonosé',
     },
   },
   /** A todo the project manager made out of a question (PM-556): the step box and the result field. */

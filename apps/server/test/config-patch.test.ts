@@ -339,6 +339,28 @@ describe('configuration PATCH', () => {
     ]);
   });
 
+  it('reports the start condition separately from project manager authority for a non-owner admin', async () => {
+    const adminCookie = await memberLogin('admin');
+    const current = await view();
+    const payload = { baseVersion: current.version, startCondition: { priority: 'any' } };
+    const refused = await patch(payload, adminCookie);
+    const authority = await patch(
+      {
+        baseVersion: current.version,
+        projectManagerAuthority: 'owner_request',
+      },
+      adminCookie,
+    );
+    expect(refused.statusCode).toBe(403);
+    expect(authority.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe('owner_only');
+    expect(refused.json().error.message).not.toBe(authority.json().error.message);
+    expect((await view()).version).toBe(current.version);
+    expect((await patch(payload)).json<ConfigView>().config.team.startCondition).toMatchObject({
+      priority: 'any',
+    });
+  });
+
   it('lets admins edit limits but protects approvals on every stage and gate removal', async () => {
     const adminCookie = await memberLogin('admin');
     let current = await view();

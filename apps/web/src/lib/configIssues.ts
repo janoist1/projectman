@@ -31,6 +31,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   conditional_release_gate: 'settings.issues.conditional_release_gate',
   unknown_column: 'settings.issues.unknown_column',
   start_condition_invalid_stage: 'settings.issues.start_condition_invalid_stage',
+  start_condition_ai_hold: 'settings.issues.start_condition_ai_hold',
   duplicate_column: 'settings.issues.duplicate_column',
   first_stage_not_queue: 'settings.issues.first_stage_not_queue',
   last_stage_not_done: 'settings.issues.last_stage_not_done',

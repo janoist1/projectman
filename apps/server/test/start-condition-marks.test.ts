@@ -75,16 +75,18 @@ it('serializes updates, schedules the next deadline, restarts after a hold and c
     now: () => new Date(),
   });
   const onDue = vi.fn();
+  const loadConfig = vi.fn(async () => config);
   const tracker = new StartConditionMarks({
     ctx,
-    projects: { config: async () => config },
+    projects: { config: loadConfig },
     tasks: {
       readSchedulingTasks: (_key, query) => (query.kind === 'queue' ? [task] : []),
     },
     onDue,
   });
   try {
-    const results = await Promise.all([tracker.update('AC'), tracker.update('AC')]);
+    const results = await Promise.all([tracker.update('AC', config), tracker.update('AC', config)]);
+    expect(loadConfig).not.toHaveBeenCalled();
     expect([...results[0]!]).toEqual([...results[1]!]);
     expect(publish).toHaveBeenCalledExactlyOnceWith({
       type: 'start_condition_marks_changed',
@@ -95,6 +97,7 @@ it('serializes updates, schedules the next deadline, restarts after a hold and c
     expect(onDue).not.toHaveBeenCalled();
     task.labels = ['hold'];
     expect((await tracker.update('AC')).size).toBe(0);
+    expect(loadConfig).toHaveBeenCalledExactlyOnceWith('AC');
     expect(publish).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
     task.labels = [];

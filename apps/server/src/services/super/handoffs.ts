@@ -88,6 +88,7 @@ const SETUP_OWNER_ONLY_ALLOWED: readonly OwnerOnlyChange[] = [
   'release_approvers',
   'task_create_access',
   'project_manager_authority',
+  'start_condition',
 ];
 
 const isSetupApply = (command: SuperCommand): boolean =>

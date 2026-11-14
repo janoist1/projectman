@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SYSTEM_SENDER } from '@projectman/shared';
+import { StartCondition, SYSTEM_SENDER } from '@projectman/shared';
 import type { ProjectManagerAgreementData, ProjectManagerOperation } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -148,6 +148,21 @@ describe('the setup package (PM-1460)', () => {
       agreementError: 'operator_knowledge_stale',
     });
     await vi.waitFor(() => expect(pmNotices()).toEqual([expect.stringContaining('NOT written')]));
+  });
+
+  it('keeps the start condition available in a setup package only after the owner approves it', async () => {
+    const proposed = await propose({
+      op: 'setup_apply',
+      title: 'Start condition',
+      patch: { startCondition: StartCondition.parse({ priority: 'any' }) },
+      hires: [],
+      updates: [],
+    });
+    expect(proposed.status).toBe('awaiting_approval');
+    expect(config().team.startCondition).toBeUndefined();
+    await answer(proposed.inbox_item_id!, 'yes');
+    expect(await settled(proposed.operationId)).toMatchObject({ state: 'succeeded', errorCode: null });
+    expect(config().team.startCondition).toMatchObject({ priority: 'any' });
   });
 
   it('applies nothing when the configuration changed after the yes was asked for', async () => {

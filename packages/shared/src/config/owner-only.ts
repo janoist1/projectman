@@ -40,7 +40,8 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
  * - `owner_decision_topics`: the topics an AI member may ask the owner to decide under (PM-1190), by their
  *   effective value (`ownerDecisionTopicsOf`);
  * - `project_manager_authority`: what the project manager may do on its own authority (PM-1284), by its
- *   effective value (`projectManagerAuthorityOf`).
+ *   effective value (`projectManagerAuthorityOf`);
+ * - `start_condition`: the condition for automatically starting queued cards (PM-1462).
  */
 const OWNER_ONLY_CHANGES = [
   'locations',
@@ -57,6 +58,7 @@ const OWNER_ONLY_CHANGES = [
   'task_create_access',
   'owner_decision_topics',
   'project_manager_authority',
+  'start_condition',
 ] as const;
 export type OwnerOnlyChange = (typeof OWNER_ONLY_CHANGES)[number];
 

@@ -35,8 +35,9 @@ describe('intentional ready waits', () => {
       release = resolve;
     });
     const projects = { config: vi.fn(() => pending) };
+    const updateMarks = vi.fn(async () => new Map<string, string>());
     const round = new StartRound({
-      startConditionMarks: { update: async () => new Map() },
+      startConditionMarks: { update: updateMarks },
       ctx: createDomainContext({
         repos: h.repos,
         logger: h.log.logger,
@@ -56,12 +57,39 @@ describe('intentional ready waits', () => {
     release(config);
     await first;
     expect(projects.config).toHaveBeenCalledTimes(1);
+    expect(updateMarks).toHaveBeenCalledExactlyOnceWith('AR', config);
     expect(round.holdOf(card)).toMatchObject({ reason: 'ai_disabled' });
     expect(round.holdOf({ ...card, status: 'done' })).toBeUndefined();
     expect(round.holdOf({ ...card, stageId: 'development' })).toBeUndefined();
     config.team.limits.aiEnabled = true;
     await round.run();
     expect(round.holdOf(card)).toBeUndefined();
+  });
+
+  it('skips invalid configuration without updating marks or logging a round failure', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const projects = { config: vi.fn().mockRejectedValue(new Error('Invalid configuration')) };
+    const update = vi.fn(async () => new Map<string, string>());
+    const warn = vi.spyOn(h.log.logger, 'warn');
+    const round = new StartRound({
+      startConditionMarks: { update },
+      ctx: createDomainContext({
+        repos: h.repos,
+        logger: h.log.logger,
+        now: () => time,
+        bus: { publish: () => {}, subscribe: () => () => {} },
+      }),
+      projects,
+      tasks: h.domain.tasks,
+      seniorDecisions: h.domain.seniorDecisions,
+      admission: h.domain.admission,
+      messaging: h.domain.messaging,
+      waits: h.domain.taskWaits,
+    });
+    await round.run();
+    expect(projects.config).toHaveBeenCalledExactlyOnceWith('AR');
+    expect(update).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it.each(['ai_disabled', 'team_paused', 'ai_limit_reached', 'no_free_member', 'engine_offline'] as const)(

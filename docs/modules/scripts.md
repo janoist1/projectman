@@ -22,6 +22,29 @@ comment with it, and add its translations to both web locales. MCP imports in
 `apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
 committed barrels with the generator output; handover-check selects it for changes in these folders.
 
+## Engine device pairing (PM-1449)
+
+The engine CLI's `pair` commands (`scripts/engine/pair.ts`) set up a friend's machine without copying keys;
+the hub side is PM-1448 (`/engine/pairings`). Exit 2 is wrong usage in every command.
+
+- `pair start --cloud <url> --name <name> --integrator-base-url <url> [--link-headers-file <path>]
+[--integrator-access-headers-file <path>] [--expect-email <email>] [--force] [--replace]`: refuses before
+  any request (`home_in_use`, `config_exists`, `connect_file_exists`, `pairing_in_progress`), generates the
+  `pme_` machine and `pmi_` integrator keys, sends only their sha256 and prefixes, writes
+  `<engine home>/pairing-pending.json` (0600) and prints `<cloud>/pair/<code>`, `<cloud>/pair` and the code.
+  A hub 404 is `pairing_unavailable`, a 429 `too_many_attempts` (exit 1).
+- `pair wait [--timeout <s>] [--force] [--replace]` (30 s by default, 1–600) polls at the hub's interval:
+  0 written, 1 ended with nothing written (denied, expired, cancelled, unknown, or an approver other than
+  `--expect-email`; the pending file is deleted), 3 still pending, 4 approved but a file is in the way (the
+  pending file stays; run again with `--force`/`--replace`).
+- `pair cancel` withdraws the request (`DELETE`) and deletes the pending file.
+
+On approval `pair wait` writes exactly what `init` and `projectman connect` write: `scripts/engine/setup.ts`
+(`previousEngineConfig`, `buildEngineConfig`, `writeEngineSetup`, shared with `init`) and `connect.ts`'s
+`prepareClientCredentials`/`writeClientCredentials` under `EngineCliIo.userHome`. The engine app bundles
+`scripts/engine/cli.ts` with esbuild, so the shared writer goes into its `cli.js`. Tests:
+`apps/server/test/engine-pair.test.ts` (injected `fetch`, clock and `sleep`).
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest

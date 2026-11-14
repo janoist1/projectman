@@ -1,0 +1,37 @@
+{
+  "name": "get_capability",
+  "title": "Read what the project can do",
+  "description": "Details behind the Capabilities section of your prompt, from the code: an area’s items (no id) or one item (role view, tool description, setting note, owner-only flag, schema). Look here before you say there is no way. Unknown id: not_found. Needs no owner request.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "area": {
+        "type": "string",
+        "enum": [
+          "roles",
+          "member_settings",
+          "team_tools",
+          "connected_ai",
+          "host_requests",
+          "project_settings"
+        ]
+      },
+      "id": {
+        "description": "An item of the area, as the area’s list names it.",
+        "type": "string",
+        "maxLength": 80
+      }
+    },
+    "required": [
+      "area"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read what the project can do",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

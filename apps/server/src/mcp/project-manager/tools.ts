@@ -14,7 +14,7 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
-import { TeamToolError } from '../../contracts';
+import { CAPABILITY_AREAS, TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
@@ -189,6 +189,26 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
         return JSON.stringify(
           await handler.getProjectManagerDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
         );
+      },
+    }),
+    defineTool({
+      name: 'get_capability',
+      audience: { roles: ['project_manager'] },
+      title: 'Read what the project can do',
+      readOnly: true,
+      description:
+        'Details behind the Capabilities section of your prompt, from the code: an area’s items (no id) or one ' +
+        'item (role view, tool description, setting note, owner-only flag, schema). Look here before you say ' +
+        'there is no way. Unknown id: not_found. Needs no owner request.',
+      input: {
+        area: z.enum(CAPABILITY_AREAS),
+        id: z.string().max(80).optional().describe('An item of the area, as the area’s list names it.'),
+      },
+      async run({ ctx, args, handler }) {
+        return handler.getCapability(ctx, {
+          area: args.area,
+          ...(args.id !== undefined ? { id: args.id } : {}),
+        });
       },
     }),
     defineTool({

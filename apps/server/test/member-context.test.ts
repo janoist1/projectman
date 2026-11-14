@@ -4,7 +4,7 @@ import type { Merger } from '@projectman/shared';
 import type { ContextPackInput } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
-import { visibleTeamTools } from '../src/mcp';
+import { teamToolCatalog, visibleTeamTools } from '../src/mcp';
 import { memberAudience } from '../src/runtime/sessions';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -258,6 +258,16 @@ describe('the owner-account flag of the project manager context (PM-1069)', () =
     });
     await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
     expect(h.contextBuilder.inputs.at(-1)!.hostOutsideOwners).toBe(flagged ? true : undefined);
+  });
+
+  it.each([
+    ['pm', true],
+    ['dev-1', false],
+  ])('gives the capability catalog to %s only if it is the project manager: %s (PM-1468)', async (handle, given) => {
+    await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
+    const catalog = h.contextBuilder.inputs.at(-1)!.capabilities;
+    expect(catalog !== undefined).toBe(given);
+    if (catalog) expect(catalog.team_tools.map((tool) => tool.id)).toEqual(teamToolCatalog().map((tool) => tool.name));
   });
 });
 

@@ -159,6 +159,11 @@ export function createTimelineRepository(db: Db) {
          AND actor_kind = ? AND actor_handle IS ? AND COALESCE(actor_via, '') = ?
          AND json_extract(data, '$.clientRequestId') = ? ORDER BY seq LIMIT 1`,
     ),
+    // PM-1512: served by timeline_task.
+    taskAfter: db.prepare(
+      'SELECT * FROM timeline_events WHERE task_key = ? AND seq > ? ORDER BY seq LIMIT ?',
+    ),
+    maxSeq: db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM timeline_events'),
     humanNoteAuthors: db.prepare(
       `SELECT DISTINCT actor_handle FROM timeline_events WHERE project_key = ? AND task_key = ?
          AND type = 'task_note' AND actor_kind = 'human' AND actor_handle IS NOT NULL
@@ -166,6 +171,21 @@ export function createTimelineRepository(db: Db) {
     ),
   };
   return {
+    /** The first `limit` events of a card after `seq`, oldest first, each with its own seq (PM-1512). */
+    taskEventsAfter(
+      taskKey: string,
+      seq: number,
+      limit: number,
+    ): Array<{ seq: number; event: TimelineEvent }> {
+      return (statements.taskAfter.all(taskKey, seq, limit) as TimelineRow[]).map((row) => ({
+        seq: row.seq,
+        event: toEvent(row),
+      }));
+    },
+    /** The seq of the newest event of all, 0 on an empty timeline (PM-1512). */
+    maxSeq(): number {
+      return (statements.maxSeq.get() as { seq: number }).seq;
+    },
     /** Structured detector evidence in a fixed time window, independent of unrelated project traffic. */
     structuralEvidence(projectKey: string, since: string, until: string): TimelineEvent[] {
       return (statements.structuralEvidence.all(projectKey, since, until) as TimelineRow[]).map(toEvent);

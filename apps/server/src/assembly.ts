@@ -172,7 +172,13 @@ import { InvitationService, OwnerInvitationService } from './core/members';
 import { MemberProfiles } from './core/members';
 import { MessageService, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
-import { MessageDelivery, MessageProcessingReader, MessageRouter, SessionMessages } from './runtime/delivery';
+import {
+  CardChangeNotices,
+  MessageDelivery,
+  MessageProcessingReader,
+  MessageRouter,
+  SessionMessages,
+} from './runtime/delivery';
 import {
   MemberQueueWorker,
   decisionLane,
@@ -884,6 +890,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_state_changed', (session) => messages.sessionStateChanged(session));
   const decisionCandidates = new DecisionCandidates({ ctx });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
+  const cardNotices = new CardChangeNotices({ ctx, projects });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, tasks, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
@@ -2410,6 +2417,8 @@ export function createDomain(opts: DomainOptions) {
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  // What happened before a start (also a resumed one) is in its first input; only later changes are news (PM-1512).
+  events.on('session_started', (session) => cardNotices.sessionStarted(session));
   // The project manager's long general conversation moves towards its refresh at an idle moment, before anything
   // waiting is delivered to it (PM-1461).
   events.on('session_idle', (session) => {
@@ -2541,6 +2550,7 @@ export function createDomain(opts: DomainOptions) {
     outages,
     worktreeSweep,
     teamTools,
+    cardNotices,
     cardQuestions,
     board,
     profiles,

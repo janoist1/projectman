@@ -398,6 +398,16 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 | handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                          |
 | any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                           |
 
+**Card change notice (PM-1512).** When the call has finished, `withCardNotice` (`server.ts`) asks
+`CardChangeNotices.take(ctx)` (`runtime/delivery/card-change-notices.ts`) about the session's own card and, if
+somebody else changed it, appends one more text block **after** all others: card key, kind of change, actor and
+source event id, never a message text. The result's own content, images and `isError` stay as they are, so an
+error result (`TeamToolError`, `timeout`, `internal`) carries the notice and stays an error. The notice only asks
+for a fresh `get_task`; it does not deliver or mark delivered any message. `handlePost` (`index.ts`) puts the
+grants the request took in the internal `x-projectman-card-notice` response header; the engine relay
+(`engine-link/remote`) takes them back if the engine link changed while the request ran. A server without
+`cardNotices` (or a session without a card) adds nothing.
+
 ## What the handler (domain) should do
 
 - Resolve quickly. The HTTP call, and the Claude turn with it, stays open until the handler

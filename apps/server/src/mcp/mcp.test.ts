@@ -4,8 +4,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ToolContext } from '../contracts';
-import { TeamToolError } from '../contracts';
+import type { CardChangeNotices, ToolContext } from '../contracts';
+import { CARD_NOTICE_HEADER, TeamToolError } from '../contracts';
 import { PROJECT_MANAGER_GUEST_TOOLS, PROJECT_MANAGER_READ_TOOLS } from '../services/coordination';
 import { createMcpModule } from './index';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, toolListing } from './server';
@@ -63,7 +63,11 @@ afterEach(async () => {
 });
 
 async function startServer(
-  options: { toolTimeoutMs?: number; configure?: (app: FastifyInstance) => void } = {},
+  options: {
+    toolTimeoutMs?: number;
+    configure?: (app: FastifyInstance) => void;
+    notices?: CardChangeNotices;
+  } = {},
 ): Promise<Harness> {
   const logs: LogLine[] = [];
   const app = loggingApp(logs);
@@ -83,6 +87,7 @@ async function startServer(
       return tokens.get(token) ?? null;
     },
     logger: app.log,
+    cardNotices: options.notices,
     ...(options.toolTimeoutMs ? { toolTimeoutMs: options.toolTimeoutMs } : {}),
   }).registerRoutes(app);
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -102,17 +107,27 @@ async function connect(h: Harness, token: string): Promise<Client> {
 /** A client of the tools of one session, without HTTP; `handler` shares one fake between sessions. */
 async function startTools(
   ctx: ToolContext = devContext,
-  options: { handler?: FakeTeamToolsHandler; toolTimeoutMs?: number } = {},
+  options: {
+    handler?: FakeTeamToolsHandler;
+    toolTimeoutMs?: number;
+    notices?: CardChangeNotices;
+    grants?: string[];
+  } = {},
 ): Promise<ToolSession> {
   const logs: LogLine[] = [];
   const app = loggingApp(logs);
   const handler = options.handler ?? createFakeTeamToolsHandler();
-  const server = createTeamMcpServer(ctx, {
-    audienceOf: () => fullAudience,
-    handler,
-    logger: app.log,
-    toolTimeoutMs: options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
-  });
+  const server = createTeamMcpServer(
+    ctx,
+    {
+      audienceOf: () => fullAudience,
+      handler,
+      logger: app.log,
+      toolTimeoutMs: options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+      notices: options.notices,
+    },
+    options.grants,
+  );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'claude-code-test', version: '1.0.0' });
   await server.connect(serverTransport);
@@ -1029,6 +1044,116 @@ describe('tool errors', () => {
     expect(text(result)).toMatch(/^Error \[timeout\]: The team service did not answer/);
     // The endpoint keeps working afterwards.
     expect((await call(client, 'get_task', { task_key: 'AR-21' })).isError).toBeFalsy();
+  });
+});
+
+/* ---------- card change notice (PM-1512) ---------- */
+
+describe('card change notice', () => {
+  /** A notice source that tells the queued notices once, each to the call that asks first. */
+  function noticesOf(
+    ...queued: Array<{ text: string; grant: string }>
+  ): CardChangeNotices & { asked: number } {
+    return {
+      asked: 0,
+      take() {
+        this.asked++;
+        return queued.shift() ?? null;
+      },
+      rollback() {},
+    };
+  }
+
+  it('appends the notice as the last text block and leaves the result as it is', async () => {
+    const notices = noticesOf({ text: 'NOTICE', grant: '1-2' });
+    const grants: string[] = [];
+    const { client } = await startTools(devContext, { notices, grants });
+    const plain = await call((await startTools()).client, 'get_task', { task_key: 'AR-21' });
+
+    const result = await call(client, 'get_task', { task_key: 'AR-21' });
+
+    expect(result.content.slice(0, -1)).toEqual(plain.content);
+    expect(result.content.at(-1)).toEqual({ type: 'text', text: 'NOTICE' });
+    expect(result.isError).toBeFalsy();
+    expect(grants).toEqual(['1-2']);
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain('NOTICE');
+  });
+
+  it('adds it to an error result too, which stays an error', async () => {
+    const { client } = await startTools(devContext, {
+      notices: noticesOf({ text: 'NOTICE', grant: '1-2' }),
+    });
+
+    const blocked = await call(client, 'update_task', { task_key: 'AR-21', stage_id: 'qa' });
+
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content[0]?.text).toMatch(/^Error \[gate_blocked\]/);
+    expect(blocked.content.at(-1)?.text).toBe('NOTICE');
+  });
+
+  it('adds it to a timeout and an internal error', async () => {
+    const notices = noticesOf({ text: 'N1', grant: '1-2' }, { text: 'N2', grant: '2-3' });
+    const { client, handler } = await startTools(devContext, { notices, toolTimeoutMs: 50 });
+    handler.failNext('getTask', 'hang');
+    handler.failNext('listMembers', new Error('database is locked'));
+
+    const timedOut = await call(client, 'get_task', { task_key: 'AR-21' });
+    const failed = await call(client, 'list_members');
+
+    expect(timedOut.isError).toBe(true);
+    expect(timedOut.content.at(-1)?.text).toBe('N1');
+    expect(failed.isError).toBe(true);
+    expect(failed.content.at(-1)?.text).toBe('N2');
+  });
+
+  it('looks for it when the call has finished, so a change during the call is in its answer', async () => {
+    const handler = createFakeTeamToolsHandler();
+    let callsWhenAsked = -1;
+    const notices: CardChangeNotices = {
+      take() {
+        callsWhenAsked = handler.calls.length;
+        return null;
+      },
+      rollback() {},
+    };
+    const { client } = await startTools(devContext, { handler, notices });
+
+    await call(client, 'get_task', { task_key: 'AR-21' });
+
+    expect(callsWhenAsked).toBe(1);
+  });
+
+  it('gives one of two parallel calls the notice', async () => {
+    const { client } = await startTools(devContext, { notices: noticesOf({ text: 'NOTICE', grant: '1-2' }) });
+
+    const results = await Promise.all([
+      call(client, 'get_task', { task_key: 'AR-21' }),
+      call(client, 'get_task', { task_key: 'AR-22' }),
+    ]);
+
+    expect(results.filter((r) => r.content.at(-1)?.text === 'NOTICE')).toHaveLength(1);
+  });
+
+  it('hands the grants of the request to the relay in a header', async () => {
+    const h = await startServer({ notices: noticesOf({ text: 'NOTICE', grant: '5-9' }) });
+    const callRequest = {
+      method: 'POST' as const,
+      url: '/mcp/token-dev',
+      headers: mcpHeaders,
+      payload: {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'get_task', arguments: { task_key: 'AR-21' } },
+      },
+    };
+
+    const first = await h.app.inject(callRequest);
+    const second = await h.app.inject(callRequest);
+
+    expect(first.headers[CARD_NOTICE_HEADER]).toBe('5-9');
+    expect(first.body).toContain('NOTICE');
+    expect(second.headers[CARD_NOTICE_HEADER]).toBeUndefined();
   });
 });
 

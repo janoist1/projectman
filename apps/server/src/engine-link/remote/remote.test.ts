@@ -16,7 +16,7 @@ import type {
   ScreenshotRunSpec,
   StartSessionSpec,
 } from '../../contracts';
-import { MergeError } from '../../contracts';
+import { CARD_NOTICE_HEADER, MergeError } from '../../contracts';
 import { ScreenshotRuns } from '../../services/full-tests';
 import { outputTail } from '../../full-test';
 import { testConfig } from '../../../test/helpers/test-template';
@@ -82,7 +82,12 @@ describe('cloud mode remote parts', () => {
     reconciled: Array<{ engine: string; reported: string[]; paused: string[] }>;
     /** The calls on the sessions and the pause service in order: `reconcile:<engine>`, `resume:<engine>`, `pause:<engine>:<waitMs>`. */
     calls: string[];
+    /** The card-change notices (PM-1512) the relay took back. */
+    noticesTakenBack: Array<{ sessionId: string; grants: string[] }>;
   };
+  /** The grants header the fake MCP route answers with, and what it does while the call runs. */
+  let noticeGrants: string | null;
+  let duringRelay: (() => void) | null;
   let app: FastifyInstance;
   let broker: PermissionBroker;
   let nanogptKey: string | null;
@@ -123,10 +128,20 @@ describe('cloud mode remote parts', () => {
           domain.calls.push(`resume:${engine}`);
         },
       },
+      cardNotices: {
+        rollback(sessionId, grants) {
+          domain.noticesTakenBack.push({ sessionId, grants: [...grants] });
+        },
+      },
+      noticesTakenBack: [],
     };
+    noticeGrants = null;
+    duringRelay = null;
     app = Fastify();
     app.post('/mcp/:token', async (request, reply) => {
       reply.type('application/json');
+      if (noticeGrants) reply.header(CARD_NOTICE_HEADER, noticeGrants);
+      duringRelay?.();
       return JSON.stringify({ via: 'inject', token: (request.params as { token: string }).token });
     });
     remote.bind(domain, app);
@@ -1498,6 +1513,53 @@ describe('cloud mode remote parts', () => {
       const unknown = await relay(a, 'tok-zzz');
       expect(foreign.status).toBe(404);
       expect(unknown).toEqual(foreign);
+    });
+
+    it('keeps a card-change notice told when its response leaves on the same link', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      noticeGrants = '3-7,7-9';
+      const answer = await relay(engine, 'tok-abc');
+      expect(answer.status).toBe(200);
+      expect(domain.noticesTakenBack).toEqual([]);
+    });
+
+    it('takes the card-change notices back when the engine link was replaced during the call', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      noticeGrants = '3-7,7-9';
+      duringRelay = () => {
+        duringRelay = null;
+        cloud.connect('eng_a' as never);
+      };
+      void relay(engine, 'tok-abc').catch(() => undefined);
+      await vi.waitFor(() =>
+        expect(domain.noticesTakenBack).toEqual([{ sessionId: 's1', grants: ['3-7', '7-9'] }]),
+      );
+    });
+
+    it('takes the card-change notices back when the engine link went away during the call', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      noticeGrants = '3-7';
+      duringRelay = () => {
+        duringRelay = null;
+        engine.disconnect();
+      };
+      void relay(engine, 'tok-abc').catch(() => undefined);
+      await vi.waitFor(() => expect(domain.noticesTakenBack).toEqual([{ sessionId: 's1', grants: ['3-7'] }]));
+    });
+
+    it('takes back nothing for a call that carried no notice', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      duringRelay = () => {
+        duringRelay = null;
+        engine.disconnect();
+      };
+      void relay(engine, 'tok-abc').catch(() => undefined);
+      await vi.waitFor(() => expect(remote.hub.mirror('eng_a' as never).connected).toBe(false));
+      expect(domain.noticesTakenBack).toEqual([]);
     });
   });
 

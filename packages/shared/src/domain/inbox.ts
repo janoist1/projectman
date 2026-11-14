@@ -669,7 +669,7 @@ const WorkStalledAlert = z.object({
   ),
 });
 
-export const EnginePairedAlert = z.object({
+const EnginePairedAlert = z.object({
   alert: z.literal('engine_paired'),
   pairingId: z.string(),
   engineId: z.string(),

@@ -34,6 +34,10 @@ describe('messageText', () => {
   it('puts the values of the notice into its text', () => {
     expect(messageText(notice('session_tokens', { counted: 123, limit: 100 }))).toContain('123');
     expect(messageText(notice('refinement_done', { taskKey: 'AR-7' }))).toContain('AR-7');
+    const paired = messageText(
+      notice('engine_paired', { machine: 'Friend Mac', prefix: 'pmi_12345678', approver: 'Owner' }),
+    );
+    for (const value of ['Friend Mac', 'pmi_12345678', 'Owner']) expect(paired).toContain(value);
   });
 
   it('shows the outage start and engine when the new facts are present', () => {

@@ -533,6 +533,9 @@ export const inbox = {
     /** Why the owner's yes is needed: "Why your yes is needed: ..." with the effects below. */
     why: 'Why your yes is needed: {reasons}.',
     whyNone: 'It needs your yes because it is reserved for the owner.',
+    asked: {
+      involvement: 'our agreement says to ask you before every settings change',
+    },
     effects: {
       deletion: 'it deletes something and cannot be undone',
       security: 'it affects security or permissions',

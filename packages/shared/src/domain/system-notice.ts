@@ -7,6 +7,7 @@ import type { AlertPayload } from './inbox';
  * `params` in the language of the interface.
  */
 export const SYSTEM_NOTICE_KINDS = [
+  'engine_paired',
   'session_tokens',
   'provider_rate_limited',
   'refinement_done',
@@ -54,6 +55,16 @@ function present(params: Record<string, string | number | null | undefined>): Sy
  */
 export function systemNoticeOf(alert: AlertPayload): SystemNotice | null {
   switch (alert.alert) {
+    case 'engine_paired':
+      return {
+        notice: 'engine_paired',
+        params: present({
+          machine: alert.machineName,
+          prefix: alert.keyPrefix,
+          approver: alert.approverName,
+        }),
+        text: `${alert.approverName} paired machine ${JSON.stringify(alert.machineName)} and created super integrator key ${alert.keyPrefix}. If this was unexpected, revoke the key and the engine.`,
+      };
     case 'session_tokens':
       return {
         notice: 'session_tokens',

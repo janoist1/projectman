@@ -28,6 +28,7 @@ import type {
 import type { DomainContext } from '../../core/base';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { TaskHandoffRow } from '../../db';
+import { buildCapabilityCatalog } from '../../context';
 import { aiActor } from '../../kernel';
 import { BRIEF_TIMELINE_LIMIT, QUIET_TIMELINE_EVENTS } from '../../agent-text';
 import { attachmentToolRules } from './session-policy';
@@ -169,10 +170,19 @@ export class SessionContextInput {
     const isCoordinator = coordinationMemberOf(config)?.handle === member.handle;
     // The selected project manager leads the setup checklist (PM-1043).
     const checklist = isCoordinator ? this.ctx.repos.checklists.get(projectKey) : null;
+    // What the project can do (PM-1468): the selected project manager's own conversations, never a guest one.
+    const capabilities =
+      isCoordinator && guestOfConversation(config, member, workItem) === undefined
+        ? buildCapabilityCatalog(config, {
+            ...this.deps.capabilityTools,
+            hostEmail: this.deps.hostOwnerEmail(),
+          })
+        : null;
     return {
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
       ...(checklist ? { checklist } : {}),
+      ...(capabilities ? { capabilities } : {}),
       // The coordinator needs the host boundary for missing tools as well as onboarding (PM-1457).
       ...(isCoordinator && hostOutsideOwners(config, this.deps.hostOwnerEmail())
         ? { hostOutsideOwners: true }

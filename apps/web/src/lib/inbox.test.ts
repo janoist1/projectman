@@ -24,6 +24,7 @@ import {
   resolutionNote,
   shortCommand,
   splitQuestion,
+  superOperationWhy,
   todoRows,
 } from './inbox';
 
@@ -43,6 +44,31 @@ const item: InboxItem = {
   createdAt: '2026-09-30T10:00:00.000Z',
   resolution: { optionId: 'allow', by: 'system', at: '2026-09-30T10:00:00.000Z', note: null },
 };
+
+it('explains involvement questions together with their reserved effects', () => {
+  const question: InboxItem = {
+    ...item,
+    kind: 'question',
+    payload: {
+      question: 'Approve this change?',
+      superOperation: {
+        operationId: 'sop_1',
+        commandHash: 'hash',
+        expectedConfigVersion: 'v1',
+        expiresAt: '2026-11-14T10:00:00.000Z',
+        summary: {
+          kind: 'config_patch',
+          params: {},
+          asked: 'involvement',
+          effects: ['security'],
+          ownerOnly: [],
+        },
+      },
+    },
+  };
+  expect(superOperationWhy(question)).toContain(t('inbox.superOperation.asked.involvement'));
+  expect(superOperationWhy(question)).toContain(t('inbox.superOperation.effects.security'));
+});
 
 it('shows approval questions closed by the system as approved rather than answered', () => {
   const approved: InboxItem = {

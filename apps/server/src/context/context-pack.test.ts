@@ -43,7 +43,8 @@ import {
   sessionSandbox,
   withSessionFolders,
 } from '../runtime/sessions';
-import { visibleTeamTools } from '../mcp';
+import { connectedToolCatalog, teamToolCatalog, visibleTeamTools } from '../mcp';
+import { buildCapabilityCatalog } from './capability-catalog';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -2137,6 +2138,11 @@ describe('system prompt', () => {
           workItem: { type: 'general' },
           task: null,
           stage: null,
+          capabilities: buildCapabilityCatalog(project, {
+            teamTools: teamToolCatalog(),
+            connectedTools: connectedToolCatalog(),
+            hostEmail: 'host@example.test',
+          }),
           documents: [
             {
               slug: 'memorianaplo',
@@ -2156,8 +2162,9 @@ describe('system prompt', () => {
       );
       // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
       // The prompt cap includes the documents section with the memory log rule (PM-1228, ~1.3 KB).
+      // The capabilities section (PM-1468) is at most CAPABILITY_INDEX_LIMIT characters (4,000).
       expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(
-        15_300 + CLAUDE_TOOL_BATCH_BYTES,
+        15_300 + 4_100 + CLAUDE_TOOL_BATCH_BYTES,
       );
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
     });

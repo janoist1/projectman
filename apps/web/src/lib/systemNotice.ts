@@ -10,6 +10,12 @@ export function messageText(message: TeamMessage): string {
   if (origin?.kind !== 'system_notice') return message.body;
   const text = (key: string): string => String(origin.params[key] ?? '');
   switch (origin.notice) {
+    case 'engine_paired':
+      return t('messages.notice.engine_paired', {
+        machine: text('machine'),
+        prefix: text('prefix'),
+        approver: text('approver'),
+      });
     case 'session_tokens':
       return t('messages.notice.session_tokens', { counted: text('counted'), limit: text('limit') });
     case 'provider_rate_limited':

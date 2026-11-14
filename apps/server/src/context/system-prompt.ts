@@ -1230,7 +1230,7 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
   task_breakdown: {
     title: 'Task breakdown',
     short:
-      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own, with its own acceptance items (create_task acceptance); set complexity (1, 2, 3, 5, 8, 13) on a card if useful.',
+      'Split work into independently testable tasks with create_task and record dependencies. Name the hand-written shared points each part rewrites (a function or block of a central file); parts rewriting the same point go in sequence by prerequisite or onto one card, each naming it. A line added to a shared list or a generated file (snapshot, migration number) is not one: merge regeneration settles it. A sub-card must stand on its own, with its own acceptance items (create_task acceptance); set complexity (1, 2, 3, 5, 8, 13) on a card if useful.',
   },
 };
 

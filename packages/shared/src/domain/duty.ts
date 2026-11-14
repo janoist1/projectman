@@ -83,7 +83,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Split work into independently testable tasks with create_task and record dependencies. Give a developer card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason when that helps or the team agreed on it; a card that would be above 13 must be split.',
+      'Split work into independently testable tasks with create_task and record dependencies. Before splitting, name for each part the hand-written shared points it rewrites: a function or block of a central file (a prompt builder, a registry, a shared test). Parts that rewrite the same point must not run in parallel: order them with a prerequisite or put them on one card, and name the shared point in the description of each part. A line added to a shared list (wiring, a registry entry) and a generated file (a snapshot, a migration number) are not shared points; the merge-time regeneration settles them. Give a developer card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason when that helps or the team agreed on it; a card that would be above 13 must be split.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

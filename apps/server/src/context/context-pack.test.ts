@@ -5040,7 +5040,7 @@ describe('analyst role guide (PM-994)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(13_351);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(587 + 113 + ROLE_PURPOSES.business_analyst.length + 2); // 113: the acceptance items (PM-1135)
+    ).toBeLessThanOrEqual(587 + 113 + 306 + ROLE_PURPOSES.business_analyst.length + 2); // 113: the acceptance items (PM-1135); 306: the shared-point splitting rule (PM-1497)
   });
 
   it('keeps clarification and the relation-check limit visible, serving the complete duty in the guide', () => {
@@ -5148,12 +5148,16 @@ describe('architect role guide (PM-993)', () => {
       '__snapshots__/architect-general.role-guide.txt',
     );
     // UTF-8 bytes, including the snapshot's final newline; baseline: 12,991 B / 1,934 B / no guide.
-    expect(bytes(pack.appendSystemPrompt)).toBeLessThan(12_000);
-    expect(bytes(roleOf(pack.appendSystemPrompt))).toBeLessThan(950 + ROLE_PURPOSES.architect.length + 2);
+    expect(bytes(pack.appendSystemPrompt)).toBeLessThan(12_100); // PM-1497: +306 B for the shared-point splitting rule
+    expect(bytes(roleOf(pack.appendSystemPrompt))).toBeLessThan(
+      950 + 306 + ROLE_PURPOSES.architect.length + 2,
+    );
     // On a development card the sub-card rule moves too; baseline: 14,310 B / 1,574 B / no guide.
     const task = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
     expect(bytes(task.appendSystemPrompt)).toBeLessThan(13_550);
-    expect(bytes(roleOf(task.appendSystemPrompt))).toBeLessThan(800 + ROLE_PURPOSES.architect.length + 2);
+    expect(bytes(roleOf(task.appendSystemPrompt))).toBeLessThan(
+      800 + 320 + ROLE_PURPOSES.architect.length + 2,
+    );
   });
 
   it('indexes exactly the headings of the guide', () => {

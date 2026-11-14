@@ -188,6 +188,13 @@ describe('github-deploy-setup', () => {
     expect(github.mutations()).toEqual([]);
   });
 
+  it('refuses custom OIDC claim keys before any mutation', async () => {
+    github.oidc = { use_default: false, include_claim_keys: ['repo', 'context'] };
+    expect(await run()).toBe(2);
+    expect(world.aws.mutations()).toEqual([]);
+    expect(github.mutations()).toEqual([]);
+  });
+
   it('replaces an existing legacy trust policy after the repository opts into immutable subjects', async () => {
     expect(await run()).toBe(0);
     github.oidc = { use_default: true, use_immutable_subject: true };

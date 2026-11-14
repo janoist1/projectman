@@ -1,5 +1,9 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import type { InfiniteData } from '@tanstack/react-query';
+import type { ConfigHistoryView } from '@projectman/shared';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { applyServerEvent } from '../../../api/cache';
+import { queryKeys } from '../../../api/queryKeys';
 import { t } from '../../../i18n/t';
 import { mockProject } from '../../../test/mockProject';
 import { HistorySection } from './HistorySection';
@@ -36,6 +40,51 @@ describe('the settings history', () => {
     ).toEqual([
       '/api/projects/AC/config/history?limit=5&offset=0',
       '/api/projects/AC/config/history?limit=50&offset=5',
+    ]);
+  });
+
+  it('keeps the refreshed first page when an older multi-page read arrives after a save', async () => {
+    const p = mockProject();
+    rename(p, 7);
+    const { client } = show(p);
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.history.older', { count: 7 }) }));
+    await waitFor(() => expect(rows()).toHaveLength(12));
+    const held = p.holdNextResponse('GET', '/api/projects/AC/config/history?limit=5&offset=0');
+    const earlier = client.refetchQueries({ queryKey: queryKeys.configHistory('AC') });
+    await held.captured;
+    try {
+      rename(p, 1);
+      act(() =>
+        applyServerEvent(client, {
+          type: 'config_changed',
+          projectKey: 'AC',
+          version: p.backend.configVersion,
+        }),
+      );
+      await waitFor(() => {
+        const data = client.getQueryData<InfiniteData<ConfigHistoryView, number>>(
+          queryKeys.configHistory('AC'),
+        );
+        expect(data?.pages[0]?.entries[0]?.version).toBe(p.backend.configVersion);
+      });
+    } finally {
+      await act(async () => {
+        await held.release();
+        await earlier;
+      });
+    }
+    const data = client.getQueryData<InfiniteData<ConfigHistoryView, number>>(queryKeys.configHistory('AC'));
+    expect(data?.pages).toHaveLength(1);
+    expect(data?.pageParams).toEqual([0]);
+    expect(data?.pages[0]?.entries[0]?.version).toBe(p.backend.configVersion);
+    expect(rows()).toHaveLength(5);
+    expect(
+      p.requests.filter((request) => request.path.includes('/config/history')).map((request) => request.path),
+    ).toEqual([
+      '/api/projects/AC/config/history?limit=5&offset=0',
+      '/api/projects/AC/config/history?limit=50&offset=5',
+      '/api/projects/AC/config/history?limit=5&offset=0',
+      '/api/projects/AC/config/history?limit=5&offset=0',
     ]);
   });
 

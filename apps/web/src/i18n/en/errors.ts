@@ -408,6 +408,7 @@ export const errors = {
     setup_source_none: 'The owner has no other project of their own to take ideas from.',
     setup_source_not_allowed:
       'This project can only be looked at when its owner allowed it themselves within the last day.',
+    setup_source_open: 'The owner hasn’t answered the earlier question about another project yet.',
     super_executor_unavailable: 'This installation can’t carry out this action yet.',
     super_operation_unsupported:
       'The connected Claude can’t carry out this action even with the super permission.',

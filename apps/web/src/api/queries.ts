@@ -1034,11 +1034,15 @@ const HISTORY_PAGE_SIZE = 50;
 export function useConfigHistory(key: string) {
   return useInfiniteQuery({
     queryKey: queryKeys.configHistory(key),
-    queryFn: ({ pageParam }) =>
-      api.configHistory(key, {
-        offset: pageParam,
-        limit: pageParam === 0 ? HISTORY_HEAD_SIZE : HISTORY_PAGE_SIZE,
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      api.configHistory(
+        key,
+        {
+          offset: pageParam,
+          limit: pageParam === 0 ? HISTORY_HEAD_SIZE : HISTORY_PAGE_SIZE,
+        },
+        signal,
+      ),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => {
       const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
@@ -1053,6 +1057,7 @@ export function usePatchConfig(key: string) {
   return useMutation({
     mutationFn: (body: PatchConfigRequest) => api.patchConfig(key, body),
     onSuccess: async (view) => {
+      await client.cancelQueries({ queryKey: queryKeys.config(key) }, { silent: true, revert: false });
       client.setQueryData(queryKeys.config(key), view);
       refreshConfigHistory(client, key);
       await Promise.all([

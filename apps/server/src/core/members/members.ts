@@ -42,6 +42,7 @@ import type {
   MemberStatus,
   MemberUsage,
   MemberView,
+  PatchConfigRequest,
   WorkOutage,
   ProjectConfig,
   TaskKey,
@@ -393,6 +394,49 @@ export class MemberService {
     const view = (await this.roster(projectKey)).find((m) => m.handle === handle);
     if (!view) throw notFound('member', handle);
     return view;
+  }
+
+  /**
+   * A setup package in one configuration commit (PM-1460): the settings patch under the REST edit's own
+   * preparation, then every hire and every member change on the patched draft. Any step that fails refuses the
+   * whole commit; `expectedVersion` refuses a stale package with 409 config_conflict.
+   */
+  async applySetup(
+    projectKey: string,
+    setup: {
+      expectedVersion: string;
+      patch?: PatchConfigRequest;
+      hires: readonly HireMemberRequest[];
+      updates: readonly { handle: string; changes: ProjectManagerMemberChanges }[];
+      message: string;
+    },
+    by: { actor: Actor; author: Author; sponsor: string },
+  ): Promise<{ previousVersion: string; version: string; hired: string[]; updated: string[] }> {
+    const hired: AiMemberConfig[] = [];
+    const loaded = await this.projects.patchWith(
+      projectKey,
+      setup.patch,
+      { actor: by.actor, author: by.author, expectedVersion: setup.expectedVersion },
+      (draft) => {
+        for (const req of setup.hires)
+          hired.push(this.prepareHire(projectKey, draft, req, by.sponsor).member);
+        for (const update of setup.updates) this.prepareUpdate(draft, update.handle, update.changes);
+        return setup.message;
+      },
+    );
+    for (const member of hired)
+      this.timeline.append({
+        projectKey,
+        actor: by.actor,
+        type: 'member_hired',
+        data: { handle: member.handle, role: member.role, temp: member.temp, sponsor: member.sponsor },
+      });
+    return {
+      previousVersion: setup.expectedVersion,
+      version: loaded.version,
+      hired: hired.map((member) => member.handle),
+      updated: setup.updates.map((update) => update.handle),
+    };
   }
 
   /**

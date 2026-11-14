@@ -391,6 +391,11 @@ export const timeline = {
     team_resumed_instance: 'The whole instance resumed work',
     super_handoff_changed: 'State of the machine work handed to the connected Claude: {state}',
     super_operation_changed: 'State of the connected Claude’s super operation: {state}',
+    setup_applied:
+      'Applied a setup package in one configuration commit ({version}): {hired} new members, {updated} member changes',
+    setup_applied_agreement_written: 'The shared agreement was updated too.',
+    setup_applied_agreement_not_written:
+      'The shared agreement was not written; the settings stay applied. Reason: {error}',
     workspace_released: 'Released the workspace without confirming the process cleanup: {reason}',
     gate_requested: 'Asked for approval: {from} → {to}',
     gate_rejected: 'The approval was rejected: {to}',

@@ -106,6 +106,20 @@ export function superCommandMutations(
           return [{ kind: 'routine', operation: 'project_resume' }];
         case 'message_send':
           return [{ kind: 'routine', operation: 'message_send' }];
+        case 'setup_apply': {
+          // The whole projection: the patch's changes, then each hire's runtime and each member change.
+          const patched = operation.patch
+            ? applyConfigPatch(
+                context.config,
+                prepareSuperConfigPatch(context.config, context.configVersion, operation.patch),
+              )
+            : context.config;
+          return [
+            ...superConfigMutations(context.config, patched),
+            ...operation.hires.map((hire) => runtime(hire.provider)),
+            ...operation.updates.flatMap((update) => memberUpdate(context, update.handle, update.changes)),
+          ];
+        }
         default:
           throw new SuperCommandUnclassifiable('unknown operation');
       }
@@ -148,6 +162,11 @@ export function superCommandMutations(
     default:
       throw new SuperCommandUnclassifiable('unknown command');
   }
+}
+
+/** Whether the command waits for the owner's yes whatever its effects: a setup package always does (PM-1460). */
+export function alwaysAsksOwner(command: SuperCommand): boolean {
+  return command.kind === 'operate' && command.operation.op === 'setup_apply';
 }
 
 /** The owner-reserved effects of the whole command (empty: it can run on the integrator's own power). */

@@ -406,6 +406,9 @@ export const errors = {
     super_handoff_closed: 'Az átadás vagy a művelete már lezárult, nem futtatható újra.',
     super_owner_decision_pending: 'A tulajdonos döntésére még várunk.',
     super_operation_expired: 'A tulajdonos nem válaszolt időben, a művelet lejárt.',
+    super_operation_superseded: 'Egy újabb beállítás-csomag váltotta fel ezt, ezért ez már nem fut le.',
+    setup_owner_only_step:
+      'A beállítás-csomagban olyan változás van, amelyet csak a tulajdonos végezhet el maga. Ezt a csomagon kívül kell beállítani.',
     super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
     super_operation_unsupported:
       'Ezt a műveletet a csatlakoztatott Claude super jogosítvánnyal sem tudja végrehajtani.',

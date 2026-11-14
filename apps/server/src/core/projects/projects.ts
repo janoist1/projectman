@@ -174,6 +174,13 @@ export function configInvalid(message: string, details: unknown): DomainError {
 }
 
 /** Settings edits answer with the codes the settings editor handles (config_invalid). */
+/** What a settings PATCH makes of the configuration; the REST edit and a setup package share it (PM-1460). */
+function patchedConfig(current: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
+  const unknownRepo = unknownPatchRepo(current, patch);
+  if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
+  return applyConfigPatch(current, patch);
+}
+
 function asConfigEditError(err: unknown): never {
   if (err instanceof DomainError && err.code === 'invalid_config')
     throw configInvalid(err.message, err.details);
@@ -474,15 +481,28 @@ export class ProjectService {
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
-      (current) => {
-        const unknownRepo = unknownPatchRepo(current, patch);
-        if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
-        return {
-          next: applyConfigPatch(current, patch),
-          message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
-        };
-      },
+      (current) => ({
+        next: patchedConfig(current, patch),
+        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+      }),
     );
+  }
+
+  /**
+   * A settings PATCH and further draft edits in one configuration commit (PM-1460): `patch` under the same
+   * preparation as `patch`, then `change` edits the patched draft and returns the commit message. Stale edits
+   * are 409 config_conflict, invalid results 400 config_invalid, as for `patch`.
+   */
+  async patchWith(
+    key: string,
+    patch: PatchConfigRequest | undefined,
+    meta: Omit<ConfigEditMeta, 'message' | 'expectedVersion'> & { expectedVersion: string },
+    change: (draft: ProjectConfig) => string,
+  ): Promise<LoadedProject> {
+    return this.edit(key, meta, (current) => {
+      const draft = structuredClone(patch ? patchedConfig(current, patch) : current);
+      return { next: draft, message: change(draft) };
+    });
   }
 
   /** Settings edits: stale edits are 409 config_conflict, invalid results 400 config_invalid. */

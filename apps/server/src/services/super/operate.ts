@@ -1,9 +1,18 @@
-import type { Actor, Session, SessionStop, TeamMessage } from '@projectman/shared';
+import type {
+  Actor,
+  ProjectManagerAgreementData,
+  Session,
+  SessionStop,
+  TeamMessage,
+} from '@projectman/shared';
 import { connectedOriginOf, prepareSuperConfigPatch } from '@projectman/shared';
-import { assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
+import { DomainError, assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
 import type { SuperCommandExecutor } from './handoffs';
 import { superJobIdentity } from './commands';
 import type { SuperCommandDeps } from './commands';
+import type { MemberService } from '../../core/members';
+import type { TimelineService } from '../../core/timeline';
+import type { SetupNotices, SetupResult } from './setup-notice';
 
 /** Who pauses or resumes: the live principal's request, recorded as the bound connected Claude. */
 interface OperatePauseRequester {
@@ -18,7 +27,18 @@ interface OperatePauseRequester {
  * (Messaging in core/messages, PauseService in runtime/sessions, the session orchestrator), seen through the
  * calls this executor makes; the composition supplies them.
  */
-interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'members' | 'user'> {
+interface OperateExecutorDeps extends Pick<SuperCommandDeps, 'projects' | 'user'> {
+  members: SuperCommandDeps['members'] & Pick<MemberService, 'applySetup'>;
+  /** The project manager's shared agreement a setup package replaces (PM-1460). */
+  knowledge: {
+    writeAgreement(
+      projectKey: string,
+      data: ProjectManagerAgreementData,
+      by: { approvedBy: string; operationId: string },
+    ): Promise<number>;
+  };
+  timeline: Pick<TimelineService, 'append'>;
+  notices: Pick<SetupNotices, 'applied'>;
   messaging: {
     send(
       projectKey: string,
@@ -118,6 +138,53 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
       case 'member_retire':
         await deps.members.retire(projectKey, op.handle, {}, superJobIdentity(job, deps));
         return;
+      case 'setup_apply': {
+        const identity = superJobIdentity(job, deps);
+        const applied = await deps.members.applySetup(
+          projectKey,
+          {
+            expectedVersion: job.configVersion,
+            ...(op.patch ? { patch: prepareSuperConfigPatch(job.config, job.configVersion, op.patch) } : {}),
+            hires: op.hires,
+            updates: op.updates,
+            message: `Apply setup package: ${op.title}`,
+          },
+          {
+            actor: identity.actor,
+            author: identity.author,
+            sponsor: await deps.members.sponsorFor(job.access),
+          },
+        );
+        // The configuration is committed; the agreement is a separate file, so its failure is reported, not undone.
+        let agreement: 'written' | 'not_written' | 'none' = 'none';
+        let agreementError: string | undefined;
+        if (op.agreement) {
+          if (!job.approvedBy) {
+            agreement = 'not_written';
+            agreementError = 'owner_approval_required';
+          } else {
+            try {
+              await deps.knowledge.writeAgreement(projectKey, op.agreement, {
+                approvedBy: job.approvedBy,
+                operationId: operation.id,
+              });
+              agreement = 'written';
+            } catch (error) {
+              agreement = 'not_written';
+              agreementError = error instanceof DomainError ? error.code : 'internal_error';
+            }
+          }
+        }
+        const result: SetupResult = { ...applied, agreement, ...(agreementError ? { agreementError } : {}) };
+        deps.timeline.append({
+          projectKey,
+          actor: superActor,
+          type: 'setup_applied',
+          data: { operationId: operation.id, ...result },
+        });
+        await deps.notices.applied(operation, op.title, result);
+        return;
+      }
       case 'member_rename':
         // A handle rename is the owner's own call with their own login (PM-1025): never in super mode.
         throw invalid('super_operation_unsupported', 'a member rename is not run in super mode', {

@@ -1,6 +1,6 @@
 ## Previous conversation
 Your earlier general conversation had grown long, so it was refreshed and this one is new. Below is what the server knows is open from it: check each item with its tool before you act on it, and do not repeat a question or an operation that is already waiting.
 Nothing was open when the conversation ended.
-A machine-made summary of the earlier conversation follows (the last replies of the conversation, up to 2026-10-05T09:30:00.000Z). It may be incomplete: check the card, its notes and the worktree (git log, git status) before you rely on it.
+A machine-made summary of the earlier conversation follows (the last replies of the conversation, up to 2026-10-05T09:30:00.000Z). It may be incomplete: check the items above and the project with your tools before you rely on it.
 > I finished the form.
 > The tests are next.

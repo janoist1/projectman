@@ -39,7 +39,7 @@ export type PreviousConversationReason = z.infer<typeof PreviousConversationReas
 const PM_CONVERSATION_REFRESH_SHARE = 0.6;
 /** The most characters of the project manager's note for its next conversation. */
 export const CONVERSATION_REFRESH_NOTE_MAX = 4000;
-/** The most items of one kind the handover of a refreshed conversation lists. */
+/** The most items, of all kinds together, the handover of a refreshed conversation lists. */
 export const CONVERSATION_HANDOVER_ITEM_LIMIT = 20;
 /** How far back the owner's answers to the project manager's questions go into the handover. */
 export const CONVERSATION_HANDOVER_ANSWER_DAYS = 14;

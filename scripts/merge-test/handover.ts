@@ -65,6 +65,18 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason:
+      'the MCP tool definition snapshots include shared API schemas and tool registries without a complete import path (PM-1476)',
+    sources: ['packages/shared/src/api/', 'apps/server/src/mcp/'],
+    tests: ['apps/server/src/mcp/tools.test.ts'],
+  },
+  {
+    reason:
+      'the context pack snapshots include capability counts derived from MCP tool registries, which the test does not import (PM-1476)',
+    sources: ['apps/server/src/mcp/'],
+    tests: ['apps/server/src/context/context-pack.test.ts'],
+  },
+  {
     reason: 'the board HTTP tests cover the read-only start condition marks route (PM-1470)',
     sources: ['apps/server/src/api/projects.ts', 'apps/server/src/core/projects/projects.ts'],
     tests: ['apps/server/test/board-api.test.ts'],

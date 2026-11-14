@@ -14,7 +14,7 @@ import type { StageKind } from './pipeline';
 export const OPERATIONS_REVIEW_INTERVAL_DAYS = 7;
 
 /** How many days without activity in a work stage make an open card stuck. */
-export const OPERATIONS_STUCK_DAYS = 3;
+const OPERATIONS_STUCK_DAYS = 3;
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;

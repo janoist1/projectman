@@ -61,6 +61,23 @@ The authoritative descriptor is
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
 Its only path is `core/messages/`, with `sealed: true`.
 
+## Card change notice (PM-1512)
+
+A running card session also hears of changes on its card in the result of its next team tool call, before the
+message itself reaches the model at the end of its turn. `CardChangeNotices` (`runtime/delivery/card-change-notices.ts`,
+text in `agent-text/card-change-notice.ts`, called by `mcp/server.ts`) reads the card's timeline after the session's
+cursor (`card_notice_cursors`, one durable row per session, set to the timeline's end at `session_started`) and
+tells, once per source event: a description change, an acceptance `add`/`edit`/`remove`/`reopen`/`move`/`moved_in`,
+an action message for the member (kind `message`) and an answer to the member's question (kind `answer`), all made
+by somebody else than the member and the system. Info messages, labels, stage changes, notes, other cards and
+closed cards tell nothing. The notice names the card, the kind, the actor and the event id, never the text, and
+asks only for a fresh `get_task`; it does not mark any message delivered and the message still waits for its
+normal delivery (`MessageDelivery.flushWaiting`), so the model must not act on it twice.
+A message is skipped when it is no longer valid for the member (`staleReasonFor`) and, for an AI sender, when it
+is delivered already; a person's message is typed into the session at once, so its receipt says delivered while it
+stands behind the running turn, and it is still told. The cursor is taken in one unit of work with the read,
+and `rollback` gives it back (compare-and-set) when the response did not reach the engine.
+
 ## Remote engine
 
 Message records and the runtime router stay on the server. Runtime delivery and engine availability use the existing

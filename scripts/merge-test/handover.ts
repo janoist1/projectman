@@ -88,11 +88,6 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
     tests: ['apps/server/src/context/context-pack.test.ts'],
   },
   {
-    reason: 'the board HTTP tests cover the read-only start condition marks route (PM-1470)',
-    sources: ['apps/server/src/api/projects.ts', 'apps/server/src/core/projects/projects.ts'],
-    tests: ['apps/server/test/board-api.test.ts'],
-  },
-  {
     reason: 'the heavy CLI test reads the merge-test places option from the root package script (PM-1338)',
     sources: ['package.json'],
     tests: ['apps/server/test/heavy-cli.test.ts'],

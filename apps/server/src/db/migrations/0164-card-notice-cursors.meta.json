@@ -1,0 +1,8 @@
+{
+  "tables": {
+    "card_notice_cursors": {
+      "journal": { "none": "private per-session bookkeeping with no project reader" },
+      "handles": {}
+    }
+  }
+}

@@ -7,6 +7,7 @@ import type {
   TeamToolCatalogEntry,
   ToolContext,
 } from '../contracts';
+import { CARD_NOTICE_HEADER } from '../contracts';
 import { nonLocalReason } from '../kernel';
 import {
   MAX_BODY_BYTES,
@@ -95,6 +96,7 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
     handler: opts.handler,
     logger,
     toolTimeoutMs: opts.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+    notices: opts.cardNotices,
   };
   const external = opts.external
     ? { backend: opts.external, logger, toolTimeoutMs: deps.toolTimeoutMs }
@@ -125,14 +127,18 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
     const live = opts.resolveContext((request.params as { token: string }).token);
     if (!ctx || !live || live.sessionId !== ctx.sessionId)
       return sendJsonRpcError(reply, 404, 'Unknown or expired team session.');
-    const server = createTeamMcpServer(ctx, deps);
+    // The card-change notices (PM-1512) this request took: the engine relay needs them if the response is lost.
+    const grants: string[] = [];
+    const server = createTeamMcpServer(ctx, deps, grants);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
       enableJsonResponse: true,
     });
     try {
       await server.connect(transport);
-      return await sendTransportResponse(reply, await transport.handleRequest(toWebRequest(request)));
+      const response = await transport.handleRequest(toWebRequest(request));
+      if (grants.length > 0) reply.header(CARD_NOTICE_HEADER, grants.join(','));
+      return await sendTransportResponse(reply, response);
     } finally {
       await server.close();
     }

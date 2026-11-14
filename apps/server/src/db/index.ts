@@ -76,6 +76,7 @@ import { createProjectChangeEventRepository } from './project-change-events';
 import { createReleasePublicationRepository } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
+import { createCardNoticeCursorRepository } from './card-notice-cursors';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
 import { createMergeTrainRepository } from './merge-trains';
 export type { MergeTrainMember, MergeTrainRecord } from './merge-trains';
@@ -158,6 +159,7 @@ export function createRepositories(db: Db) {
     sessions: createSessionRepository(db),
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
+    cardNoticeCursors: createCardNoticeCursorRepository(db),
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),

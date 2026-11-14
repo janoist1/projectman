@@ -1,7 +1,9 @@
 # Scope changes during a Codex turn — PM-1505 investigation
 
 Investigated on 2026-11-14 at `4d46ad4a3e27f626d246dc5c1d38317ced7471ef`.
-This is a proposal, not an approved implementation plan. Runtime behavior is unchanged.
+The investigation itself changed no runtime behavior. Its recommended follow-up, the notice in the next team
+tool response, is implemented by PM-1512 (see "Recommended follow-up" below); the table describes the delivery
+paths, which that card leaves as they are.
 
 ## Finding
 
@@ -10,13 +12,13 @@ but neither that notice nor a teammate's message reaches a working developer thr
 the normal input path before the turn ends. Re-reading the card works because its
 stored state is current; the running conversation does not refresh itself from it.
 
-| Path                                                             | Current behavior                                                                                                                                                   | Source                                                                                                         |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| AI teammate sends a message                                      | Stored and routed to the running session; reports `after_turn`. Calls `deliverWaiting`, not direct delivery.                                                       | `runtime/delivery/routing.ts`, `MessageRouter.deliverOrWake`                                                   |
-| Waiting AI messages                                              | `flushWaiting` requires `idle`, checked again after asynchronous preparation. Messages are batched and claimed, then marked delivered after CLI acceptance.        | `runtime/delivery/delivery.ts:454–537`                                                                         |
-| Card description changes                                         | Sends a “read it with get_task” notice to other running card sessions in work/review stages. A reviewer can be restarted; the assignee gets ordinary queued input. | `runtime/delivery/session-messages.ts:119–157`                                                                 |
-| Ordinary input, including human messages and description notices | `typeInto` calls `sendUserMessage`; `Session.send` enqueues it. The input queue's `pump` refuses to type until `host.isIdle()`.                                    | `runtime/sessions/sessions.ts:1219–1228`, `runner/session.ts:247–254,445–451`, `runner/input-queue.ts:210–220` |
-| Decision recorded only in a note/message                         | Does not itself change the description. A targeted message still follows the AI delivery path above.                                                               | `runtime/delivery/routing.ts`, `core/messages`                                                                 |
+| Path                                                             | Current behavior                                                                                                                                                   | Source                                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| AI teammate sends a message                                      | Stored and routed to the running session; reports `after_turn`. Calls `deliverWaiting`, not direct delivery.                                                       | `runtime/delivery/routing.ts`, `MessageRouter.deliverOrWake`            |
+| Waiting AI messages                                              | `flushWaiting` requires `idle`, checked again after asynchronous preparation. Messages are batched and claimed, then marked delivered after CLI acceptance.        | `MessageDelivery.flushWaiting`                                          |
+| Card description changes                                         | Sends a “read it with get_task” notice to other running card sessions in work/review stages. A reviewer can be restarted; the assignee gets ordinary queued input. | `SessionMessages.descriptionNotice`                                     |
+| Ordinary input, including human messages and description notices | `typeInto` calls `sendUserMessage`; `Session.send` enqueues it. The input queue's `pump` refuses to type until `host.isIdle()`.                                    | `typeInto`/`sendUserMessage`, runner `Session.send`, input queue `pump` |
+| Decision recorded only in a note/message                         | Does not itself change the description. A targeted message still follows the AI delivery path above.                                                               | `runtime/delivery/routing.ts`, `core/messages`                          |
 
 Removing only the runtime's `idle` check therefore does not fix delivery: the
 engine's runner still waits. Changing `action` to `info` does not bypass either gate.
@@ -47,12 +49,13 @@ rights. See the current PM-117 card and its cancellation entry, not only its old
 
 ## Recommended follow-up: a notice at the next team tool response
 
-Proposed card: **Targeted card-change notice in the running member's team tool
-response**. Have analyst/architect refine it before implementation.
+Card: **Targeted card-change notice in the running member's team tool response**,
+implemented by PM-1512 (`runtime/delivery/card-change-notices.ts`, `withCardNotice` in
+`mcp/server.ts`; see `docs/modules/core-messages.md`). The criteria below were its refinement input.
 
 Use the next authenticated team MCP response as a second observation point within
-the current turn. `mcp/server.ts:114–136` already returns text content for tool
-results. A short additional text block could tell the member which card changed,
+the current turn. The MCP server's `runTool` already returns text content for tool
+results. A short additional text block tells the member which card changed,
 who changed it, and which source event/message to read with `get_task`. This avoids
 depending on a new Codex TUI submission mode for this first increment.
 
@@ -97,8 +100,8 @@ avoidable rework but cannot guarantee immediate delivery of an unsolicited chang
 ## Remote engine and validation
 
 Current delivery crosses hub → engine through `session.send`
-(`engine-link/remote/runner.ts:255`, `engine-link/engine-handlers.ts:207`); the input
-queue and PTY remain on the engine. The proposed MCP response notice would travel
+(the remote runner's `session.send` and the engine's `'session.send'` handler); the input
+queue and PTY remain on the engine. The MCP response notice travels
 back through the existing session-bound `mcp.relay` and Codex stdio bridge, not
 through `session.send`. Relevant machine inventory entries are **Hooks and team
 MCP over loopback**, **Conversation transcripts and resume**, and **Session process

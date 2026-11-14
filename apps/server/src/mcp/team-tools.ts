@@ -138,6 +138,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.operator.getProjectManagerDiagnostics(ctx, args);
   }
 
+  async getCapability(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['getCapability']>[1]) {
+    return this.tools.operator.getCapability(ctx, args);
+  }
+
   async getChecklist(ctx: ToolContext) {
     return this.tools.operator.getChecklist(ctx);
   }
@@ -508,6 +512,9 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async triageLoop(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['triageLoop']>[1]) {
     return this.tools.operator.triageLoop(ctx, args);
+  }
+  async saveHandover(ctx: ToolContext, args: { note: string }) {
+    return this.tools.operator.saveHandover(ctx, args);
   }
 
   async dismissSignal(

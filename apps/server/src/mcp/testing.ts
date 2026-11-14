@@ -299,6 +299,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('requestStructuralReview', ctx, args);
       return { status: 'awaiting_approval', member: null, message_id: null, inbox_item_id: 'inb_fake' };
     },
+    async getCapability(ctx, args) {
+      await enter('getCapability', ctx, args);
+      return `# ${args.area}`;
+    },
     async getChecklist(ctx) {
       await enter('getChecklist', ctx, {});
       return { checklist: null, templates: [{ id: 'small-team', checklist: ['code_review'] }] };
@@ -520,6 +524,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         loopId: 'loop_1',
         inboxItemId: null,
       };
+    },
+    async saveHandover(ctx, args) {
+      await enter('saveHandover', ctx, args);
+      return { saved: true };
     },
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);

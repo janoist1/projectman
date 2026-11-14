@@ -1,5 +1,5 @@
 import { coordinationMemberOf, PROJECT_MANAGER_SILENT_WORK_MINUTES } from '@projectman/shared';
-import type { Session, Task } from '@projectman/shared';
+import type { ProjectManagerAgreementData, Session, Task } from '@projectman/shared';
 import type { EventBus } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { AlertPmSignals } from '../../core/inbox';
@@ -54,6 +54,7 @@ export function wireProjectManagerSignals(deps: {
   sessions: { find(sessionId: string): Session | null };
   projectManagerSignals: Pick<ProjectManagerSignals, 'finish' | 'deliver' | 'raise' | 'resolve' | 'sweep'>;
   background: BackgroundTasks;
+  involvementOf(projectKey: string): Promise<ProjectManagerAgreementData['involvement']>;
 }): () => void {
   const { ctx, bus, projects, sessions, projectManagerSignals, background } = deps;
   const { events, logger } = ctx;
@@ -69,6 +70,24 @@ export function wireProjectManagerSignals(deps: {
       () => projectManagerSignals.deliver(projectKey),
       (err) => logger.warn({ err, projectKey }, 'operator signal delivery failed'),
     );
+  events.on('task_stage_changed', ({ task }) => {
+    if (task.status !== 'done') return;
+    background.run(
+      async () => {
+        if ((await deps.involvementOf(task.projectKey)) !== 'every_step') return;
+        projectManagerSignals.raise({
+          projectKey: task.projectKey,
+          kind: 'cards_closed',
+          caseKey: 'cards_closed',
+          subject:
+            ctx.repos.projectManagerSignals.lastDeliveredAt(task.projectKey, ['cards_closed'], 'only') ??
+            task.closedAt,
+        });
+        await projectManagerSignals.deliver(task.projectKey);
+      },
+      (err) => logger.warn({ err, taskKey: task.key }, 'card closure signal failed'),
+    );
+  });
   events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
     // Slowly exiting processes usually settle on the next retry: signal only a failure that lasted.
     // The record keeps the first failure's time; every retry that fails again emits this event once more.

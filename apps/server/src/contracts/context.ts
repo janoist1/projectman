@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { AgentSandbox, SubagentDefinition } from './runner';
 import type { SessionPolicy } from './session-policy';
+import type { ConnectedToolCatalogEntry, TeamToolCatalogEntry } from './team-tools';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -38,6 +39,8 @@ export interface ContextPackInput {
   checklist?: Pick<ProjectChecklist, 'items'>;
   /** The instance's host is not among the project's owners (PM-1069): the onboarding covers the owner's own machine. */
   hostOutsideOwners?: true;
+  /** What the project can do, built from the code, for the selected project manager only (PM-1468). */
+  capabilities?: CapabilityCatalog;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
    * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask
@@ -163,6 +166,33 @@ export interface PreviousConversation {
   summary: HandoffSummary | null;
   /** The card's latest handoff note; filled by PM-342 2/3, null until then. */
   lastNote: { from: string; endedAt: string; text: string } | null;
+  /** What a refreshed project manager conversation carries over (PM-1461); only with the reason `refreshed`. */
+  handover?: ConversationHandover;
+}
+
+/** One open thing of the project manager that the next conversation must know of (PM-1461). */
+export interface ConversationHandoverItem {
+  /** What the thing is: a question or approval waiting for the owners, a super operation, an owner's answer, a signal. */
+  kind: 'question' | 'approval' | 'operation' | 'answer' | 'signal';
+  /** The id the project manager can look the thing up by (inbox item, operation or signal id). */
+  id: string;
+  /** A short fact line, cut to a fixed length. */
+  text: string;
+  /** When it began (asked, started, answered or raised), ISO time. */
+  at: string;
+}
+
+/**
+ * What the project manager's new conversation is told about the old one (PM-1461): server facts, never the
+ * old conversation's text, and the project manager's own note.
+ */
+export interface ConversationHandover {
+  /** The operating agreement now in force; null: none is approved. */
+  agreement: { version: number; involvement: 'every_step' | 'important' | 'minimal' } | null;
+  /** At most `CONVERSATION_HANDOVER_ITEM_LIMIT` items per kind, oldest first. */
+  items: ConversationHandoverItem[];
+  /** What the project manager wrote itself (`save_handover`); null: nothing. */
+  note: string | null;
 }
 
 /** A member whose session works on the card now, as another member's brief names it (PM-249). */
@@ -207,6 +237,47 @@ export interface RelatedSession {
 export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox', 'operations'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
+/**
+ * What the capability catalog of the project manager covers (PM-1468). The builder takes one source per area,
+ * so a new area does not compile without one.
+ */
+export const CAPABILITY_AREAS = [
+  'roles',
+  'member_settings',
+  'team_tools',
+  'connected_ai',
+  'host_requests',
+  'project_settings',
+] as const;
+export type CapabilityArea = (typeof CAPABILITY_AREAS)[number];
+
+/** The registers the catalog reads that live outside the context module; the assembly injects them. */
+export interface CapabilitySources {
+  teamTools: readonly TeamToolCatalogEntry[];
+  connectedTools: readonly ConnectedToolCatalogEntry[];
+  /** The host owner's e-mail, or null before the first-run setup. */
+  hostEmail: string | null;
+}
+
+/** The registers a runtime hands to the catalog, without the host (that depends on the session). */
+export type CapabilityTools = Pick<CapabilitySources, 'teamTools' | 'connectedTools'>;
+
+/** One thing the project manager can offer or change. */
+export interface CapabilityItem {
+  id: string;
+  /** A readable name next to the id, when it differs from it (roles). */
+  name?: string;
+  /** One line for the area's list. */
+  summary: string;
+  /** Everything `get_capability` tells about the item. */
+  detail: string;
+  /** Only the owners may change it (the owner-only lists of the code), when the code knows it. */
+  ownerOnly?: true;
+}
+
+/** The catalog of a project: the items of every area, built from the code (`buildCapabilityCatalog`). */
+export type CapabilityCatalog = Record<CapabilityArea, readonly CapabilityItem[]>;
+
 const PROMPT_SECTION_IDS = [
   'identity',
   'team',
@@ -227,6 +298,7 @@ const PROMPT_SECTION_IDS = [
   'guardrails',
   'role',
   'checklist',
+  'capabilities',
   'operator_knowledge',
   'operator_preference',
   'documents',

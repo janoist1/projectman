@@ -171,6 +171,25 @@ are unchanged (a request opens only from the owner's own-login message). Such a 
 admins only (`Sessions.isRestrictedSession`: REST detail, websocket events, terminal); the person's own view is the
 corner (`ProjectManagerCorner`, read only).
 
+**Refreshing the long conversation (PM-1461).** The owners' shared general conversation does not grow until the
+auto-compact. `ConversationRefreshes` (`conversation-refresh.ts`) moves a per-session state, `sessions.conversation_refresh`
+(`ConversationRefresh`: `note_requested` → `pending`, reason `context` or `review`), one step at each `session_idle`
+(after the request close, before the delivery): when the measured context exceeds `PM_CONVERSATION_REFRESH_SHARE` (60%)
+of the compaction window (`conversationRefreshDue`; no measure, no refresh, so Codex is refreshed only on request), or
+`requestRefresh(projectKey, 'review')` asks, the project manager gets a system message and calls `save_handover` (one note,
+at most `CONVERSATION_REFRESH_NOTE_MAX` characters; `saved: false` unless asked; only the project manager's own general
+conversation, not a guest one). The next idle moment ends the process (`restart`/`new_round`, quiet); the next start
+(`SessionLauncher.start`) is a new conversation on the same session row, so what hangs on the session id (an approved
+operation the owner answers later, `resumeApprovedAppOperation`) goes on. Nothing switches during a turn (everything runs
+at idle), with an open request, or while an operation of the project manager `running`; the checks repeat right before
+the stop. The new conversation's first message is `previousConversation` with `reason: 'refreshed'` and a
+server-built `ConversationHandover` (`ConversationHandovers`, `handover.ts`): the agreement in force, the manager's open
+questions and approvals, its `pending`/`waiting_owner`/`running` operations (with the question they wait on), the owners'
+answers of the last 14 days and the open signals, at most 20 of each kind, plus the manager's note (the transcript
+summary stands in only without a note). The timeline writes `session_conversation_restarted` with the reason
+`refreshed` and no card. Nothing here is machine-dependent: the handover is built on the hub from its own data, the
+summary uses the existing `transcript.*` crossing.
+
 ## Owner requests and the write guard
 
 **Owner requests** (`ProjectManagerRequests` in `services/coordination/requests.ts`). A request opens when an owner's message,

@@ -3,6 +3,7 @@ import {
   BuiltInRoleId,
   CHECKLIST_ITEM_STATES,
   ChecklistCondition,
+  CONVERSATION_REFRESH_NOTE_MAX,
   coordinatorOnlySignalKindsText,
   CombineQuestionsRequest,
   ProjectManagerOperation,
@@ -14,7 +15,7 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
-import { TeamToolError } from '../../contracts';
+import { CAPABILITY_AREAS, TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
@@ -163,6 +164,22 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       },
     }),
     defineTool({
+      name: 'save_handover',
+      audience: { roles: ['project_manager'] },
+      title: 'Save a note for the next conversation',
+      readOnly: false,
+      description:
+        'Answer the system message that asks for a handover note before your long general conversation continues ' +
+        'in a fresh one: what you are doing, promised, must watch. Call it once, nothing else in that turn. ' +
+        'Only while a note is asked for (saved: false otherwise).',
+      input: {
+        note: z.string().trim().min(1).max(CONVERSATION_REFRESH_NOTE_MAX),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.saveHandover(ctx, { note: args.note }));
+      },
+    }),
+    defineTool({
       name: 'get_operator_diagnostics',
       audience: { roles: ['project_manager'] },
       title: 'Read filtered task diagnostics',
@@ -189,6 +206,26 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
         return JSON.stringify(
           await handler.getProjectManagerDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
         );
+      },
+    }),
+    defineTool({
+      name: 'get_capability',
+      audience: { roles: ['project_manager'] },
+      title: 'Read what the project can do',
+      readOnly: true,
+      description:
+        'Details behind the Capabilities section of your prompt, from the code: an area’s items (no id) or one ' +
+        'item (role view, tool description, setting note, owner-only flag, schema). Look here before you say ' +
+        'there is no way. Unknown id: not_found. Needs no owner request.',
+      input: {
+        area: z.enum(CAPABILITY_AREAS),
+        id: z.string().max(80).optional().describe('An item of the area, as the area’s list names it.'),
+      },
+      async run({ ctx, args, handler }) {
+        return handler.getCapability(ctx, {
+          area: args.area,
+          ...(args.id !== undefined ? { id: args.id } : {}),
+        });
       },
     }),
     defineTool({

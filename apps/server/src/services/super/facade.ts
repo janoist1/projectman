@@ -14,6 +14,7 @@ export interface SuperOperations {
     projectKey: string,
     input: SuperOperateRequest,
     access: ProjectAccess,
+    options?: { askOwner?: 'involvement' },
   ): Promise<SuperOperationDetail['operation']>;
   operation(projectKey: string, operationId: string): Promise<SuperOperationDetail>;
   query(projectKey: string, request: SuperDiagnosticsRequest): SuperDiagnosticsResponse;
@@ -24,7 +25,8 @@ export function createSuperOperations(deps: {
   diagnostics: SuperDiagnostics;
 }): SuperOperations {
   return {
-    operate: (projectKey, input, access) => deps.handoffs.operate(projectKey, input, access),
+    operate: (projectKey, input, access, options) =>
+      deps.handoffs.operate(projectKey, input, access, options),
     async operation(projectKey, operationId) {
       const historical = deps.handoffs.operation(projectKey, operationId);
       if (historical.command.kind !== 'administration') await deps.handoffs.settle(projectKey, operationId);

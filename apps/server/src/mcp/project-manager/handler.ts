@@ -27,6 +27,8 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
+  CapabilityArea,
+  CapabilityTools,
   ChecklistToolView,
   ProjectManagerToolsHandler,
   UpdateChecklistInput,
@@ -35,6 +37,7 @@ import type {
   ToolContext,
   SystemFeedbackLookup,
 } from '../../contracts';
+import { buildCapabilityCatalog, capabilityDetail } from '../../context';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
@@ -51,6 +54,7 @@ import type {
   ProjectManagerKnowledge,
   StructuralReviews,
   LoopTriages,
+  ConversationRefreshes,
 } from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super';
@@ -94,8 +98,11 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   private readonly projectManagerKnowledge: ProjectManagerKnowledge;
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
+  private readonly conversationRefreshes: Pick<ConversationRefreshes, 'saveHandover'>;
   private readonly superPath: () => SuperPath;
   private readonly checklist: ProjectManagerToolsChecklist;
+  private readonly capabilityTools: CapabilityTools;
+  private readonly hostOwnerEmail: () => string | null;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -115,7 +122,12 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     projectManagerKnowledge: ProjectManagerKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
+    conversationRefreshes: Pick<ConversationRefreshes, 'saveHandover'>;
     checklist: ProjectManagerToolsChecklist;
+    /** The tool registers the capability catalog lists (PM-1468). */
+    capabilityTools: CapabilityTools;
+    /** The host owner's e-mail, or null before the first-run setup: the catalog's request to the host. */
+    hostOwnerEmail: () => string | null;
     /** The shared super-operation path; read at the call, because it is composed after the tools. */
     superPath: () => SuperPath;
   }) {
@@ -136,7 +148,10 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     this.projectManagerKnowledge = deps.projectManagerKnowledge;
     this.structuralReviews = deps.structuralReviews;
     this.loopTriages = deps.loopTriages;
+    this.conversationRefreshes = deps.conversationRefreshes;
     this.checklist = deps.checklist;
+    this.capabilityTools = deps.capabilityTools;
+    this.hostOwnerEmail = deps.hostOwnerEmail;
     this.superPath = deps.superPath;
   }
 
@@ -152,6 +167,24 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   /** The selected project manager's own coordination session (PM-1043). */
   private assertChecklistSession(ctx: ToolContext, config: ProjectConfig): void {
     this.calls.assertCoordinationSession(ctx, config);
+  }
+
+  async getCapability(ctx: ToolContext, args: { area: CapabilityArea; id?: string }): Promise<string> {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'get_capability');
+      this.calls.assertCoordinationSession(ctx, config);
+      const catalog = buildCapabilityCatalog(config, {
+        ...this.capabilityTools,
+        hostEmail: this.hostOwnerEmail(),
+      });
+      const detail = capabilityDetail(catalog, args.area, args.id);
+      if (detail === null)
+        throw new TeamToolError(
+          'not_found',
+          `No ${args.area} item "${args.id}". ${capabilityDetail(catalog, args.area)}`,
+        );
+      return detail;
+    });
   }
 
   async getChecklist(ctx: ToolContext): Promise<ChecklistToolView> {
@@ -324,6 +357,14 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     return this.calls.guard(async () => {
       await this.calls.callerWithRequest(ctx, 'triage_loop');
       return this.loopTriages.assess({ ...args, projectKey: ctx.projectKey, by: ctx.member });
+    });
+  }
+
+  /** The project manager's note for its next conversation (PM-1461); only from its own general session. */
+  async saveHandover(ctx: ToolContext, args: { note: string }): Promise<{ saved: boolean }> {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'save_handover');
+      return { saved: this.conversationRefreshes.saveHandover(ctx.sessionId, args.note) !== null };
     });
   }
 

@@ -55,6 +55,7 @@ import {
   coordinationMemberOf,
   InvolvementQuery,
   canManageProviderKeys,
+  PAIRING_KEY_DAYS,
   SetProviderKeyRequest,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
@@ -404,6 +405,7 @@ import * as fixtures from './fixtures';
 import { t } from '../i18n/t';
 import { commentFiles } from '../lib/commentFiles';
 import { MockEmailLogin } from './email-login';
+import { MockPairing } from './pairing';
 import { MockEmail } from './email';
 import { MockDocuments } from './documents';
 import { MockFeedback } from './feedback';
@@ -743,6 +745,19 @@ export class MockBackend {
   accounts = new Map<string, { userId: string; name: string; email: string; password: string | null }>([
     [fixtures.mockUser.email, { ...fixtures.mockUser, password: 'correct horse battery' }],
   ]);
+  /** The device pairing (PM-1437): a test or a scenario opens a pairing the way a machine's `pair start` does. */
+  readonly pairing: MockPairing = new MockPairing({
+    viewer: () => ({
+      userId: this.user.userId,
+      hostOwner: this.isHostOwner(),
+      ownerAccount: this.ownerAccountIds.has(this.user.userId),
+      hasPassword: this.accounts.get(this.user.email)?.password !== null,
+    }),
+    viaIntegrator: () => this.integratorMode !== null,
+    liveKeyPrefix: () =>
+      this.integratorKeys.find((key) => key.mode === 'super' && key.state === 'active')?.prefix ?? null,
+    create: ({ machineName, userId }) => this.createPaired(machineName, userId),
+  });
   /** The e-mail code login (PM-670, PM-671); off until a test or a scenario enables it. */
   readonly emailLogin: MockEmailLogin = new MockEmailLogin({
     inviteEmail: (token) => this.openClientInvite(token)?.email ?? null,
@@ -2328,6 +2343,9 @@ export class MockBackend {
         this.push.handle(method, path.slice('/api/me/push'.length), body) ??
         error(404, 'not_found', 'Unknown route')
       );
+    if (method === 'POST' && path === '/api/pairings/lookup') return this.pairing.lookup(body);
+    if (method === 'POST' && path === '/api/pairings/approve') return this.pairing.approve(body);
+    if (method === 'POST' && path === '/api/pairings/deny') return this.pairing.deny(body);
     if (path === '/api/auth/integrator-keys' || path.startsWith('/api/auth/integrator-keys/')) {
       if (this.integratorMode) {
         const verdict = superAccessVerdict(this.config, {
@@ -2611,6 +2629,47 @@ export class MockBackend {
     };
     this.engines.push(engine);
     return engine;
+  }
+
+  /**
+   * What an approved pairing makes (PM-1437), in the approver's name: the machine's engine and a `super`
+   * integrator key of `PAIRING_KEY_DAYS`; a live `super` key is revoked, as a hand-made one revokes it.
+   */
+  private createPaired(machineName: string, userId: string): { engineId: string } {
+    const at = nowIso();
+    this.integratorKeys = this.integratorKeys.map((key) =>
+      key.mode === 'super' && key.state === 'active' ? { ...key, state: 'revoked', revokedAt: at } : key,
+    );
+    const seq = this.integratorKeys.length + 1;
+    const key: import('@projectman/shared').IntegratorAccessKeyInfo = {
+      id: `mock_key_${seq}`,
+      mode: 'super',
+      prefix: `pmi_pair${String(seq).padStart(4, '0')}`,
+      state: 'active',
+      createdAt: at,
+      expiresAt: new Date(Date.parse(at) + PAIRING_KEY_DAYS * 86_400_000).toISOString(),
+      lastUsedAt: null,
+      lastUsedChannel: null,
+      revokedAt: null,
+      paired: true,
+    };
+    this.integratorKeys.push(key);
+    this.integratorKeyAudits.push({
+      seq: this.integratorKeyAudits.length + 1,
+      keyId: key.id,
+      action: 'created',
+      prefix: key.prefix,
+      mode: key.mode,
+      at,
+      paired: true,
+    });
+    const engine = this.addEngine({
+      name: machineName,
+      createdBy: userId,
+      paired: true,
+      ...(this.isHostOwner() ? {} : { isDefault: false }),
+    });
+    return { engineId: engine.id };
   }
 
   /** Connects or disconnects an engine and tells the browsers, as the server does. */

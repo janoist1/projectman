@@ -412,6 +412,13 @@ describe('tool audience', () => {
     expect(names).toContain(present);
     expect(names).not.toContain(absent);
   });
+
+  it('shows get_capability to the project manager only (PM-1468)', async () => {
+    const pm = await listToolsFor({ ...developerAudience, projectManager: true });
+    const developer = await listToolsFor(developerAudience);
+    expect(pm.tools.map((tool) => tool.name)).toContain('get_capability');
+    expect(developer.tools.map((tool) => tool.name)).not.toContain('get_capability');
+  });
 });
 
 describe('team tool definitions', () => {
@@ -466,7 +473,9 @@ describe('team tool registration', () => {
         'get_role_configuration',
         'request_structural_review',
         'triage_loop',
+        'save_handover',
         'get_operator_diagnostics',
+        'get_capability',
         'get_checklist',
         'update_checklist',
         'get_operator_knowledge',

@@ -318,6 +318,11 @@ export class ToolCaller {
         );
       return { config, request, guest: null };
     }
+    // The note for the next conversation (PM-1461) needs no owner request: the server asks for it at an idle moment.
+    if (tool === 'save_handover') {
+      this.assertCoordinationSession(ctx, config);
+      return { config, request: null, guest: null };
+    }
     if (tool === 'list_system_feedback' || tool === 'record_system_feedback') {
       this.assertCoordinationSession(ctx, config);
       if (this.projectManagerRequests.openFor(ctx.sessionId)?.source === 'approval')

@@ -725,6 +725,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               repos,
               auth,
               engines: engineRegistry,
+              notices: {
+                projectsFor: (email) => domain.projectsFor(email),
+                raiseAlert: (input) => domain.inbox.raiseAlert(input),
+              },
               log,
               now: options.now,
             }),

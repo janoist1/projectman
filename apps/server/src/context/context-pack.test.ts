@@ -34,6 +34,7 @@ import type {
   CardWorker,
   ContextPackInput,
   HandoffTakeover,
+  PreviousConversation,
   SessionPolicy,
 } from '../contracts';
 import {
@@ -43,7 +44,8 @@ import {
   sessionSandbox,
   withSessionFolders,
 } from '../runtime/sessions';
-import { visibleTeamTools } from '../mcp';
+import { connectedToolCatalog, teamToolCatalog, visibleTeamTools } from '../mcp';
+import { buildCapabilityCatalog } from './capability-catalog';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -2107,6 +2109,11 @@ describe('system prompt', () => {
           workItem: { type: 'general' },
           task: null,
           stage: null,
+          capabilities: buildCapabilityCatalog(project, {
+            teamTools: teamToolCatalog(),
+            connectedTools: connectedToolCatalog(),
+            hostEmail: 'host@example.test',
+          }),
           documents: [
             {
               slug: 'memorianaplo',
@@ -2126,8 +2133,9 @@ describe('system prompt', () => {
       );
       // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
       // The prompt cap includes the documents section with the memory log rule (PM-1228, ~1.3 KB).
+      // The capabilities section (PM-1468) is at most CAPABILITY_INDEX_LIMIT characters (4,000).
       expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(
-        15_300 + CLAUDE_TOOL_BATCH_BYTES,
+        15_300 + 4_100 + CLAUDE_TOOL_BATCH_BYTES,
       );
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
     });
@@ -5295,6 +5303,72 @@ describe('handover and previous conversation (PM-342)', () => {
     expect(text).toContain(
       'The latest handoff note on this card, from `dev` at 2026-10-05T10:00:00.000Z:\n> Left: tests.',
     );
+  });
+
+  describe('a refreshed project manager conversation (PM-1461)', () => {
+    const refreshedBrief = (previous: Partial<PreviousConversation> = {}) =>
+      builder.build(
+        input({
+          handle: 'pm',
+          workItem: { type: 'general' },
+          task: null,
+          stage: null,
+          previousConversation: {
+            reason: 'refreshed',
+            fromProvider: null,
+            summary: null,
+            lastNote: null,
+            handover: {
+              agreement: { version: 3, involvement: 'important' },
+              items: [
+                {
+                  kind: 'question',
+                  id: 'inb_q1',
+                  text: 'Which budget line?',
+                  at: '2026-11-14T08:00:00.000Z',
+                },
+                {
+                  kind: 'operation',
+                  id: 'sop_1',
+                  text: 'operate (waiting_owner)',
+                  at: '2026-11-14T08:30:00.000Z',
+                },
+              ],
+              note: 'I wait for the budget answer.\nThen I plan the sprint.',
+            },
+            ...previous,
+          },
+        }),
+      ).initialMessage;
+
+    it('opens the general conversation with the open items, the agreement and the manager`s own note', async () => {
+      const text = refreshedBrief()!;
+      await expect(`${text}\n`).toMatchFileSnapshot('__snapshots__/project-manager-refreshed.brief.txt');
+      // The data of the handover reach the message; the note stands in for the machine-made summary.
+      expect(text).toContain('inb_q1');
+      expect(text).toContain('sop_1');
+      expect(text).toContain('> I wait for the budget answer.\n> Then I plan the sprint.');
+      expect(text).not.toContain('> I finished the form.');
+    });
+
+    it('says nothing was open, and uses the summary when the manager left no note', async () => {
+      const text = refreshedBrief({
+        summary: summary(),
+        handover: { agreement: null, items: [], note: null },
+      })!;
+      await expect(`${text}\n`).toMatchFileSnapshot(
+        '__snapshots__/project-manager-refreshed-no-note.brief.txt',
+      );
+      expect(text).toContain('> I finished the form.');
+      expect(text).not.toContain('inb_q1');
+    });
+
+    it('gives a general conversation without a refresh no first message', () => {
+      expect(
+        builder.build(input({ handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }))
+          .initialMessage,
+      ).toBeNull();
+    });
   });
 
   it('keeps the previous conversation out of the first message of a resumed conversation', () => {

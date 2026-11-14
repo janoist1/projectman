@@ -28,9 +28,45 @@ export const HandoffSummary = z.object({
 });
 export type HandoffSummary = z.infer<typeof HandoffSummary>;
 
-/** Why a member's new conversation replaces one that could not go on (PM-342). */
-export const PreviousConversationReason = z.enum(['provider_changed', 'lost', 'relocated']);
+/**
+ * Why a member's new conversation replaces another one (PM-342): `refreshed` is the project manager's
+ * long general conversation, continued in a new one with a handover (PM-1461) before it wears out.
+ */
+export const PreviousConversationReason = z.enum(['provider_changed', 'lost', 'relocated', 'refreshed']);
 export type PreviousConversationReason = z.infer<typeof PreviousConversationReason>;
+
+/** The share of the compaction window at which the project manager's general conversation is refreshed (PM-1461). */
+const PM_CONVERSATION_REFRESH_SHARE = 0.6;
+/** The most characters of the project manager's note for its next conversation. */
+export const CONVERSATION_REFRESH_NOTE_MAX = 4000;
+/** The most items of one kind the handover of a refreshed conversation lists. */
+export const CONVERSATION_HANDOVER_ITEM_LIMIT = 20;
+/** How far back the owner's answers to the project manager's questions go into the handover. */
+export const CONVERSATION_HANDOVER_ANSWER_DAYS = 14;
+
+/**
+ * Where the refresh of a conversation stands (PM-1461): `note_requested` the project manager was asked for
+ * its note (the next idle moment goes on without one), `pending` the next start begins a new conversation.
+ * `reason`: `context` the conversation grew past its share of the window, `review` the periodic review asked for it.
+ */
+export const ConversationRefresh = z.object({
+  state: z.enum(['note_requested', 'pending']),
+  reason: z.enum(['context', 'review']),
+  requestedAt: z.string(),
+  /** When the project manager was asked for its note; absent: not asked yet (it is asked at its next idle moment). */
+  askedAt: z.string().optional(),
+  note: z.string().max(CONVERSATION_REFRESH_NOTE_MAX).optional(),
+  noteAt: z.string().optional(),
+});
+export type ConversationRefresh = z.infer<typeof ConversationRefresh>;
+
+/**
+ * Whether a conversation of `contextTokens` (the last measured context; null: unknown, never due) has grown
+ * past `PM_CONVERSATION_REFRESH_SHARE` of its compaction `window` (PM-1461).
+ */
+export function conversationRefreshDue(contextTokens: number | null, window: number): boolean {
+  return contextTokens !== null && contextTokens > window * PM_CONVERSATION_REFRESH_SHARE;
+}
 
 /** How long the new assignee waits for the old one's note before the transcript summary stands in (PM-342, K1). */
 export const HANDOFF_TIMEOUT_MS = 10 * 60_000;

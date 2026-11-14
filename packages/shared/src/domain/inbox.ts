@@ -669,7 +669,17 @@ const WorkStalledAlert = z.object({
   ),
 });
 
+const EnginePairedAlert = z.object({
+  alert: z.literal('engine_paired'),
+  pairingId: z.string(),
+  engineId: z.string(),
+  machineName: z.string(),
+  keyPrefix: z.string(),
+  approverName: z.string(),
+});
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  EnginePairedAlert,
   EmailParkedAlert,
   ReleaseFailedAlert,
   WorkOutageAlert,
@@ -1004,6 +1014,7 @@ export type QuestionResponsePurpose = z.infer<typeof QuestionResponsePurpose>;
  * needs the owner's yes. Questions made before this field existed have none.
  */
 const SuperOperationSummary = z.strictObject({
+  asked: z.enum(['involvement']).optional(),
   kind: z.string(),
   params: z.record(z.string(), z.string()),
   effects: z.array(z.string()),

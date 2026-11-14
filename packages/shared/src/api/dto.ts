@@ -230,6 +230,7 @@ export const PROJECT_MANAGER_UNRELEASED_HOURS = 24;
  * migration 157 deleted their rows.
  */
 export const ProjectManagerSignalKind = z.enum([
+  'cards_closed',
   'loop_suspected',
   'process_cleanup_failed',
   'outage',

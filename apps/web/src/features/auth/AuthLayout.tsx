@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { LanguageSwitch } from '../../app/LanguageSwitch';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
@@ -10,11 +10,14 @@ export function AuthLayout({
   subtitle,
   wide = false,
   announcement,
+  titleRef,
   children,
 }: {
   title: string;
   subtitle: string;
   wide?: boolean;
+  /** Makes the title focusable (not a tab stop), for a page that moves the focus to it when its view changes. */
+  titleRef?: Ref<HTMLHeadingElement>;
   /** Spoken to a screen reader when it changes (the code was sent, a wait ended); not shown. */
   announcement?: string;
   children: ReactNode;
@@ -33,7 +36,9 @@ export function AuthLayout({
           <span className={styles.name}>{t('app.name')}</span>
         </div>
         <div className={styles.heading}>
-          <h1 className={styles.title}>{title}</h1>
+          <h1 ref={titleRef} className={styles.title} tabIndex={titleRef ? -1 : undefined}>
+            {title}
+          </h1>
           <p className={styles.subtitle}>{subtitle}</p>
         </div>
         {children}

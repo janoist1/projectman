@@ -67,12 +67,14 @@ import type {
   CardWorker,
   ContextPackBuilder,
   ContextPack,
+  CapabilityTools,
   ContextPackInput,
   DocumentStore,
   MemberMemoryStore,
   MemberWorkspaceManager,
   EngineDirectory,
   RunnerEvent,
+  ConversationHandover,
   ScreenshotScope,
   SessionRunner,
   SessionCleanup,
@@ -169,6 +171,8 @@ export interface SessionOrchestratorDeps {
   visibleTeamTools: VisibleTeamTools;
   /** The host owner's e-mail, or null before the first-run setup: who a request to the host goes to (PM-1064). */
   hostOwnerEmail(): string | null;
+  /** The tool registers the project manager's capability catalog lists (PM-1468). */
+  capabilityTools: CapabilityTools;
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
@@ -180,6 +184,18 @@ export interface SessionOrchestratorDeps {
       workItem: WorkItemRef,
       cause: SessionStartCause | null,
     ): Promise<ContextPackInput['projectManagerKnowledge']>;
+  };
+  /**
+   * What the project manager's refreshed conversation is told of the old one (PM-1461). Absent: the handover
+   * is the project manager's note alone.
+   */
+  conversationHandover?: {
+    build(input: {
+      projectKey: string;
+      member: string;
+      sessionId: string;
+      note: string | null;
+    }): Promise<ConversationHandover>;
   };
   /** Server-side selection of the current conversational partner's style only. */
   projectManagerPreferences: {

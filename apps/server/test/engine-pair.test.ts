@@ -416,6 +416,87 @@ describe('engine pair (PM-1449)', () => {
     it.each([['0'], ['601'], ['abc']])('refuses --timeout %s as wrong usage', async (value) => {
       expect(await run('pair', 'wait', '--timeout', value)).toBe(2);
     });
+
+    const HOSTILE = '‮Evil\u001b[31m ⁧\u0085';
+
+    it('prints no control, formatting or line-separator character of any value the hub sent', async () => {
+      await startPairing('--expect-email', 'friend@example.com');
+      replies.push({
+        status: 200,
+        json: {
+          ...approved('stranger@example.com'),
+          approvedBy: { name: HOSTILE, email: `${HOSTILE}@example.com` },
+          engineName: HOSTILE,
+          engineId: `eng_${HOSTILE}`,
+          integratorKeyExpiresAt: HOSTILE,
+        },
+      });
+      expect(await run('pair', 'wait')).toBe(1);
+      expect(err.join('\n')).toContain('[approver_mismatch]');
+      expect(err.join('\n')).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+    });
+
+    it('refuses an engine name with a bidi character from the hub, keeping the pairing for a retry', async () => {
+      await startPairing();
+      replies.push({ status: 200, json: { ...approved(), engineName: 'Mac‮' } });
+      expect(await run('pair', 'wait')).toBe(5);
+      expect(err.join('\n')).toContain('[config_invalid]');
+      expect(existsSync(pendingFile())).toBe(true);
+      expect(existsSync(path.join(home, 'engine.json'))).toBe(false);
+    });
+
+    it.each([
+      ['the hub cannot be reached', [], 'hub_unreachable'],
+      ['the hub answers an error', [{ status: 500 }], 'hub_error'],
+    ] as Array<[string, Reply[], string]>)(
+      'exits 5, not 1, and keeps the pending file when %s',
+      async (_case, hubReplies, code) => {
+        await startPairing();
+        replies.push(...hubReplies);
+        expect(await run('pair', 'wait')).toBe(5);
+        expect(err.join('\n')).toContain(`[${code}]`);
+        expect(existsSync(pendingFile())).toBe(true);
+
+        replies.push({ status: 200, json: approved() });
+        expect(await run('pair', 'wait')).toBe(0);
+      },
+    );
+
+    it('exits 5 and keeps the pending file when an invalid engine.json is in the way after the approval', async () => {
+      await startPairing();
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, 'engine.json'), '{ not json', { mode: 0o600 });
+      replies.push({ status: 200, json: approved() });
+      expect(await run('pair', 'wait', '--force')).toBe(5);
+      expect(err.join('\n')).toContain('[config_invalid]');
+      expect(existsSync(pendingFile())).toBe(true);
+    });
+
+    it('exits 5 and keeps the pending file when a server database sits in the home', async () => {
+      await startPairing();
+      writeFileSync(path.join(home, 'db.sqlite'), '');
+      replies.push({ status: 200, json: approved() });
+      expect(await run('pair', 'wait')).toBe(5);
+      expect(err.join('\n')).toContain('[home_in_use]');
+      expect(existsSync(pendingFile())).toBe(true);
+    });
+
+    it('keeps exit 1 when no pairing is pending', async () => {
+      expect(await run('pair', 'wait')).toBe(1);
+      expect(err.join('\n')).toContain('[pairing_missing]');
+    });
+  });
+
+  describe('pair-only options', () => {
+    it.each([
+      ['--timeout', '5'],
+      ['--expect-email', 'friend@example.com'],
+      ['--integrator-base-url', INTEGRATOR],
+      ['--integrator-access-headers-file', 'handoff-access.json'],
+    ])('%s is refused by a command other than pair', async (flag, value) => {
+      expect(await run('status', flag, value)).toBe(2);
+      expect(err.join('\n')).toContain(`${flag} is an option of pair only`);
+    });
   });
 
   describe('cancel', () => {

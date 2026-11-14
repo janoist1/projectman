@@ -267,7 +267,37 @@ describe('engine pair (PM-1449)', () => {
       expect(existsSync(pendingFile())).toBe(false);
       expect(out).toEqual([]);
     });
+
+    it('refuses a hub address that is neither https nor loopback before it makes a key or a request', async () => {
+      expect(
+        await run(
+          'pair',
+          'start',
+          '--cloud',
+          'http://cloud.example.com',
+          '--name',
+          'Anna Mac',
+          '--integrator-base-url',
+          INTEGRATOR,
+        ),
+      ).not.toBe(0);
+      expect(err.join('\n')).toContain('[cloud_url_insecure]');
+      expect(sent).toHaveLength(0);
+      expect(existsSync(pendingFile())).toBe(false);
+    });
   });
+
+  // PM-1448 review: the poll and the cancel carry the machine key, so a pending file pointing at plain http sends nothing.
+  it.each([['wait'], ['cancel']])(
+    'pair %s sends no machine key to a plain-http hub address',
+    async (command) => {
+      await startPairing();
+      writeFileSync(pendingFile(), JSON.stringify({ ...pending(), cloud: 'http://cloud.example.com' }));
+      expect(await run('pair', command)).toBe(1);
+      expect(err.join('\n')).toContain('[cloud_url_insecure]');
+      expect(sent).toHaveLength(0);
+    },
+  );
 
   describe('wait', () => {
     it('writes what init --cloud and connect write, removes the pending file and names the approver', async () => {

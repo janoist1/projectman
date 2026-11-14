@@ -109,6 +109,7 @@ export interface ConfigChange {
   projectKey: string;
   /** null when the project was just created or imported. */
   previous: ProjectConfig | null;
+  previousVersion: string | null;
   next: ProjectConfig;
   version: string;
   actor: Actor;
@@ -453,6 +454,7 @@ export class ProjectService {
         {
           projectKey: req.key,
           previous: null,
+          previousVersion: null,
           next: config,
           version,
           actor: { ...humanActor(OWNER_HANDLE), ...(creator.via ? { via: creator.via } : {}) },
@@ -569,6 +571,7 @@ export class ProjectService {
           {
             projectKey: key,
             previous: current.config,
+            previousVersion: current.version,
             next: loaded.config,
             version: loaded.version,
             actor: meta.actor,
@@ -616,6 +619,7 @@ export class ProjectService {
           await this.ctx.events.emit('config_changed', {
             projectKey: key,
             previous: null,
+            previousVersion: null,
             next: loaded.config,
             version: loaded.version,
             actor: { kind: 'system', handle: null },
@@ -768,6 +772,7 @@ export class ProjectService {
         {
           projectKey: key,
           previous: renames ? this.renamed(current.config, renames) : current.config,
+          previousVersion: current.version,
           next: loaded.config,
           version,
           actor: meta.actor,

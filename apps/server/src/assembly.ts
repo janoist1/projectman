@@ -1014,7 +1014,13 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    onDue: () => admission.requestRetry(),
+    onDue: (projectKey) => {
+      admission.requestRetry();
+      background.run(
+        () => projectManagerSignals.sweep(projectKey),
+        (err) => opts.logger.warn({ err, projectKey }, 'start condition signal check failed'),
+      );
+    },
   });
   const startRound = new StartRound({
     startConditionMarks,
@@ -1460,6 +1466,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const projectManagerSignals = new ProjectManagerSignals({
     ctx,
+    startConditionMarks,
     projects,
     sessions,
     queue: memberQueue,
@@ -1519,7 +1526,15 @@ export function createDomain(opts: DomainOptions) {
       await messaging.send(projectKey, SYSTEM_SENDER, { to: [member], text }, { kind: 'action' });
     },
   });
-  events.on('config_changed', ({ projectKey }) => projectManagerSignals.recheckRecipients(projectKey));
+  events.on('config_changed', (change) => {
+    projectManagerSignals.recheckRecipients(change.projectKey);
+    if (projectManagerSignals.configChanged(change))
+      background.run(
+        () => projectManagerSignals.sweep(change.projectKey),
+        (err) =>
+          opts.logger.warn({ err, projectKey: change.projectKey }, 'configuration signal check failed'),
+      );
+  });
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
@@ -2255,8 +2270,14 @@ export function createDomain(opts: DomainOptions) {
         'task_subtask_removed',
       ].includes(event.event.type) &&
       projects.cachedConfig(event.projectKey)?.team.startCondition
-    )
+    ) {
       retryDeferredStarts();
+      background.run(
+        () => projectManagerSignals.sweep(event.projectKey),
+        (err) =>
+          opts.logger.warn({ err, projectKey: event.projectKey }, 'start condition signal check failed'),
+      );
+    }
   });
   events.on('config_changed', ({ previous, next }) => {
     if (JSON.stringify(previous?.team.startCondition) !== JSON.stringify(next.team.startCondition))

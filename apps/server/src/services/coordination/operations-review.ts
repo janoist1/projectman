@@ -76,7 +76,12 @@ export async function operationsReviewCase(
   const since = lastReviewAt ?? projectCreatedAt;
   const moved =
     ctx.repos.tasks.readClosedSince(projectKey, since).some((task) => task.status === 'done') ||
-    openCards.some((task) => (task.stageEnteredAt ?? task.createdAt) >= since);
+    openCards.some(
+      (task) =>
+        task.stageEnteredAt != null &&
+        task.stageEnteredAt > task.createdAt &&
+        task.stageEnteredAt >= since,
+    );
   if (!due(moved)) return null;
 
   const periodStart = new Date(

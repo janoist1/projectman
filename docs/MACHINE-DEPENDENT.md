@@ -471,7 +471,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   machine only) and, through `gh`, the repository's `cloud-production` environment with its three variables. It is
   idempotent and `--dry-run` changes nothing. **Machine assumption:** the owner's connected Claude's `aws` profile with the IAM
   setup rights (docs/AWS.md) and a `gh` login with admin rights on the repository; the command is a live change, run only
-  after the owner's yes. **Remote engine:** none; it runs on the maintenance machine.
+  after the owner's yes. PM-1491 reads the repository's OIDC subject settings through `gh api` and its canonical names
+  and numeric owner/repository IDs from the repository API. Immutable subjects include these IDs in the repository
+  prefix; legacy subjects keep the name-only prefix. Both pin the `cloud-production` environment and the STS audience
+  with exact matches; neither GitHub ID is hardcoded. Failed or invalid OIDC settings stop setup before any mutation.
+  **Remote engine:** none; it runs on the maintenance machine, with no server/engine crossing.
   **Module:** `scripts`
 
 - **EC2 provisioning and account boundary (PM-676, part of PM-664)** — `scripts/cloud/{config,aws,aws-cli,ec2,commands}.ts`,

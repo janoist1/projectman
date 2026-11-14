@@ -6,6 +6,7 @@ import type {
   Session,
   SessionStartCause,
   SessionState,
+  SuperOperation,
   Task,
   TaskRelationKind,
   TimelineEvent,
@@ -39,6 +40,8 @@ export interface DomainEventMap {
   config_changed: ConfigChange;
   /** A human resolved an inbox item. */
   inbox_resolved: InboxItem;
+  /** A super operation reached a final state (PM-1460), after it committed. */
+  super_operation_finished: { operation: SuperOperation };
   /** Open items of a retired member were cancelled without a decision (questions among them). */
   inbox_cancelled: InboxItem;
   /** A release was proposed (PM-497), after its record and approval request committed. */

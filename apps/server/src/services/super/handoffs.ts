@@ -4,6 +4,9 @@ import {
   SUPER_AUDIT_NAME,
   SUPER_TERMINAL_STATES,
   SuperCommandUnclassifiable,
+  alwaysAsksOwner,
+  applyConfigPatch,
+  boundaryDelegationChanged,
   canonical,
   coordinationMemberOf,
   hasMachineAccess,
@@ -14,8 +17,10 @@ import {
   memberOf,
   ownerHandles,
   ownerReservedEffect,
+  prepareSuperConfigPatch,
   questionPayloadOf,
   superCommandEffects,
+  superConfigMutations,
   superCommandMutations,
   superCommandParams,
   hasConnectedOrigin,
@@ -73,7 +78,20 @@ export interface SuperExecutorJob {
   access: ProjectAccess;
   config: ProjectConfig;
   configVersion: string;
+  /** The owner whose yes the operation runs on; null when it needed none. */
+  approvedBy: string | null;
 }
+
+/** The owner-only changes a setup package may carry under the owner's yes (PM-1460); all others are refused. */
+const SETUP_OWNER_ONLY_ALLOWED: readonly OwnerOnlyChange[] = [
+  'approval_policy',
+  'release_approvers',
+  'task_create_access',
+  'project_manager_authority',
+];
+
+const isSetupApply = (command: SuperCommand): boolean =>
+  command.kind === 'operate' && command.operation.op === 'setup_apply';
 
 /**
  * Runs one kind of command. The service registers none by itself: a command whose kind has no executor in
@@ -388,7 +406,8 @@ export class SuperHandoffService {
       () => {
         const repo = this.ctx.repos.superHandoffs;
         const at = isoNow(this.ctx);
-        const waiting = effects.length > 0 || askOwner !== undefined;
+        const waiting = effects.length > 0 || alwaysAsksOwner(subject.command) || askOwner !== undefined;
+        if (isSetupApply(subject.command)) this.supersedeSetups(subject.projectKey, actor);
         const stored: StoredSuperOperation = {
           id: newId('sop'),
           projectKey: subject.projectKey,
@@ -426,7 +445,20 @@ export class SuperHandoffService {
       { taskKey: subject.taskKey },
     );
     if (operation.state === 'waiting_owner') return publicOperation(operation);
-    return this.run(operation, executor, access, actor, loaded, new Set(effects));
+    return this.run(operation, executor, access, actor, loaded, new Set(effects), null);
+  }
+
+  /**
+   * A new setup package replaces the project's earlier one that still waits for the owner (PM-1460): it is
+   * cancelled and its question withdrawn, so an old yes can no longer run it. In the caller's unit of work.
+   */
+  private supersedeSetups(projectKey: string, actor: BoundActor): void {
+    for (const open of this.ctx.repos.superHandoffs.openOperations()) {
+      if (open.projectKey !== projectKey || open.state !== 'waiting_owner' || !isSetupApply(open.command))
+        continue;
+      this.move(open, 'cancelled', { handoff: 'cancelled', errorCode: 'super_operation_superseded' }, actor);
+      if (open.ownerQuestionId) this.inbox.cancel(open.ownerQuestionId);
+    }
   }
 
   /** The re-execution after the owner's yes: everything the yes was given for is checked again. */
@@ -464,7 +496,7 @@ export class SuperHandoffService {
       },
       { taskKey: operation.taskKey },
     );
-    return this.run(running, executor, approvedAccess, actor, loaded, new Set(effects));
+    return this.run(running, executor, approvedAccess, actor, loaded, new Set(effects), approver);
   }
 
   private async run(
@@ -474,6 +506,7 @@ export class SuperHandoffService {
     actor: BoundActor,
     loaded: { config: ProjectConfig; version: string },
     effects: ReadonlySet<OwnerReservedEffect>,
+    approvedBy: string | null,
   ): Promise<SuperOperation> {
     const job: SuperExecutorJob = {
       operation: publicOperation(operation),
@@ -481,6 +514,7 @@ export class SuperHandoffService {
       access,
       config: loaded.config,
       configVersion: loaded.version,
+      approvedBy,
     };
     const exec = this.execContext(operation.projectKey, actor, operation.requestId, operation.handoffId);
     const grant: Grant = { projectKey: operation.projectKey, operationId: operation.id, effects };
@@ -638,6 +672,17 @@ export class SuperHandoffService {
       } else if (operation?.op === 'member_retire') {
         next = structuredClone(config);
         this.members.prepareRetire(next, operation.handle);
+      } else if (operation?.op === 'setup_apply') {
+        next = this.setupProjection(subject.projectKey, config, configVersion, operation);
+        const reserved = new Set(superCommandEffects(command, context));
+        // The whole commit's own changes too: a hire's stage seats or a member change the command list skips.
+        for (const mutation of superConfigMutations(config, next)) {
+          const effect = ownerReservedEffect(config, mutation);
+          if (effect) reserved.add(effect);
+        }
+        const ownerOnly = ownerOnlyChanges(config, next);
+        if (ownerOnly.length > 0) reserved.add('security');
+        return { effects: [...reserved], ownerOnly };
       }
       const effects = superCommandEffects(command, context);
       // A member's request cannot reshape who approves or make an owner-only change without the owner's yes
@@ -655,6 +700,36 @@ export class SuperHandoffService {
         throw forbidden('integrator_not_allowed', 'this command cannot be classified, so it is not run');
       throw error;
     }
+  }
+
+  /**
+   * The configuration a setup package would commit (PM-1460): the patch, then every hire and member change. An
+   * owner-only change outside `SETUP_OWNER_ONLY_ALLOWED`, or a change of the boundary delegation, refuses the
+   * whole package with `setup_owner_only_step` before anything is recorded: the owner makes those themselves.
+   */
+  private setupProjection(
+    projectKey: string,
+    config: ProjectConfig,
+    configVersion: string,
+    setup: Extract<Extract<SuperCommand, { kind: 'operate' }>['operation'], { op: 'setup_apply' }>,
+  ): ProjectConfig {
+    const next = structuredClone(
+      setup.patch
+        ? applyConfigPatch(config, prepareSuperConfigPatch(config, configVersion, setup.patch))
+        : config,
+    );
+    const sponsor = ownerHandles(config)[0]!;
+    for (const hire of setup.hires) this.members.prepareHire(projectKey, next, hire, sponsor);
+    for (const update of setup.updates) this.members.prepareUpdate(next, update.handle, update.changes);
+    const refused: string[] = ownerOnlyChanges(config, next).filter(
+      (change) => !SETUP_OWNER_ONLY_ALLOWED.includes(change),
+    );
+    if (boundaryDelegationChanged(config, next)) refused.push('boundary');
+    if (refused.length > 0)
+      throw forbidden('setup_owner_only_step', 'the setup package holds changes only the owner makes', {
+        changes: refused,
+      });
+    return next;
   }
 
   /**
@@ -844,6 +919,12 @@ export class SuperHandoffService {
         throw conflict('super_handoff_busy', 'the handoff was moved by another client');
     }
     this.recordChange(moved, moved.taskKey, actor, handoff?.id ?? null, to.handoff);
+    if (isTerminal(state)) {
+      const finished = publicOperation(moved);
+      this.ctx.afterCommit(
+        () => void this.ctx.events.emit('super_operation_finished', { operation: finished }),
+      );
+    }
     return moved;
   }
 

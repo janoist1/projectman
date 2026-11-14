@@ -357,6 +357,8 @@ export const ERROR_CODES = [
   'server_stopping',
   'session_start_failed',
   'setup_code_invalid',
+  // A setup package holds an owner-only change it may not carry (PM-1460, 403).
+  'setup_owner_only_step',
   'setup_requires_localhost',
   'specialty_labels_not_developer',
   'stage_in_use',
@@ -379,6 +381,8 @@ export const ERROR_CODES = [
   'super_operation_expired',
   // The configuration or the target changed since the handoff or the owner's answer (409).
   'super_operation_stale',
+  // A newer setup package replaced the one still waiting for the owner (PM-1460, 409).
+  'super_operation_superseded',
   // The operate operation is not executed in super mode yet (422, PM-831).
   'super_operation_unsupported',
   // The owner's question about the operation is still open (409).

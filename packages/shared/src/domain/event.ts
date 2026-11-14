@@ -143,6 +143,7 @@ export const TimelineEventType = z.enum([
   'team_resumed',
   'super_handoff_changed',
   'super_operation_changed',
+  'setup_applied',
   'obligation_woken',
   'member_queue_item_closed',
   'message_dropped',
@@ -201,6 +202,19 @@ export interface TimelineEventData {
   host_request_withdrawn: { requestId: string; title: string };
   super_handoff_changed: { handoffId: string; state: string };
   super_operation_changed: { operationId: string; state: string; resultKind: string | null };
+  /**
+   * A setup package was applied (PM-1460): the configuration commit from `previousVersion` to `version` with the
+   * members it hired and changed, and whether the agreement was written after it (`agreementError` names why not).
+   */
+  setup_applied: {
+    operationId: string;
+    previousVersion: string;
+    version: string;
+    hired: string[];
+    updated: string[];
+    agreement: 'written' | 'not_written' | 'none';
+    agreementError?: string;
+  };
   /** The owner's override freed the workspaces a failed process-scope cleanup kept reserved (PM-935). */
   workspace_released: { scopeId: string; sessionId: string; workspaceIds: string[]; reason: string };
   task_hand_on_requested: {

@@ -655,14 +655,16 @@ export class MemberQueueWorker implements MemberQueueDriver {
     session: Session,
     lane: MemberQueueLane,
     items: StoredMemberQueueItem[],
-    render: (items: StoredMemberQueueItem[]) => string,
+    render: (items: StoredMemberQueueItem[]) => string | Promise<string>,
     at: string,
   ): Promise<boolean> {
     const repo = this.deps.ctx.repos.memberQueue;
     const claims = lane.completion === 'source' || lane.completion === 'finish';
     const taken = claims ? items.filter((item) => repo.claim(item.id, session.id, at)) : items;
     if (taken.length === 0) return false;
-    const typed = await this.deps.type(session, taken[0]!, render(taken)).catch(() => false);
+    const typed = await Promise.resolve()
+      .then(async () => this.deps.type(session, taken[0]!, await render(taken)))
+      .catch(() => false);
     if (!typed) {
       // A failed typing is no attempt of the item: only a session that ended with it (`settleProcessing`) counts.
       if (claims) for (const item of taken) repo.release(item.id);
@@ -765,7 +767,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
           const text = e.lane.render(e.item);
           if (text !== null) texts.push(text);
         }
-        for (const [batchLane, batchItems] of batches) texts.push(batchLane.renderBatch!(batchItems));
+        for (const [batchLane, batchItems] of batches) texts.push(await batchLane.renderBatch!(batchItems));
         const result = await run(texts);
         if (result.messagesSent !== 0 || texts.length === 0) {
           started.firstInput = result.firstInput;

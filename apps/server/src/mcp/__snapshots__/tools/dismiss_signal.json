@@ -1,7 +1,7 @@
 {
   "name": "dismiss_signal",
   "title": "Dismiss a system signal",
-  "description": "Close an obligation_overdue or relation_check signal, or one of structural_pattern, milestone_closed and review_follow_ups, of your wake-up with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide.",
+  "description": "Close an obligation_overdue, relation_check, start_condition_met or start_condition_changed signal, or one of structural_pattern, milestone_closed and review_follow_ups, with a reason in note. When: role guide. Presented signals belong to the owners.",
   "inputSchema": {
     "type": "object",
     "properties": {

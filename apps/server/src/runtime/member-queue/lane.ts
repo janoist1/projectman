@@ -39,7 +39,7 @@ export interface MemberQueueLane {
   /** The text the member is given; null: the lane delivers its items itself (`deliverLive`, `start`). */
   render(item: StoredMemberQueueItem): string | null;
   /** The text of the items that go in together (a lane that is not `oneAtATime`); absent: each item's `render`. */
-  renderBatch?(items: StoredMemberQueueItem[]): string;
+  renderBatch?(items: StoredMemberQueueItem[]): string | Promise<string>;
   /** False: the source no longer asks for the item; it is closed as cancelled. */
   stillOwed(item: StoredMemberQueueItem): boolean;
   /** A code while something holds the item back (it is neither delivered nor woken for), else null. */

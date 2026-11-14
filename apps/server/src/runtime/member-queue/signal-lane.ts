@@ -7,7 +7,7 @@ interface SignalLaneSignals {
   owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean;
   holdsBack(projectKey: string, signalId: string): boolean;
   heldBack(projectKey: string, signalIds: string[]): Map<string, 'interval' | 'unready'>;
-  noticeText(projectKey: string, signalIds: string[]): string;
+  noticeText(projectKey: string, signalIds: string[]): Promise<string>;
   markDelivered(projectKey: string, member: string, signalId: string, followUpAt: string | null): void;
   markStartRefused(itemId: string): void;
 }

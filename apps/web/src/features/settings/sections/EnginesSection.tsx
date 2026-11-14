@@ -10,7 +10,7 @@ import {
   useSetDefaultEngine,
 } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
-import { Button } from '../../../components/Button';
+import { Button, ButtonLink } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
 import { ErrorBanner } from '../../../components/ErrorBanner';
@@ -177,6 +177,7 @@ export function EnginesSection() {
                   who: me.name,
                 })
               : t('engines.keyLine', { prefix: engine.keyPrefix, created: formatDate(engine.createdAt) })}
+            {engine.paired ? t('pairing.paired') : null}
           </p>
         </div>
         <span data-more={engine.id}>
@@ -247,7 +248,12 @@ export function EnginesSection() {
           <>
             <span className={styles.meta}>{t('engines.yourMeta')}</span>
             {engines && engines.length > 0 && (
-              <span className={styles.newButton}>{newButton('secondary')}</span>
+              <span className={styles.newButton}>
+                <ButtonLink to="/pair" variant="secondary" size="md">
+                  {t('pairing.withCode')}
+                </ButtonLink>
+                {newButton('secondary')}
+              </span>
             )}
           </>
         }

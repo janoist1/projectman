@@ -12,6 +12,8 @@ export const messages = {
   reply: 'Válasz',
   /** The system's notices to the owners (PM-1250), drawn from the notice kind and its values. */
   notice: {
+    engine_paired:
+      '{approver} párosította a(z) „{machine}” gépet, és létrejött a(z) {prefix} super integrátor-kulcs. Ha ezt nem vártad, vond vissza a kulcsot és a motort.',
     session_tokens: 'Egy munkamenet {counted} tokent használt, a figyelmeztető határ {limit}.',
     provider_rate_limited: 'A(z) {provider} használati korlátját elérte a rendszer: {message}',
     refinement_done: 'A(z) {taskKey} kártya kidolgozása kész.',

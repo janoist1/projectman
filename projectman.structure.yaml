@@ -478,6 +478,12 @@ modules:
     summary: A meghívó elfogadásának oldala.
     paths:
       - apps/web/src/features/invites/
+  - id: web/pairing
+    area: ui
+    name: Eszközpárosítás
+    summary: A gép párosítási kódjának jóváhagyó oldala.
+    paths:
+      - apps/web/src/features/pairing/
   - id: web/machine
     area: ui
     name: Gép

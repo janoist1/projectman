@@ -641,9 +641,9 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners " +
-        'do not get it, it waits for a connected integrator. Its answer comes back to you. An owner ' +
-        'decision is not a todo: use ask_human.',
+        "Queue a todo for the owner's connected client: anything it can do on the owner's machine or with " +
+        "the owner's accounts (an install, a setting, an email, a calendar). The question field holds why " +
+        'it is needed. The answer comes back to you. A decision is not a todo: use ask_human.',
       input: {
         task_key: TaskKey.optional().describe(
           'A card projectman already follows (an open or handed-over obligation) is refused with ' +

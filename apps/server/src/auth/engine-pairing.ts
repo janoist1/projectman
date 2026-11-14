@@ -11,6 +11,8 @@ import {
 } from '@projectman/shared';
 import type {
   EnginePairingStatus,
+  AlertPayload,
+  Me,
   PairingView,
   StartEnginePairingRequest,
   StartEnginePairingResponse,
@@ -26,7 +28,7 @@ const MAX_LIVE_PENDING = 20;
 const MAX_WRONG_CODES = 10;
 const MAX_WRONG_CODES_ALL = 50;
 const WINDOW_MS = 15 * 60_000;
-/** A pending pairing this long past its expiry is deleted at the next start; its machine polls `expired` until then. */
+/** Retain expired pending and cancelled pairings for a day after expiry or cancellation, until the next start. */
 const PRUNE_AFTER_MS = 24 * 60 * 60_000;
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -43,6 +45,7 @@ export interface EnginePairingDeps {
     isHostOwner(userId: string): boolean;
     isOwnerAccount(userId: string): boolean;
     hasPassword(userId: string): boolean;
+    keyCoversProject(userId: string, projectKey: string): boolean;
     createPairedKey(input: {
       userId: string;
       tokenHash: string;
@@ -60,7 +63,14 @@ export interface EnginePairingDeps {
       pairingId: string;
     }): { engine: { id: string }; announce: () => void };
   };
-  log: { info(fields: Record<string, unknown>, message: string): void };
+  notices?: {
+    projectsFor(email: string): Promise<Me['projects']>;
+    raiseAlert(input: { projectKey: string; title: string; payload: AlertPayload }): unknown;
+  };
+  log: {
+    info(fields: Record<string, unknown>, message: string): void;
+    warn(fields: Record<string, unknown>, message: string): void;
+  };
   now?: () => Date;
 }
 
@@ -101,6 +111,32 @@ export function createEnginePairingService(deps: EnginePairingDeps) {
     message: 'too many wrong pairing codes; try again later',
     now: ms,
   });
+
+  const notifyPaired = async (row: EnginePairingRecord, engineId: string, userId: string): Promise<void> => {
+    if (!deps.notices) return;
+    try {
+      const user = repos.users.get(userId);
+      if (!user) return;
+      const projects = await deps.notices.projectsFor(user.email);
+      for (const project of projects) {
+        if (project.access !== 'owner' || !auth.keyCoversProject(userId, project.key)) continue;
+        deps.notices.raiseAlert({
+          projectKey: project.key,
+          title: 'Engine paired',
+          payload: {
+            alert: 'engine_paired',
+            pairingId: row.id,
+            engineId,
+            machineName: row.machineName,
+            keyPrefix: row.integratorKeyPrefix,
+            approverName: user.name,
+          },
+        });
+      }
+    } catch (err) {
+      log.warn({ err, pairingId: row.id }, 'Engine pairing notice failed');
+    }
+  };
 
   /** The pairing whose machine key this bearer header carries; null for any mismatch. */
   const machinePairing = (id: string, authorization: string | undefined): EnginePairingRecord | null => {
@@ -160,12 +196,20 @@ export function createEnginePairingService(deps: EnginePairingDeps) {
       releaseUser();
       throw err;
     }
-    const code = normalizePairingCode(rawCode);
-    if (!code) throw codeInvalid();
-    const result = work(code, sha256(code));
-    releaseUser();
-    releaseAddress();
-    return result;
+    let consume = false;
+    try {
+      const code = normalizePairingCode(rawCode);
+      if (!code) throw codeInvalid();
+      return work(code, sha256(code));
+    } catch (err) {
+      consume = err instanceof DomainError && err.code === 'pairing_code_invalid';
+      throw err;
+    } finally {
+      if (!consume) {
+        releaseUser();
+        releaseAddress();
+      }
+    }
   };
 
   return {
@@ -238,7 +282,7 @@ export function createEnginePairingService(deps: EnginePairingDeps) {
     cancel(id: string, authorization: string | undefined): boolean {
       const row = machinePairing(id, authorization);
       if (!row) return false;
-      repos.enginePairings.cancel(row.id);
+      repos.enginePairings.cancel(row.id, now().toISOString());
       return true;
     },
 
@@ -297,6 +341,7 @@ export function createEnginePairingService(deps: EnginePairingDeps) {
         }
         made.key.announce();
         made.engine.announce();
+        void notifyPaired(made.row, made.engine.engine.id, approver.userId);
         log.info(
           {
             pairingId: made.row.id,

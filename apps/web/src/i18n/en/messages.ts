@@ -11,6 +11,8 @@ export const messages = {
   sent: 'Message sent.',
   reply: 'Reply',
   notice: {
+    engine_paired:
+      '{approver} paired the machine “{machine}” and created super integrator key {prefix}. If this was unexpected, revoke the key and the engine.',
     session_tokens: 'A session used {counted} tokens, above the warning limit of {limit}.',
     provider_rate_limited: 'The system reached the usage limit of {provider}: {message}',
     refinement_done: 'The refinement of {taskKey} is done.',

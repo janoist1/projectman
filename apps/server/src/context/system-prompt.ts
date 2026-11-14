@@ -865,7 +865,7 @@ const OPERATING_PRINCIPLES = [
 
 function machineHandoffInstruction(machineAccess: boolean): string {
   return machineAccess
-    ? 'use open_integrator_todo for the owner’s connected client'
+    ? 'use open_integrator_todo with the reason, for anything the owner’s connected client can do on their machine or accounts; decisions: ask_human'
     : 'ask the owners with ask_human';
 }
 
@@ -1295,7 +1295,7 @@ function ownerAccountOnboarding(machineAccess: boolean): string {
     '- GitHub on the same machine: `gh auth login` or an SSH key, which the owner types in themselves. For the GitHub Actions merge check the repository needs the merge-check.yml workflow, and the Actions quota is the owner’s own GitHub account’s.',
     '- With a fine-grained `gh` token: only the owner’s own repositories; Contents and Pull requests write; Actions write (start, runs, logs, cancel); Workflows write only if cards change .github/workflows; Metadata read. The token stays in the gh storage on that machine.',
     '- After that, build the team and the process as usual.',
-    `For a step on the owner’s machine ${machineHandoffInstruction(machineAccess)}${machineAccess ? ': it reaches the owner’s own connected Claude, which runs on their machine with their approval' : ''}. For what only the instance host can grant (a right, a function) use ask_host; the host sees only the request’s title and text.`,
+    `For a step on the owner’s machine ${machineHandoffInstruction(machineAccess)}${machineAccess ? '. The todo reaches the owner’s own connected Claude, which works on their machine with their approval' : ''}. For what only the instance host can grant (a right, a function) use ask_host; the host sees only the request’s title and text.`,
     'Never ask for, accept, repeat or record a password, token or key: the owner types it in themselves on their own machine.',
   ].join('\n');
 }

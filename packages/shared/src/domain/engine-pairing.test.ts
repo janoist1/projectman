@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { canApprovePairing, formatPairingCode, normalizePairingCode } from './engine-pairing';
+import { StartEnginePairingRequest } from '../api/engine-pairing-dto';
+
+describe('pairing machine name', () => {
+  it.each(['\u0000', '\n', '\t', '\u0085', '\u200b', '\u202e', '\u2066'])(
+    'rejects control or formatting character %j before trimming',
+    (character) => {
+      expect(StartEnginePairingRequest.shape.name.safeParse(`${character}Friend Mac`).success).toBe(false);
+    },
+  );
+
+  it('keeps ordinary Unicode names and trims spaces', () => {
+    expect(StartEnginePairingRequest.shape.name.parse('  Árvíztűrő 日本 Mac  ')).toBe('Árvíztűrő 日本 Mac');
+  });
+});
 
 describe('normalizePairingCode', () => {
   it.each([

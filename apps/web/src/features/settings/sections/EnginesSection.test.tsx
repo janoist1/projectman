@@ -88,6 +88,17 @@ describe('engines settings', () => {
     expect(screen.getByText(t('engines.neverSeen'))).toBeTruthy();
   });
 
+  it('offers pairing with a code beside the new machine and marks a paired machine', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac mini', paired: true });
+      backend.addEngine({ name: 'Linux box' });
+    });
+    renderSection(project);
+    const pair = await screen.findByRole('link', { name: t('pairing.withCode') });
+    expect(pair.getAttribute('href')).toBe('/pair');
+    expect(screen.getAllByText(t('pairing.paired'), { exact: false })).toHaveLength(1);
+  });
+
   it('names the login the owner needs when the server asks for it', async () => {
     const project = cloud();
     project.backend.engineLoginRequired = true;

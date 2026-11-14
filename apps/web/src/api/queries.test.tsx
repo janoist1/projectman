@@ -1,9 +1,23 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import type { ConfigView, StartConditionMarksResponse } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from './client';
 import { mockProject } from '../test/mockProject';
 import { browserHash, browserSubscription, fakeBrowser, resetFakeBrowser } from '../test/pushBrowser';
-import { useBoard, useCancelTask, useLogout, useReopenTask, useTaskDetail, useUpdateTask } from './queries';
+import {
+  useBoard,
+  useCancelTask,
+  useConfig,
+  useLogout,
+  useMemberProfile,
+  usePatchConfig,
+  useReopenTask,
+  useStartConditionMarks,
+  useTaskDetail,
+  useUpdateTask,
+} from './queries';
+import { applyServerEvent } from './cache';
+import { queryKeys } from './queryKeys';
 
 vi.mock('../lib/pushBrowser', async () => (await import('../test/pushBrowser')).pushBrowserModule);
 
@@ -72,6 +86,129 @@ describe('task edit', () => {
     expect(project.requests.filter((r) => r.method === 'GET').map((r) => r.path)).not.toContainEqual(
       expect.stringMatching(/\/board$/),
     );
+  });
+});
+
+function MarksProbe() {
+  const marks = useStartConditionMarks('AC', true);
+  return <output>{marks.data?.marks.map((mark) => mark.taskKey).join(',') ?? 'loading'}</output>;
+}
+
+describe('out-of-order server reads', () => {
+  it('replaces an initial marks read when the tracker publishes before its response arrives', async () => {
+    const project = mockProject();
+    project.backend.config.team.startCondition = {
+      priority: 'any',
+      hold: [],
+      combine: 'any',
+      graceMinutes: 5,
+    };
+    const held = project.holdNextResponse('GET', '/api/projects/AC/start-condition-marks');
+    const { client } = project.render(<MarksProbe />);
+    await held.captured;
+    const earlier = client
+      .getQueryCache()
+      .find({ queryKey: queryKeys.startConditionMarks('AC') })!
+      .promise?.catch(() => undefined);
+    try {
+      const task = project.backend.findTask('AC-21')!;
+      task.stageId = 'ready';
+      task.priority = 'high';
+      for (const other of project.backend.tasks) if (other !== task) other.priority = null;
+      project.backend.emit({ type: 'task_upserted', projectKey: 'AC', task });
+      act(() => applyServerEvent(client, { type: 'start_condition_marks_changed', projectKey: 'AC' }));
+      await screen.findByText('AC-21');
+    } finally {
+      await act(async () => {
+        await held.release();
+        await earlier;
+      });
+    }
+    expect(
+      client
+        .getQueryData<StartConditionMarksResponse>(queryKeys.startConditionMarks('AC'))
+        ?.marks.map((mark) => mark.taskKey),
+    ).toEqual(['AC-21']);
+    expect(screen.getByText('AC-21')).toBeTruthy();
+    expect(
+      project.requests.filter((request) => request.path.endsWith('/start-condition-marks')),
+    ).toHaveLength(2);
+  });
+
+  it('reads the final state once for overlapping invalidations in an event burst', async () => {
+    const project = mockProject();
+    function ProfileProbe() {
+      const profile = useMemberProfile('AC', 'fe-1');
+      return <output>{profile.data?.member.activity ?? 'idle'}</output>;
+    }
+    const { client } = project.render(<ProfileProbe />);
+    await waitFor(() => expect(client.getQueryData(queryKeys.profile('AC', 'fe-1'))).toBeDefined());
+    const path = '/api/projects/AC/members/fe-1/profile';
+    const held = project.holdNextResponse('GET', path);
+    const earlier = client.refetchQueries({ queryKey: queryKeys.profile('AC', 'fe-1') });
+    await held.captured;
+    try {
+      act(() => {
+        applyServerEvent(client, { type: 'config_changed', projectKey: 'AC', version: 'changed' });
+        project.backend.findMember('fe-1')!.activity = 'Latest activity';
+        applyServerEvent(client, {
+          type: 'session_upserted',
+          projectKey: 'AC',
+          session: project.backend.findSession('ses_ac21_fe1')!,
+        });
+      });
+      await screen.findByText('Latest activity');
+    } finally {
+      await act(async () => {
+        await held.release();
+        await earlier;
+      });
+    }
+    expect(screen.getByText('Latest activity')).toBeTruthy();
+    expect(project.requests.filter((request) => request.path === path)).toHaveLength(3);
+  });
+
+  it('keeps a saved configuration when an older GET arrives after the PATCH response', async () => {
+    const project = mockProject();
+    function ConfigProbe() {
+      const config = useConfig('AC');
+      const save = usePatchConfig('AC');
+      return (
+        <>
+          <output>{config.data?.config.project.name}</output>
+          <button
+            type="button"
+            onClick={() =>
+              save.mutate({ baseVersion: project.backend.configVersion, project: { name: 'Saved project' } })
+            }
+          >
+            save
+          </button>
+        </>
+      );
+    }
+    const { client } = project.render(<ConfigProbe />);
+    await screen.findByText('Acme webshop');
+    const held = project.holdNextResponse('GET', '/api/projects/AC/config');
+    const earlier = client.refetchQueries({ queryKey: queryKeys.config('AC') });
+    await held.captured;
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'save' }));
+      await screen.findByText('Saved project');
+    } finally {
+      await act(async () => {
+        await held.release();
+        await earlier;
+      });
+    }
+    expect(client.getQueryData<ConfigView>(queryKeys.config('AC'))?.config.project.name).toBe(
+      'Saved project',
+    );
+    expect(screen.getByText('Saved project')).toBeTruthy();
+    expect(project.requests.filter((request) => request.method === 'PATCH')).toHaveLength(1);
+    expect(
+      project.requests.filter((request) => request.path.endsWith('/config') && request.method === 'GET'),
+    ).toHaveLength(2);
   });
 });
 

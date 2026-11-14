@@ -20,10 +20,23 @@ export interface MockRequest {
   body: unknown;
 }
 
+function responseGate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => (resolve = done));
+  return { promise, resolve };
+}
+
 /** A fetch() that answers /api requests from the in-memory backend and records each request. */
 export function createMockFetch(backend: MockBackend, requests: MockRequest[] = []) {
   const handlers = defaultTaskHandlers(backend);
-  return async (path: string, init?: RequestInit): Promise<Response> => {
+  const heldResponses: {
+    method: string;
+    path: string;
+    captured: ReturnType<typeof responseGate>;
+    released: ReturnType<typeof responseGate>;
+    delivered: ReturnType<typeof responseGate>;
+  }[] = [];
+  const respond = async (path: string, init?: RequestInit): Promise<Response> => {
     let body: unknown = init?.body instanceof FormData ? init.body : undefined;
     if (typeof init?.body === 'string') {
       try {
@@ -49,12 +62,46 @@ export function createMockFetch(backend: MockBackend, requests: MockRequest[] = 
       headers: { 'content-type': 'application/json' },
     });
   };
+  const fetch = async (path: string, init?: RequestInit): Promise<Response> => {
+    const index = heldResponses.findIndex(
+      (held) => held.path === path && held.method === (init?.method ?? 'GET'),
+    );
+    const held = index === -1 ? undefined : heldResponses.splice(index, 1)[0];
+    const response = await respond(path, init);
+    if (held) {
+      held.captured.resolve();
+      await held.released.promise;
+      held.delivered.resolve();
+    }
+    return response;
+  };
+  return Object.assign(fetch, {
+    /** Captures the next matching response before holding it, even if its query is later cancelled. */
+    holdNextResponse(method: string, path: string) {
+      const held = {
+        method,
+        path,
+        captured: responseGate(),
+        released: responseGate(),
+        delivered: responseGate(),
+      };
+      heldResponses.push(held);
+      return {
+        captured: held.captured.promise,
+        release: () => {
+          held.released.resolve();
+          return held.delivered.promise;
+        },
+      };
+    },
+  });
 }
 
 /** Routes the API client to a MockBackend and renders UI inside the mock project's context. */
 export function mockProject(backend = new MockBackend()) {
   const requests: MockRequest[] = [];
-  setFetchImplementation(createMockFetch(backend, requests));
+  const fetch = createMockFetch(backend, requests);
+  setFetchImplementation(fetch);
   const context: ProjectContextValue = {
     key: 'AC',
     myHandle: 'owner',
@@ -100,6 +147,7 @@ export function mockProject(backend = new MockBackend()) {
   return {
     backend,
     requests,
+    holdNextResponse: fetch.holdNextResponse,
     context,
     render: (ui: ReactElement, route: RenderRoute = '/', overrides: ContextOverrides = {}) =>
       renderUi(

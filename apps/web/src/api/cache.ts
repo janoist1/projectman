@@ -1,5 +1,5 @@
 import { hashKey } from '@tanstack/react-query';
-import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
+import type { InfiniteData, Query, QueryClient, QueryKey } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
@@ -60,25 +60,32 @@ export function appendUnique<T extends { id: string }>(list: readonly T[], items
   return fresh.length === 0 ? (list as T[]) : [...list, ...fresh];
 }
 
-/** The keys invalidated in the current macrotask, per client; the events of one burst read a key once. */
-const invalidatedNow = new WeakMap<QueryClient, Set<string>>();
+/** The keys and matching queries of an event burst, including overlapping prefixes. */
+const invalidatedNow = new WeakMap<QueryClient, { keys: Set<string>; queries: Set<Query> }>();
 
 /**
- * Marks the queries of a key stale and refetches the ones on screen, once per macrotask: a second
- * invalidation would cancel the refetch that is already under way and send it again (PM-1109).
+ * Marks queries stale now, then reads each visible query once after the event burst. Cancelling
+ * explicitly also replaces initial reads, which invalidateQueries otherwise shares without data.
  */
 function invalidateOnce(client: QueryClient, queryKey: QueryKey): void {
   const hash = hashKey(queryKey);
   let seen = invalidatedNow.get(client);
   if (!seen) {
-    const fresh = new Set<string>();
+    const fresh = { keys: new Set<string>(), queries: new Set<Query>() };
     seen = fresh;
     invalidatedNow.set(client, fresh);
-    setTimeout(() => invalidatedNow.delete(client), 0);
+    setTimeout(() => {
+      invalidatedNow.delete(client);
+      const filters = { type: 'active' as const, predicate: (query: Query) => fresh.queries.has(query) };
+      // Preserve patches and trimmed history pages written since the old read began.
+      void client.cancelQueries(filters, { silent: true, revert: false });
+      void client.refetchQueries(filters);
+    }, 0);
   }
-  if (seen.has(hash)) return;
-  seen.add(hash);
-  void client.invalidateQueries({ queryKey });
+  for (const query of client.getQueryCache().findAll({ queryKey })) seen.queries.add(query);
+  if (seen.keys.has(hash)) return;
+  seen.keys.add(hash);
+  void client.invalidateQueries({ queryKey, refetchType: 'none' });
 }
 
 /**

@@ -34,6 +34,9 @@ const HOST_INSTRUCTIONS =
   'On connecting, read your own knowledge with get_operator_instance_knowledge (write it with ' +
   'update_operator_instance_knowledge), then list_integrator_inbox without project_key: the integrator todos of ' +
   'every project come first. You handle machine, system and development matters, and you do little on your own. ' +
+  'A todo in the queue can be anything that touches the owner’s own tools (an installation, a setting, an email, ' +
+  'storage, a calendar, a browser): do it with the owner’s approval and your client’s own permission prompt, and ' +
+  'never ask for, store or pass on a password, token or key. ' +
   'When a function is missing or broken, bridge the gap for the owner and record it as feedback ' +
   '(record_system_feedback; if this connection does not offer it, tell the owner). ' +
   'When asked to add a further owner, follow docs/HYBRID.md#adding-a-further-owner-guided; edge and any deploy require the host’s explicit approval, and the host creates and sends the invitation and encrypted handoff. ' +
@@ -47,10 +50,11 @@ const OWNER_INSTRUCTIONS =
   'You are the connected Claude of the key’s owner, and you work only on the owner’s own projects (list_projects). ' +
   'Releases and production jobs are unavailable to you; release_due todos belong to the host owner. ' +
   'Work your queue with list_integrator_inbox (without project_key: every project of yours) and ' +
-  'resolve_integrator_todo. Machine work (installing the engine, Node, git, preparing the GitHub login, updates) ' +
-  'runs on the owner’s own machine, with the owner’s approval and your client’s own permission prompt; the ' +
-  'server runs nothing there. Never ask for, store or pass on a password, token or key: the owner types them ' +
-  'in themselves. Project work is the project’s pm: do it only when the owner explicitly asks you to.';
+  'resolve_integrator_todo. A todo can be machine work (installing the engine, Node, git, preparing the GitHub ' +
+  'login, updates) or anything else that touches the owner’s own tools or accounts (an email, storage, a ' +
+  'calendar, a browser); it runs on the owner’s own machine or with the owner’s accounts, with the owner’s ' +
+  'approval and your client’s own permission prompt; the server runs nothing there. Never ask for, store or ' +
+  'pass on a password, token or key: the owner types them in themselves. Project work is the project’s pm: do it only when the owner explicitly asks you to.';
 
 function externalInstructions(host: boolean): string {
   return host ? HOST_INSTRUCTIONS : OWNER_INSTRUCTIONS;

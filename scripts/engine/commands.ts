@@ -3,7 +3,6 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { AgentProvider } from '@projectman/shared';
 import {
-  assertHomeNotInUse,
   cloudOrigin,
   EngineConfig,
   EngineConfigError,
@@ -13,6 +12,9 @@ import {
   saveEngineConfig,
   writeSecretFile,
 } from '../../apps/server/src/engine-link/engine-config';
+import { ClientFileError } from '../projectman/files';
+import { runPair } from './pair';
+import { absoluteFile, buildEngineConfig, previousEngineConfig, UsageError, writeEngineSetup } from './setup';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import type { EngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { assertHomeMayStart } from '../../apps/server/src/instance';
@@ -40,8 +42,6 @@ import { assertNotSwitching, switchService } from './service-switch';
  * a fake terminal. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
  */
 
-class UsageError extends Error {}
-
 export interface EngineCliIo {
   menubar?: MenubarMachine;
   env: NodeJS.ProcessEnv;
@@ -62,11 +62,20 @@ export interface EngineCliIo {
   exec?: Exec;
   /** The platform `move-work-root` copies for (default: this one). */
   platform?: NodeJS.Platform;
+  /** The user's home, where `pair wait` writes the client's files (`~/.config/projectman`, as `projectman connect`). */
+  userHome?: string;
+  /** The hub requests of `pair` (default: the global `fetch`); tests answer them without a network. */
+  fetch?: typeof fetch;
+  /** Waits between the polls of `pair wait` (default: a timer); tests move `now` instead. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const USAGE = `usage:
   npm run engine -- app uninstall   (removes the menu bar app of PM-1088; the downloaded app installs itself)
   npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--link-headers-file <path>] [--force]   (the key on standard input)
+  npm run engine -- pair start --cloud <https-url> --name <name> [--link-headers-file <path>] --integrator-base-url <https-url> [--integrator-access-headers-file <path>] [--expect-email <email>] [--force] [--replace]   (device pairing: prints a code to approve on the web)
+  npm run engine -- pair wait [--timeout <seconds>] [--force] [--replace]   (exit 0 written, 1 ended with nothing written, 3 still pending, 4 approved but a file is in the way)
+  npm run engine -- pair cancel
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
   npm run engine -- repo remove <KEY> <repo>
@@ -88,7 +97,7 @@ interface Parsed {
   flags: Map<string, string>;
 }
 
-const BOOLEAN_FLAGS = new Set(['force', 'json', 'clear']);
+const BOOLEAN_FLAGS = new Set(['force', 'replace', 'json', 'clear']);
 const VALUE_FLAGS = new Set([
   'cloud',
   'id',
@@ -96,6 +105,10 @@ const VALUE_FLAGS = new Set([
   'home',
   'full-test',
   'link-headers-file',
+  'integrator-base-url',
+  'integrator-access-headers-file',
+  'expect-email',
+  'timeout',
   'lines',
   'path',
   'to',
@@ -136,29 +149,12 @@ const absoluteDirectory = (value: string, cwd: string, what: string): string => 
   return real;
 };
 
-/** The real path of an existing regular file, resolved against `cwd`; its content is never read here. */
-const absoluteFile = (value: string, cwd: string, what: string): string => {
-  const resolved = path.resolve(cwd, value);
-  let real: string;
-  try {
-    real = realpathSync(resolved);
-  } catch {
-    throw new EngineConfigError('path_missing', `${what} does not exist: ${resolved}`);
-  }
-  if (!statSync(real).isFile())
-    throw new EngineConfigError('path_not_file', `${what} is not a regular file: ${real}`);
-  return real;
-};
-
 function age(from: string, now: number): string {
   const seconds = Math.max(0, Math.round((now - Date.parse(from)) / 1000));
   if (seconds < 90) return `${seconds}s`;
   if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
   return `${Math.round(seconds / 3600)}h`;
 }
-
-/** PM-1187: the providers a new engine starts sessions for; Gemini's commands run without an OS sandbox. */
-const DEFAULT_ALLOWED_PROVIDERS: AgentProvider[] = ['claude', 'codex', 'nanogpt'];
 
 const providersText = (allowed: readonly AgentProvider[] | undefined): string =>
   allowed === undefined ? 'all' : allowed.length === 0 ? 'none' : allowed.join(', ');
@@ -207,13 +203,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         const id = flags.get('id');
         if (!cloud || !id) throw new UsageError('init needs --cloud and --id');
         cloudOrigin(cloud); // https:// (http:// only for a loopback host)
-        assertHomeNotInUse(home);
-        const previous = existsSync(files.config) ? loadEngineConfig(home) : null;
-        if (previous && !flags.has('force'))
-          throw new EngineConfigError(
-            'config_exists',
-            `${files.config} exists. Use --force to set a new key or cloud address (the projects and repos stay).`,
-          );
+        const previous = previousEngineConfig(home, flags.has('force'));
         const input = await io.readStdin();
         const key = input?.trim();
         if (!key)
@@ -224,35 +214,23 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           throw new EngineConfigError('key_invalid', 'That does not look like an engine key.');
         // Without the switch the previous file stays; with it the file is the one named, resolved against the cwd.
         const headersFlag = flags.get('link-headers-file');
-        const linkHeadersFile = headersFlag
-          ? absoluteFile(headersFlag, io.cwd, 'The link headers file')
-          : previous?.linkHeadersFile;
-        const allowedProviders = previous ? previous.allowedProviders : DEFAULT_ALLOWED_PROVIDERS;
-        const config = EngineConfig.parse({
-          schemaVersion: 1,
-          cloudUrl: cloud,
-          engineId: id,
+        const config = buildEngineConfig(previous, {
+          cloud,
+          id,
           ...(flags.get('name') ? { name: flags.get('name') } : {}),
-          ...(previous?.keyFile ? { keyFile: previous.keyFile } : {}),
-          ...(linkHeadersFile ? { linkHeadersFile } : {}),
-          ...(previous?.nanogptKeyFile ? { nanogptKeyFile: previous.nanogptKeyFile } : {}),
-          projects: previous?.projects ?? [],
-          repos: previous?.repos ?? [],
-          maxPermissionMode: previous?.maxPermissionMode ?? 'auto',
-          allowRemoteTerminalInput: previous?.allowRemoteTerminalInput ?? true,
-          // PM-1187: a new engine leaves Gemini out; a re-run keeps what was there, a missing list too.
-          ...(allowedProviders ? { allowedProviders } : {}),
+          ...(headersFlag
+            ? { linkHeadersFile: absoluteFile(headersFlag, io.cwd, 'The link headers file') }
+            : {}),
         });
-        writeSecretFile(config.keyFile ?? files.key, `${key}\n`);
-        saveEngineConfig(home, config);
-        io.out(
-          `engine ${id} configured at ${files.config}; the key is in ${config.keyFile ?? files.key} (mode 0600)`,
-        );
+        const keyFile = writeEngineSetup(home, config, key);
+        io.out(`engine ${id} configured at ${files.config}; the key is in ${keyFile} (mode 0600)`);
         io.out(
           'next: project set, repo add, then "npm run engine -- service install" (restarts the engine so it reports the project) or "npm run engine -- start"',
         );
         return 0;
       }
+      case 'pair':
+        return await runPair(sub, rest, flags, home, io);
       case 'project': {
         if (sub !== 'set' || rest.length !== 2) throw new UsageError('project set <KEY> <path>');
         const [key, folder] = rest as [string, string];
@@ -527,7 +505,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       default:
         throw new UsageError(
-          'commands: init, project set, repo add, repo remove, nanogpt-key, status, logs, keep-awake, providers, start, service, move-work-root',
+          'commands: init, pair, project set, repo add, repo remove, nanogpt-key, status, logs, keep-awake, providers, start, service, move-work-root',
         );
     }
   } catch (error) {
@@ -535,7 +513,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       io.err(`usage error: ${error.message}\n${USAGE}`);
       return 2;
     }
-    if (error instanceof EngineConfigError) {
+    if (error instanceof EngineConfigError || error instanceof ClientFileError) {
       io.err(`REFUSED [${error.code}]: ${error.message}`);
       return 1;
     }

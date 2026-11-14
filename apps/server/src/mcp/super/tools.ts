@@ -2,6 +2,7 @@ import {
   AnswerHostRequestRequest,
   HostRequestState,
   GetProjectDocWriteInput,
+  IntegratorInboxStatus,
   GetSuperOperationArgs,
   GetSuperQuestionInput,
   QuerySuperDiagnosticsArgs,
@@ -177,6 +178,23 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
               })
               .join('\n\n');
       return { structured: { ...result }, text };
+    },
+  }),
+  defineProjectlessTool({
+    name: 'get_integrator_inbox_status',
+    title: 'Check whether anything is addressed to the integrator',
+    description:
+      'Only whether at least one open item is addressed to you now: {hasPending}, without any title, text or project. Without project_key it checks every project of this key; with it, that project only. Call it first on a scheduled check: on false stop, with no list_integrator_inbox and no other step; on true list and work them. It is not an “anything new since” flag: an open item counts each time.',
+    access: 'read',
+    modes: ['super'],
+    input: { project_key: ProjectKeyArg.optional() },
+    async run({ principal, requestId, args, handler }) {
+      const status = IntegratorInboxStatus.parse(
+        await handler.getIntegratorInboxStatus(principal, requestId, {
+          ...(args.project_key ? { projectKey: args.project_key } : {}),
+        }),
+      );
+      return { structured: status };
     },
   }),
   defineProjectlessTool({

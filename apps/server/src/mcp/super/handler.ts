@@ -80,6 +80,7 @@ import type { ProjectState, StructuralReviews } from '../../services/coordinatio
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
 import {
+  getIntegratorInboxStatus,
   INTEGRATOR_INBOX_LIMIT,
   listIntegratorInbox,
   relayOwnerAnswer,
@@ -640,6 +641,38 @@ export class ExternalTools implements ExternalToolsHandler {
     return {
       items: items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, INTEGRATOR_INBOX_LIMIT),
     };
+  }
+
+  /**
+   * Whether anything is open for the integrator (PM-1466): the same scope and audit path as
+   * `listIntegratorInbox`, only the flag. A key that owns no project now has nothing pending; a refused key or
+   * project stays an error, never an empty queue.
+   */
+  async getIntegratorInboxStatus(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { projectKey?: string },
+  ) {
+    const pending = async (projectKey: string) => {
+      const ctx = await this.bind({ principal, projectKey, requestId }, 'read');
+      return getIntegratorInboxStatus(this.deps, projectKey, this.access(ctx)).hasPending;
+    };
+    const operation = 'mcp_get_integrator_inbox_status';
+    if (args.projectKey !== undefined) {
+      const { projectKey } = args;
+      return {
+        hasPending: await this.backend().execute({ principal, requestId }, { projectKey, operation }, () =>
+          pending(projectKey),
+        ),
+      };
+    }
+    const email = this.holder(principal);
+    const flags = await this.deps.superExecution.executeOwned(
+      { principal, email, requestId },
+      operation,
+      async (projects) => Promise.all(projects.map((project) => pending(project.key))),
+    );
+    return { hasPending: flags.some(Boolean) };
   }
 
   /**

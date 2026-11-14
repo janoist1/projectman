@@ -829,8 +829,11 @@ export class InboxService {
   }
 
   /**
-   * What the integrator is the recipient of that the viewer may read, newest first: the open items, or with `all`
-   * every item that was ever opened to it (PM-714). One read for the integrator inbox tool and the work queues.
+   * What the integrator is the recipient of that the viewer may read: the open items, or with `all` every item
+   * that was ever opened to it (PM-714), the newest `limit` of them, oldest first. One read for the integrator
+   * inbox tool, its status and the work queues. The limit cuts the selected items, never the raw list, so newer
+   * items addressed to others cannot push an older integrator item out (PM-1466). Only an item that was ever
+   * opened to the integrator can be one now; the rest are left out before their question groups are read.
    */
   integratorQueue(
     projectKey: string,
@@ -838,11 +841,16 @@ export class InboxService {
     viewer: Parameters<typeof canSeeInboxItem>[0],
     limit: number,
   ): InboxItem[] {
-    return this.list(projectKey, state === 'open' ? { state: 'open', limit } : { limit }).filter(
-      (item) =>
-        canSeeInboxItem(viewer, item) &&
-        (state === 'open' ? isIntegratorInboxItem(item) : wasIntegratorInboxItem(item)),
-    );
+    const candidates = this.ctx.repos.inbox
+      .list(projectKey, state === 'open' ? { state: 'open' } : {})
+      .filter(wasIntegratorInboxItem);
+    return this.withQuestionGroups(candidates)
+      .filter(
+        (item) =>
+          canSeeInboxItem(viewer, item) &&
+          (state === 'open' ? isIntegratorInboxItem(item) : wasIntegratorInboxItem(item)),
+      )
+      .slice(-limit);
   }
 
   /** `withQuestionGroup` of many items, the groups read together instead of one by one. */

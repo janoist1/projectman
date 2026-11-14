@@ -10,6 +10,7 @@ import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { columnProgressOf, progressOf, themeGroups } from './themeModel';
 import styles from './ThemeStrip.module.css';
+import { QuickPriority, useStartCondition } from './StartCondition';
 
 /**
  * The themes above the board (PM-192): one tile each with its name and progress. The tile's main part
@@ -34,6 +35,7 @@ export function ThemeStrip({
   onNew?: () => void;
 }) {
   const [showHidden, setShowHidden] = useState(false);
+  const startData = useStartCondition();
   const firstHidden = useRef<HTMLLIElement | null>(null);
   // The closed and archived tiles open at the end of the row, maybe out of sight: bring the first into view.
   useEffect(() => {
@@ -78,6 +80,7 @@ export function ThemeStrip({
                 ref={index === open.length ? firstHidden : undefined}
                 className={clsx(
                   styles.tile,
+                  startData && styles.quick,
                   pressed && styles.active,
                   (isArchived || !isOpenTask(theme)) && styles.closed,
                 )}
@@ -126,6 +129,7 @@ export function ThemeStrip({
                 >
                   <Icon name="chevronRight" size={16} />
                 </button>
+                {startData ? <QuickPriority task={theme} /> : null}
               </li>
             </Fragment>
           );

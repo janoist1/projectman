@@ -1258,6 +1258,7 @@ export class InboxService {
           data: {
             inboxItemId: id,
             answer: answerText(resolved),
+            ...(questionPayloadOf(resolved)?.setupSource ? { ownerOnly: true as const } : {}),
             ...(integratorTodo
               ? { integratorTodo: { optionId: req.optionId as 'todo_done' | 'todo_cannot', note } }
               : {}),

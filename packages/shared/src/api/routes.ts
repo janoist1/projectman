@@ -117,6 +117,7 @@ export const routes = {
 
   projects: () => '/api/projects',
   board: (key: string) => `/api/projects/${key}/board`,
+  startConditionMarks: (key: string) => `/api/projects/${key}/start-condition-marks`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,

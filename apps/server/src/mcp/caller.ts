@@ -164,6 +164,9 @@ export interface GuestView {
 
 export const OWNER_ONLY = 'operator_owner_only';
 
+/** The project manager's setup idea tools (PM-1463). */
+const SETUP_IDEA_TOOLS = new Set(['preview_template', 'ask_setup_source', 'read_setup_source']);
+
 export class ToolCaller {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
@@ -315,6 +318,23 @@ export class ToolCaller {
         throw new TeamToolError(
           'forbidden',
           'operator_no_request: project document writes require your own open owner message or answer.',
+        );
+      return { config, request, guest: null };
+    }
+    // The setup idea tools (PM-1463) belong to the PM's own conversation; asking an owner for another project of
+    // theirs needs that owner's open message or answer, reading needs no request but never a guest's.
+    if (SETUP_IDEA_TOOLS.has(tool)) {
+      this.assertCoordinationSession(ctx, config);
+      const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (request && !isOwner(config, request.fromHandle))
+        throw new TeamToolError('forbidden', `${OWNER_ONLY}: ${tool} requires an owner request.`);
+      if (
+        tool === 'ask_setup_source' &&
+        (!request || (request.source !== 'message' && request.source !== 'answer'))
+      )
+        throw new TeamToolError(
+          'forbidden',
+          "operator_no_request: asking for a setup source requires the owner's own open message or answer.",
         );
       return { config, request, guest: null };
     }

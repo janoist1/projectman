@@ -10,6 +10,7 @@ export { ReviewFollowUps } from './review-follow-ups';
 export { ConversationRefreshes } from './conversation-refresh';
 export { ConversationHandovers } from './handover';
 export { WorkQueues } from './work-queues';
+export { SetupSources } from './setup-source';
 export { PmReplyRelay, RELAY_WINDOW_MS } from './pm-reply-relay';
 export type * from './ports';
 export { createAlertPmSignals, wireProjectManagerSignals } from './signal-events';

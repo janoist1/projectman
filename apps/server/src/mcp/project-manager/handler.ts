@@ -35,7 +35,9 @@ import type {
   UpdateChecklistResult,
   MemberStartResult,
   ToolContext,
+  SetupSourceView,
   SystemFeedbackLookup,
+  TemplatePreview,
 } from '../../contracts';
 import { buildCapabilityCatalog, capabilityDetail } from '../../context';
 import type { DomainContext } from '../../core/base';
@@ -55,6 +57,7 @@ import type {
   StructuralReviews,
   LoopTriages,
   ConversationRefreshes,
+  SetupSources,
 } from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super';
@@ -103,6 +106,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
   private readonly checklist: ProjectManagerToolsChecklist;
   private readonly capabilityTools: CapabilityTools;
   private readonly hostOwnerEmail: () => string | null;
+  private readonly setupSources: SetupSources;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -130,6 +134,8 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     hostOwnerEmail: () => string | null;
     /** The shared super-operation path; read at the call, because it is composed after the tools. */
     superPath: () => SuperPath;
+    /** The setup ideas (PM-1463): template previews and another project of the owner's. */
+    setupSources: SetupSources;
   }) {
     this.calls = deps.calls;
     this.ctx = deps.ctx;
@@ -153,6 +159,7 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
     this.capabilityTools = deps.capabilityTools;
     this.hostOwnerEmail = deps.hostOwnerEmail;
     this.superPath = deps.superPath;
+    this.setupSources = deps.setupSources;
   }
 
   async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
@@ -184,6 +191,37 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
           `No ${args.area} item "${args.id}". ${capabilityDetail(catalog, args.area)}`,
         );
       return detail;
+    });
+  }
+
+  async previewTemplate(ctx: ToolContext, args: { templateId?: string }): Promise<TemplatePreview> {
+    return this.calls.guard(async () => {
+      const { config, request } = await this.calls.callerWithRequest(ctx, 'preview_template');
+      try {
+        return this.setupSources.preview(config, request?.fromHandle ?? null, args.templateId);
+      } catch (err) {
+        throw setupToolError(err);
+      }
+    });
+  }
+
+  async askSetupSource(ctx: ToolContext): Promise<{ inbox_item_id: string; candidates: string[] }> {
+    return this.calls.guard(async () => {
+      const { request } = await this.calls.callerWithRequest(ctx, 'ask_setup_source');
+      return this.setupSources
+        .ask(ctx.projectKey, { member: ctx.member, sessionId: ctx.sessionId }, request!.fromHandle)
+        .catch((err: unknown) => {
+          throw setupToolError(err);
+        });
+    });
+  }
+
+  async readSetupSource(ctx: ToolContext, args: { projectKey: string }): Promise<SetupSourceView> {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'read_setup_source');
+      return this.setupSources.read(ctx.projectKey, args.projectKey).catch((err: unknown) => {
+        throw setupToolError(err);
+      });
     });
   }
 
@@ -988,4 +1026,13 @@ export class ProjectManagerTools implements ProjectManagerToolsHandler {
         throw toToolError(err);
       });
   }
+}
+
+/** A setup idea refusal (PM-1463) keeps its code, so the project manager can tell the cases apart. */
+function setupToolError(err: unknown): unknown {
+  if (!(err instanceof DomainError)) return err;
+  return new TeamToolError(
+    err.status === 403 ? 'forbidden' : err.status === 404 ? 'not_found' : 'invalid',
+    `${err.code}: ${err.message}`,
+  );
 }

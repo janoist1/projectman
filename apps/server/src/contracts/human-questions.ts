@@ -32,6 +32,11 @@ export interface HumanQuestionInput {
   ownerTopic?: string;
   /** The system signal the question is about (PM-455); the caller's tool has checked it. */
   signalId?: string;
+  /**
+   * The project manager's setup source question (PM-1463), checked by its service: one option per offered
+   * project, its key the option id, and one that grants none. It goes to `owner` alone, as an approval.
+   */
+  setupSource?: { owner: string; candidates: { key: string; name: string }[]; noneLabel: string };
 }
 
 export interface AskedHuman {

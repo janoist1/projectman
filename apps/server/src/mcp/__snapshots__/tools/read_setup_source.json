@@ -1,0 +1,26 @@
+{
+  "name": "read_setup_source",
+  "title": "Read another of the owner's projects as an idea source",
+  "description": "The project the owner allowed via ask_setup_source in the last day: stages, gates, labels, roles, AI members by role and provider, lessons (null if unavailable). No cards, messages, documents or people. Else setup_source_not_allowed. Ideas only, never principles.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}$",
+        "description": "The key of the allowed project."
+      }
+    },
+    "required": [
+      "project_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Read another of the owner's projects as an idea source",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

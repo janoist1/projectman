@@ -33,6 +33,7 @@ import type {
   OwnerOnlyChange,
   PatchConfigRequest,
   ProjectSummary,
+  StartConditionMarksResponse,
   BoundActor,
   ProjectManagerOperation,
   UiLanguage,
@@ -300,6 +301,21 @@ export class ProjectService {
 
   async config(key: string): Promise<ProjectConfig> {
     return (await this.load(key)).config;
+  }
+
+  /** Reads persisted timestamps without updating the tracker or acquiring its lock. */
+  async startConditionMarks(key: string): Promise<StartConditionMarksResponse> {
+    const config = await this.config(key);
+    const condition = config.team.startCondition;
+    return {
+      marks: condition
+        ? [...this.ctx.repos.startConditionMarks.ofProject(key)].map(([taskKey, metSince]) => ({
+            taskKey,
+            metSince,
+            dueAt: new Date(Date.parse(metSince) + condition.graceMinutes * 60_000).toISOString(),
+          }))
+        : [],
+    };
   }
 
   /** Serializes private knowledge CAS with every configuration commit. Do not mutate projects in work. */

@@ -1,21 +1,31 @@
 import { useId, useRef } from 'react';
 import { TASK_PRIORITIES } from '@projectman/shared';
 import type { BoardCard, TaskPriority as Priority } from '@projectman/shared';
-import { useUpdateTask } from '../../api/queries';
+import { useBoard, useConfig, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { PriorityMark } from '../../components/PriorityMark';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
+import { PrioritySources, QuickPriority } from './StartCondition';
 
 /** Shared by the drawer and expanded view; saves immediately and follows live card updates. */
 export function TaskPrioritySelect({ task, help }: { task: BoardCard; help?: string }) {
   const { key, can } = useProject();
   const update = useUpdateTask(key);
+  const config = useConfig(key, can.readConfig).data?.config;
+  const board = useBoard(key).data;
   const id = useId();
   const select = useRef<HTMLSelectElement>(null);
   const priority = update.isPending ? (update.variables?.body.priority ?? null) : task.priority;
+  if (config?.team.startCondition && board)
+    return (
+      <div className={drawer.propWide}>
+        <QuickPriority task={task} />
+        <PrioritySources task={task} data={{ config, tasks: board.tasks, marks: [] }} />
+      </div>
+    );
   if (!can.createTasks && !priority) return null;
   return (
     <div className={drawer.prop}>

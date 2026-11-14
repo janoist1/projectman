@@ -1,4 +1,13 @@
 export const priority = {
+  own: 'Own priority',
+  effective: 'Effective: {level}',
+  inherited: 'inherited',
+  themeSource: 'Theme: {key} · {title}',
+  parentSource: 'Parent: {key} · {title}',
+  clear: 'Clear',
+  retry: 'Retry',
+  saving: 'Saving…',
+  saved: 'Priority saved.',
   label: 'Priority',
   levels: { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' },
   none: 'Not set',

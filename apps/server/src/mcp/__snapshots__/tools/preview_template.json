@@ -1,0 +1,23 @@
+{
+  "name": "preview_template",
+  "title": "Preview a project template",
+  "description": "Without template_id: the templates with stage and member counts. With it: that template built from this project's data: stages and gates, labels, roles, AI members by role and provider, checklist titles. An idea for your setup proposal; changes nothing.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "template_id": {
+        "description": "A template id from the list.",
+        "type": "string",
+        "maxLength": 60
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Preview a project template",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

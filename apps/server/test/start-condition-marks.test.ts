@@ -67,9 +67,10 @@ it('serializes updates, schedules the next deadline, restarts after a hold and c
     labels: [],
     links: [],
   } as unknown as Task;
+  const publish = vi.fn();
   const ctx = createDomainContext({
     repos: createRepositories(db),
-    bus: { publish: () => {}, subscribe: () => () => {} },
+    bus: { publish, subscribe: () => () => {} },
     logger: capturingLogger().logger,
     now: () => new Date(),
   });
@@ -85,21 +86,31 @@ it('serializes updates, schedules the next deadline, restarts after a hold and c
   try {
     const results = await Promise.all([tracker.update('AC'), tracker.update('AC')]);
     expect([...results[0]!]).toEqual([...results[1]!]);
+    expect(publish).toHaveBeenCalledExactlyOnceWith({
+      type: 'start_condition_marks_changed',
+      projectKey: 'AC',
+    });
     expect(vi.getTimerCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(4 * 60_000);
     expect(onDue).not.toHaveBeenCalled();
     task.labels = ['hold'];
     expect((await tracker.update('AC')).size).toBe(0);
+    expect(publish).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
     task.labels = [];
     const restarted = await tracker.update('AC');
     expect(restarted.get(task.key)).toBe(new Date().toISOString());
+    expect(publish).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(onDue).toHaveBeenCalledExactlyOnceWith('AC');
     await tracker.update('AC');
+    expect(publish).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(0);
     delete config.team.startCondition;
     expect((await tracker.update('AC')).size).toBe(0);
+    expect(publish).toHaveBeenCalledTimes(4);
+    await tracker.update('AC');
+    expect(publish).toHaveBeenCalledTimes(4);
     config.team.startCondition = StartCondition.parse({ priority: 'any' });
     await tracker.update('AC');
     tracker.dispose();

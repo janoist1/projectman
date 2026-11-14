@@ -2211,6 +2211,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   different one counts as `relocated`).
   **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
+  **Card change notice cursor (PM-1512):** the hub sets a session's notice cursor (`card_notice_cursors`) to the
+  end of the timeline at `session_started`; a resumed conversation therefore tells only later changes, what came
+  before is in its first input. The cursor lives in the hub's database, not on the engine.
   **Module:** `runner`
 - **Hooks and team MCP over loopback** — `start.ts` (`loopbackBaseUrl`),
   `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `LiveSessions`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
@@ -2230,6 +2233,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
   token or the body. A Codex session without team tools therefore shows in the engine log
   where its handshake stopped (no call, a slow one, a refusal).
+  **Card change notice (PM-1512):** the hub appends the notice to a relayed tool result and the relay
+  (`relayMcp` in `engine-link/remote/index.ts`) rolls the session's notice cursor back when the engine's link was
+  replaced or dropped while the request ran, so a response lost in transit is told again by the next call.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last

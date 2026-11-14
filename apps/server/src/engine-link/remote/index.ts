@@ -9,6 +9,7 @@ import type {
   RunnerModule,
   ToolContext,
 } from '../../contracts';
+import { CARD_NOTICE_HEADER } from '../../contracts';
 import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
 import { EngineRpcError } from '../rpc';
@@ -51,6 +52,8 @@ export interface CloudDomain {
     resumeEngine(engineId: EngineId): Promise<void>;
   };
   providerKeys?: { onChange(listener: () => void): () => void } | null;
+  /** Takes a card-change notice back when its response did not reach the engine (PM-1512). */
+  cardNotices?: { rollback(sessionId: string, grants: readonly string[]): void };
 }
 
 interface CloudRemoteOptions {
@@ -184,12 +187,18 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
       );
       return NOT_FOUND;
     }
+    const linkBefore = hub.link(engineId);
     const response = await bound.app.inject({
       method: 'POST',
       url: routes.mcp(request.token),
       headers: { 'content-type': request.contentType, accept: request.accept },
       payload: request.body,
     } satisfies InjectOptions);
+    // A card-change notice (PM-1512) counts as told once its response left; when the engine's link went away
+    // or was replaced meanwhile, the answer never reached the CLI: the next call tells it again.
+    const grants = response.headers[CARD_NOTICE_HEADER];
+    if (typeof grants === 'string' && hub.link(engineId) !== linkBefore)
+      bound.domain.cardNotices?.rollback(context.sessionId, grants.split(','));
     return {
       status: response.statusCode,
       contentType: String(response.headers['content-type'] ?? 'application/json'),

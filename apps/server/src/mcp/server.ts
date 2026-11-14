@@ -7,6 +7,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import {
   TEAM_TOOL_TIMEOUT_MS,
   TeamToolError,
+  type CardChangeNotices,
   type TeamToolsHandler,
   type ToolContext,
   type MemberAudience,
@@ -39,6 +40,8 @@ export interface TeamServerDeps {
   handler: TeamToolsHandler;
   logger: FastifyBaseLogger;
   toolTimeoutMs: number;
+  /** PM-1512: the card-change notice of a card session; absent: none. */
+  notices?: CardChangeNotices;
 }
 
 /** Error codes seen by the model: the TeamToolError codes plus our own. */
@@ -83,8 +86,13 @@ export function toolListing(tools: readonly TeamTool[]): Tool[] {
 /**
  * Builds an MCP server bound to one calling session. The endpoint is stateless: a fresh
  * server is created for every HTTP request, with the context resolved from its token.
+ * `grants` collects the card-change notices (PM-1512) the request's tool calls took, for the relay's header.
  */
-export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): McpServer {
+export function createTeamMcpServer(
+  ctx: ToolContext,
+  deps: TeamServerDeps,
+  grants: string[] = [],
+): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: TEAM_INSTRUCTIONS, jsonSchemaValidator });
   const audience = deps.audienceOf(ctx);
   const visible = toolsFor(audience);
@@ -97,7 +105,7 @@ export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): Mcp
         inputSchema: tool.inputSchema,
         annotations: tool.annotations,
       },
-      (args) => runTool(tool, ctx, args, deps),
+      async (args) => withCardNotice(await runTool(tool, ctx, args, deps), ctx, deps, grants),
     );
   }
   // Replaces the SDK's own listing, which would convert every schema again for each request.
@@ -105,6 +113,22 @@ export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): Mcp
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: toolListing(visible) }));
   server.server.onerror = (err) => deps.logger.debug({ err }, 'MCP protocol error');
   return server;
+}
+
+/**
+ * Appends the card-change notice (PM-1512) as the last text block. It is looked up when the call has finished, so
+ * a change made during a long call is in this very answer; the result's own content and `isError` stay as they are.
+ */
+function withCardNotice(
+  result: CallToolResult,
+  ctx: ToolContext,
+  deps: TeamServerDeps,
+  grants: string[],
+): CallToolResult {
+  const notice = deps.notices?.take(ctx);
+  if (!notice) return result;
+  grants.push(notice.grant);
+  return { ...result, content: [...result.content, { type: 'text', text: notice.text }] };
 }
 
 function toolError(code: ToolErrorCode, message: string): CallToolResult {

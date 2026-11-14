@@ -242,6 +242,24 @@ export interface ToolContext {
   taskKey: string | null;
 }
 
+/** PM-1512: the card-change notice appended to a card session's team tool result. */
+export interface CardChangeNotice {
+  /** The text block appended as the last content item. */
+  text: string;
+  /** Opaque token that `rollback` takes back when the response did not leave the hub. */
+  grant: string;
+}
+
+export interface CardChangeNotices {
+  /** Collects and acknowledges in one synchronous unit of work; null: nothing to tell. Never throws. */
+  take(ctx: ToolContext): CardChangeNotice | null;
+  /** The response carrying these grants was lost: the cursor goes back, only while it still stands where they left it. */
+  rollback(sessionId: string, grants: readonly string[]): void;
+}
+
+/** The response header that carries the grants of a notice to the engine relay; never leaves the hub. */
+export const CARD_NOTICE_HEADER = 'x-projectman-card-notice';
+
 export interface ListTasksInput {
   status?: 'open' | TaskStatus;
   stage?: string;
@@ -1030,6 +1048,8 @@ export interface McpModuleOptions {
   logger: FastifyBaseLogger;
   /** The bearer endpoint `POST /mcp` of the integrator (PM-760); absent: that route is not served. */
   external?: ExternalMcpBackend;
+  /** PM-1512: tells a card session of changes to its card in its next tool result; absent: no notice. */
+  cardNotices?: CardChangeNotices;
 }
 
 export interface McpModule {

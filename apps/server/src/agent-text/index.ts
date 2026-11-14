@@ -10,6 +10,12 @@ export { cardQuestionLines, cardWorkerLines, stateText } from './card-thread';
 export { describeLink, linkTarget } from './links';
 export { relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
+export {
+  cardChangeNoticeText,
+  CARD_CHANGE_NOTICE_LINES,
+  type CardChangeKind,
+  type CardChangeNoticeItem,
+} from './card-change-notice';
 export { partsLeftText } from './parts-left';
 export { roleLabel } from './role';
 export { collectorNotReadyText, startOfferText, ownerHoldText } from './start-offer';

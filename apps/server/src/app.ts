@@ -694,6 +694,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       audienceOf: (ctx) => domain.sessions.audienceOf(ctx),
       logger: log,
       external: domain.externalMcp(),
+      cardNotices: domain.cardNotices,
     });
 
     const webDistDir =

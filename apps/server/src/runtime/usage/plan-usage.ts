@@ -145,6 +145,8 @@ export class PlanUsageMonitor {
   private readonly attempts = new Map<string, { at: number; failures: number }>();
   private lastScanAt = 0;
   private refreshing = false;
+  /** Engines that came online during a round: the round is followed by another one for them. */
+  private readonly reconnected = new Set<EngineId>();
   private readonly loop: RefreshLoop;
 
   constructor(opts: {
@@ -241,10 +243,29 @@ export class PlanUsageMonitor {
           await Promise.all([...pairs.values()].map((pair) => this.cache.get(pair.provider, pair.engineId)));
         } finally {
           this.refreshing = false;
+          if (this.reconnected.size > 0) {
+            // The round in flight may have asked before the engine was there and stamped that answer as fresh.
+            for (const engineId of this.reconnected) this.cache.invalidate(engineId);
+            this.reconnected.clear();
+            this.refresh({ force: true });
+          }
         }
       },
       (err) => this.logger.warn({ err }, 'plan usage refresh failed'),
     );
+  }
+
+  /**
+   * An engine came online: the probe the start or an earlier tick made while it was away gave no answer
+   * (a hub restart probes before its engines reconnect), so its accounts are measured again at once
+   * instead of after the wait that follows a missed answer. A round in flight is followed by another.
+   */
+  engineOnline(engineId: EngineId): void {
+    for (const key of [...this.attempts.keys()])
+      if (key.startsWith(`${engineId}\0`)) this.attempts.delete(key);
+    this.cache.invalidate(engineId);
+    if (this.refreshing) this.reconnected.add(engineId);
+    else this.refresh({ force: true });
   }
 
   /** The accounts live sessions use; null when they cannot be read (the round is skipped, the next tick tries again). */

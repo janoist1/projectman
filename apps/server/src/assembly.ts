@@ -1852,6 +1852,8 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err, engineId: id }, 'loop triage engine check failed'),
     );
     if (!online) return;
+    // A hub restart probes the plan usage before its engines reconnect: measure the engine's accounts now.
+    usage.engineOnline(id);
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
     if (!opts.standby)
       background.run(

@@ -409,6 +409,9 @@ export const errors = {
     super_operation_superseded: 'Egy újabb beállítás-csomag váltotta fel ezt, ezért ez már nem fut le.',
     setup_owner_only_step:
       'A beállítás-csomagban olyan változás van, amelyet csak a tulajdonos végezhet el maga. Ezt a csomagon kívül kell beállítani.',
+    setup_source_none: 'A tulajdonosnak nincs másik saját projektje, amelyből ötletet lehetne meríteni.',
+    setup_source_not_allowed:
+      'Ezt a projektet csak akkor lehet megnézni, ha a tulajdonosa az elmúlt egy napban maga megengedte.',
     super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
     super_operation_unsupported:
       'Ezt a műveletet a csatlakoztatott Claude super jogosítvánnyal sem tudja végrehajtani.',

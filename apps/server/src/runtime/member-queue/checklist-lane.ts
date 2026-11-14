@@ -51,7 +51,7 @@ export function checklistLane(deps: {
     appliesTo: (item, config) => coordinationMemberOf(config)?.handle === item.member,
     render: (item) => {
       if (item.source.id === 'onboarding')
-        return 'This project is new. First call get_checklist. Then send the owner a short introduction and one first question with your recommendation using send_message (kind info, in the project language). Guide setup step by step using the checklist and existing tools and approval levels.';
+        return 'This project is new. First call get_checklist. Then send the owner a short introduction and the first everyday survey question with your recommended answer using send_message (kind info, in the project language). Follow the setup survey procedure: at most six questions, one at a time, then the whole proposal in one message and setup_apply; existing tools and approval levels still apply.';
       const reopened = reopenedItem(item);
       return `Checklist item reopened: ${JSON.stringify(reopened?.title)}. Reason: ${reopened?.reopened === 'condition' ? 'its condition no longer holds' : 'the owner reopened it'}. Call get_checklist and look into it; existing authority and approvals still apply.`;
     },

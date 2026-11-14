@@ -303,6 +303,26 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('getCapability', ctx, args);
       return `# ${args.area}`;
     },
+    async previewTemplate(ctx, args) {
+      await enter('previewTemplate', ctx, args);
+      return { templates: [{ id: 'small-team', stages: 4, humans: 1, aiMembers: 3 }] };
+    },
+    async askSetupSource(ctx) {
+      await enter('askSetupSource', ctx, {});
+      return { inbox_item_id: 'inb_fake', candidates: ['OTHER'] };
+    },
+    async readSetupSource(ctx, args) {
+      await enter('readSetupSource', ctx, args);
+      return {
+        key: args.projectKey,
+        name: 'Other',
+        stages: [],
+        labels: [],
+        roles: [],
+        aiMembers: [],
+        lessons: null,
+      };
+    },
     async getChecklist(ctx) {
       await enter('getChecklist', ctx, {});
       return { checklist: null, templates: [{ id: 'small-team', checklist: ['code_review'] }] };

@@ -575,6 +575,8 @@ export interface TimelineEventData {
     answer: string;
     groupPrimaryItemId?: string;
     integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+    /** The answer names the owner's other project (a setup source, PM-1463): only an owner and an admin see it. */
+    ownerOnly?: true;
   };
   /**
    * The route rule placed an item (PM-1246, `routeItem`): `requested` is the recipient the asker named, `to` the

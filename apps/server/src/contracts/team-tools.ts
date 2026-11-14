@@ -1119,6 +1119,43 @@ export interface UpdateChecklistResult {
   added?: string[];
 }
 
+/**
+ * The process of a project as a setup idea (PM-1463): stages, gates, labels and roles, the AI members by role and
+ * provider. It names no person: no handle, display name or e-mail.
+ */
+export interface SetupProcessView {
+  stages: {
+    id: string;
+    name: string;
+    kind: string;
+    column: string;
+    duty?: string;
+    gate?: { type: string; label: string; when?: unknown }[];
+  }[];
+  labels: {
+    id: string;
+    name: string;
+    meaning?: string;
+    setBy: string | { duties?: string[]; humansOnly?: boolean };
+  }[];
+  roles: { id: string; name: string; summary: string }[];
+  aiMembers: { role: string; provider: string; specialty?: string }[];
+}
+
+/** preview_template (PM-1463): the template list, or one template built from this project's data. */
+export type TemplatePreview =
+  | { templates: { id: string; stages: number; humans: number; aiMembers: number }[] }
+  | (SetupProcessView & { templateId: string; humans: number; checklist: string[] });
+
+/** read_setup_source (PM-1463): another project of the owner's, read with the owner's own permission. */
+export interface SetupSourceView extends SetupProcessView {
+  key: string;
+  name: string;
+  /** The project's lessons text; null when it keeps none or its engine is unavailable. */
+  lessons: string | null;
+  lessonsUnavailable?: true;
+}
+
 /** The tools of services/coordination (PM-605). */
 export interface ProjectManagerToolsHandler {
   getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
@@ -1135,6 +1172,12 @@ export interface ProjectManagerToolsHandler {
    * with `not_found`. The project manager's own session only; it reads, and needs no owner request.
    */
   getCapability(ctx: ToolContext, args: { area: CapabilityArea; id?: string }): Promise<string>;
+  /** preview_template (PM-1463): the project manager's own session; reads, needs no owner request. */
+  previewTemplate(ctx: ToolContext, args: { templateId?: string }): Promise<TemplatePreview>;
+  /** ask_setup_source (PM-1463): asks the requesting owner which other project of theirs may be read. */
+  askSetupSource(ctx: ToolContext): Promise<{ inbox_item_id: string; candidates: string[] }>;
+  /** read_setup_source (PM-1463): only with that owner's own permission from the last day. */
+  readSetupSource(ctx: ToolContext, args: { projectKey: string }): Promise<SetupSourceView>;
   /** get_checklist (PM-977): the project manager and the PM, internal general session, never a guest. */
   getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
   /** update_checklist (PM-977): the project manager only, internal general session; needs no owner request. */

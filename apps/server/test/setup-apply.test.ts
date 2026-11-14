@@ -69,9 +69,9 @@ describe('the setup package (PM-1460)', () => {
     });
   });
 
-  const propose = async (operation: SetupApply) => {
+  const propose = async (operation: ProjectManagerOperation & { title?: string }) => {
     const result = await h.domain.teamTools.operate(ctx, {
-      title: operation.title,
+      title: operation.title ?? 'Revert the setup',
       operation,
       plan: { why: 'The owner asked for it.', impact: 'The team changes.', reversible: true },
     });
@@ -235,6 +235,21 @@ describe('the setup package (PM-1460)', () => {
     await expect(answer(first.inbox_item_id!, 'yes')).rejects.toBeInstanceOf(Error);
     expect(h.domain.superHandoffs.operation('AR', second.operationId).state).toBe('waiting_owner');
     expect(pmNotices()).toEqual([]);
+  });
+
+  it('is undone by one config_revert to its previous version, the removal of its hire on the owner’s yes (PM-1463)', async () => {
+    const before = await h.domain.projects.load('AR');
+    const proposed = await propose({ ...BIG, hires: [{ role: 'developer', handle: 'dev-a' }] });
+    await answer(proposed.inbox_item_id!, 'yes');
+    expect(await settled(proposed.operationId)).toMatchObject({ state: 'succeeded' });
+    await vi.waitFor(() => expect(pmNotices()).toEqual([expect.stringContaining(before.version)]));
+
+    const reverted = await propose({ op: 'config_revert', version: before.version });
+    expect(h.domain.superHandoffs.operation('AR', reverted.operationId).state).toBe('waiting_owner');
+    await answer(reverted.inbox_item_id!, 'yes');
+    expect(await settled(reverted.operationId)).toMatchObject({ state: 'succeeded' });
+    expect(config().pipeline).toEqual(before.config.pipeline);
+    expect(config().team.members).toEqual(before.config.team.members);
   });
 
   it('tells the project manager when the owner says no', async () => {

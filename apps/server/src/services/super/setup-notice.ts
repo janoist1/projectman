@@ -36,10 +36,15 @@ function appliedText(title: string, result: SetupResult): string {
         ? `The shared agreement was NOT written (${result.agreementError ?? 'internal_error'}): the configuration ` +
           'stays applied; propose the agreement again on its own.'
         : 'The package had no agreement.';
+  // The way back (PM-1463): one revert, which also undoes later configuration changes and leaves the agreement.
+  const revert =
+    `To undo it, config_revert to ${result.previousVersion} restores the configuration in one step; it also ` +
+    'undoes the configuration changes made since, removing hired members waits for the owner’s yes, and the ' +
+    'agreement is not part of the configuration, so propose the old one again on its own if needed.';
   return (
     `Setup package "${title}" is applied in one configuration commit ` +
     `(${result.previousVersion} -> ${result.version}). Hired: ${list(result.hired)}. ` +
-    `Changed members: ${list(result.updated)}. ${agreement}`
+    `Changed members: ${list(result.updated)}. ${agreement} ${revert}`
   );
 }
 

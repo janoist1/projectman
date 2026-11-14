@@ -15,6 +15,9 @@ export function canSeeTimelineEvent(
   event: TimelineEvent,
   participants: (id: string) => { from: string; to: string[] } | null,
 ): boolean {
+  // A setup source answer names the owner's other project; it stays with those who see its question (PM-1463).
+  if (event.type === 'question_answered' && event.data?.ownerOnly)
+    return !viewer.via && canSeeAllTeamMessages(viewer);
   if (
     viewer.access === 'client' &&
     ['review_follow_ups', 'member_involved', 'handover_check_exception'].includes(event.type)

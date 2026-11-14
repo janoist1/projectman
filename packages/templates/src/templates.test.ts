@@ -25,6 +25,7 @@ import {
   getLocale,
   getTemplate,
   hu,
+  PROJECT_MANAGER_STYLE_INSTRUCTIONS,
   projectManagerMember,
   summarizeTemplate,
   templates,
@@ -491,3 +492,19 @@ describe('daily-routine', () => {
     expect(DAILY_WORKER_SCHEDULE.prompt).toContain('send_message');
   });
 });
+
+/** Templates serve every project: no card key, product name or repository path of this one (PM-1463). */
+const PROJECT_SPECIFIC = [/PM-\d+/, /\bprojectman\b/i, /docs\/DECISIONS/];
+
+it.each(['hu', 'en'])(
+  'keeps every built template and the project manager style free of this project (%s)',
+  (language) => {
+    const locale = getLocale(language);
+    const texts = [
+      PROJECT_MANAGER_STYLE_INSTRUCTIONS,
+      JSON.stringify({ checklist: locale.checklist, setupSource: locale.setupSource, roles: locale.roles }),
+      ...templates.map((template) => JSON.stringify(template.build(input(language)))),
+    ];
+    for (const text of texts) for (const pattern of PROJECT_SPECIFIC) expect(text).not.toMatch(pattern);
+  },
+);

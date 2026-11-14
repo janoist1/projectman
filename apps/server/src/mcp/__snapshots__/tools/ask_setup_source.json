@@ -1,0 +1,17 @@
+{
+  "name": "ask_setup_source",
+  "title": "Ask for another of the owner's projects as an idea source",
+  "description": "Asks the owner whose open request you work on which of their other projects (same e-mail) you may look at for setup ideas, or none. Once per setup. None owned: setup_source_none. Their own answer lets read_setup_source read that project for a day.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Ask for another of the owner's projects as an idea source",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

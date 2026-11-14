@@ -11,6 +11,7 @@ import {
   questionApprovalLabel,
   questionChoices,
   questionPayloadOf,
+  SETUP_SOURCE_NONE_OPTION,
 } from '@projectman/shared';
 import type {
   ExternalQuestionRead,
@@ -19,6 +20,7 @@ import type {
   InboxOption,
   ProjectConfig,
   QuestionAttachment,
+  QuestionChoice,
   Task,
 } from '@projectman/shared';
 import type {
@@ -136,9 +138,19 @@ export class HumanQuestions implements HumanQuestionsPort {
           'screens names an owner topic; the screening names it for yours.',
       );
 
-    const responsePurpose = input.responsePurpose ?? (external ? 'owner_decision' : undefined);
+    // The setup source question (PM-1463) is the project manager's own approval request to one owner.
+    const setupSource = input.setupSource;
+    if (setupSource && (!coordinator || setupSource.candidates.length === 0))
+      throw refuse('Only the project manager asks an owner for a setup source, with at least one project.');
+    const responsePurpose = setupSource
+      ? 'owner_decision'
+      : (input.responsePurpose ?? (external ? 'owner_decision' : undefined));
     let assignees: string[];
-    if (input.to && input.to.length > 0) {
+    if (setupSource) {
+      if (!ownerHandles(config).includes(setupSource.owner))
+        throw refuse(`${setupSource.owner} is not an owner of this project.`);
+      assignees = [setupSource.owner];
+    } else if (input.to && input.to.length > 0) {
       const notHuman = input.to.filter((h) => memberOf(config, h)?.kind !== 'human');
       if (notHuman.length > 0)
         throw refuse(`ask_human can only ask human members; these are not: ${notHuman.join(', ')}.`);
@@ -153,7 +165,15 @@ export class HumanQuestions implements HumanQuestionsPort {
       assignees = external ? ownerHandles(config) : sponsorOrOwners(config, asker);
     }
 
-    const choices = questionChoices(input.options);
+    const choices: QuestionChoice[] = setupSource
+      ? [
+          ...setupSource.candidates.map((candidate) => ({ label: candidate.name })),
+          { label: setupSource.noneLabel },
+        ]
+      : questionChoices(input.options);
+    // Its option ids are the offered project keys, so the answer names the project it allows.
+    const optionId = (i: number): string =>
+      setupSource ? (setupSource.candidates[i]?.key ?? SETUP_SOURCE_NONE_OPTION) : `option_${i + 1}`;
     const recommended = input.recommended?.trim();
     const reason = input.recommendationReason?.trim();
     const details = input.details?.trim();
@@ -166,7 +186,7 @@ export class HumanQuestions implements HumanQuestionsPort {
     const primary = Math.max(recommendedIndex, 0);
     const options: InboxOption[] = [
       ...choices.map((choice, i): InboxOption => ({
-        id: `option_${i + 1}`,
+        id: optionId(i),
         label: choice.label,
         style: i === primary ? 'primary' : 'secondary',
         ...(choice.consequence ? { consequence: choice.consequence } : {}),
@@ -186,8 +206,9 @@ export class HumanQuestions implements HumanQuestionsPort {
     // A question nobody screens that asks for the integrator (and names no owner topic) becomes its todo.
     const integratorTodoAsked =
       nobodyScreens && input.recipient === 'integrator' && input.ownerTopic === undefined && !approvalLabel;
-    const ownerTopic =
-      ownTopic && !integratorTodoAsked
+    const ownerTopic = setupSource
+      ? APPROVAL_OWNER_TOPIC
+      : ownTopic && !integratorTodoAsked
         ? this.ownerTopic(config, input.ownerTopic, approvalLabel, responsePurpose, nobodyScreens)
         : null;
     // The files are checked before the label is claimed: a refusal leaves no waiting label behind.
@@ -222,6 +243,14 @@ export class HumanQuestions implements HumanQuestionsPort {
       ...(autoLabel ? { autoLabel } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(input.signalId ? { signalId: input.signalId } : {}),
+      ...(setupSource
+        ? {
+            setupSource: {
+              owner: setupSource.owner,
+              candidates: setupSource.candidates.map((candidate) => candidate.key),
+            },
+          }
+        : {}),
       ...(caller.kind === 'external' ? { externalQuestion: caller.origin } : {}),
     };
     // Where it goes (PM-1246, PM-1249): the integrator's own question is the owner's side; the questions that
@@ -259,11 +288,12 @@ export class HumanQuestions implements HumanQuestionsPort {
     } else if (ownTopic) {
       routed = this.inbox.applyRoute(config, {
         kind: nobodyScreens ? 'unscreened_question' : coordinator ? 'coordinator_question' : 'reask',
-        topic: approvalLabel
-          ? 'approval'
-          : ownerTopic
-            ? { ownerTopic }
-            : { ownerTopic: INFORMATION_ROUTE_TOPIC },
+        topic:
+          approvalLabel || setupSource
+            ? 'approval'
+            : ownerTopic
+              ? { ownerTopic }
+              : { ownerTopic: INFORMATION_ROUTE_TOPIC },
         requested: requestedRecipient,
         topicGuidance: ownerTopicRefusalMessage(config, 'owner_topic_required', {
           unscreened: nobodyScreens,

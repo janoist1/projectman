@@ -32,6 +32,9 @@ const UNBOUND = 'it has no external binding yet';
  */
 export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   get_capability: PROJECT_MANAGER,
+  preview_template: PROJECT_MANAGER,
+  ask_setup_source: PROJECT_MANAGER,
+  read_setup_source: PROJECT_MANAGER,
   get_checklist: PROJECT_MANAGER,
   update_checklist: PROJECT_MANAGER,
   get_operator_preference: PROJECT_MANAGER,

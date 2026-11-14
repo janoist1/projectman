@@ -842,7 +842,10 @@ export class InboxService {
     limit: number,
   ): InboxItem[] {
     const candidates = this.ctx.repos.inbox
-      .list(projectKey, state === 'open' ? { state: 'open' } : {})
+      .list(
+        projectKey,
+        state === 'open' ? { state: 'open', integratorOpened: true } : { integratorOpened: true },
+      )
       .filter(wasIntegratorInboxItem);
     return this.withQuestionGroups(candidates)
       .filter(

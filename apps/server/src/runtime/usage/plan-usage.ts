@@ -145,6 +145,8 @@ export class PlanUsageMonitor {
   private readonly attempts = new Map<string, { at: number; failures: number }>();
   private lastScanAt = 0;
   private refreshing = false;
+  /** A full forced refresh requested during a round must run after it finishes. */
+  private forcePending = false;
   /** Engines that came online during a round: the round is followed by another one for them. */
   private readonly reconnected = new Set<EngineId>();
   private readonly loop: RefreshLoop;
@@ -225,7 +227,13 @@ export class PlanUsageMonitor {
    * `engineIds` limits the round to those engines without postponing the next regular idle scan.
    */
   refresh(opts: { force?: boolean; engineIds?: ReadonlySet<EngineId> } = {}): void {
-    if (this.refreshing) return;
+    if (this.refreshing) {
+      if (opts.force) {
+        if (opts.engineIds) for (const engineId of opts.engineIds) this.reconnected.add(engineId);
+        else this.forcePending = true;
+      }
+      return;
+    }
     const now = this.now().getTime();
     const live = this.liveKeys();
     if (!live) return;
@@ -245,10 +253,11 @@ export class PlanUsageMonitor {
           await Promise.all([...pairs.values()].map((pair) => this.cache.get(pair.provider, pair.engineId)));
         } finally {
           this.refreshing = false;
-          if (this.reconnected.size > 0) {
-            const engineIds = new Set(this.reconnected);
+          if (this.forcePending || this.reconnected.size > 0) {
+            const engineIds = this.forcePending ? undefined : new Set(this.reconnected);
             // The round in flight may have asked before the engine was there and stamped that answer as fresh.
-            for (const engineId of engineIds) this.cache.invalidate(engineId);
+            for (const engineId of this.reconnected) this.cache.invalidate(engineId);
+            this.forcePending = false;
             this.reconnected.clear();
             this.refresh({ force: true, engineIds });
           }

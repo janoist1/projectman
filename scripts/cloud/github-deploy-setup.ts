@@ -353,6 +353,10 @@ export async function runGithubDeploySetup(context: CloudContext, dryRun: boolea
       oidcSubjectSchema,
       `OIDC subject settings of ${repository}`,
     );
+    if (!oidc.use_default)
+      throw refused(
+        `${repository} uses custom OIDC subject claim keys (use_default: false); the trust policy would not match its tokens. Reset the subject template to the default, then run the setup again`,
+      );
     const branch = repo.default_branch;
     const repositorySubject = oidc.use_immutable_subject
       ? `repo:${repo.owner.login}@${repo.owner.id}/${repo.name}@${repo.id}`

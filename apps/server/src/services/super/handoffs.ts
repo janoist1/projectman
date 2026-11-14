@@ -5,7 +5,6 @@ import {
   SUPER_TERMINAL_STATES,
   SuperCommandUnclassifiable,
   alwaysAsksOwner,
-  applyConfigPatch,
   boundaryDelegationChanged,
   canonical,
   coordinationMemberOf,
@@ -43,6 +42,7 @@ import { isoNow } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectAccess, MemberService } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
+import { patchedConfig } from '../../core/projects';
 import type { SuperAuditService, TimelineService } from '../../core/timeline';
 import type { StoredSuperOperation } from '../../db';
 import {
@@ -715,7 +715,7 @@ export class SuperHandoffService {
   ): ProjectConfig {
     const next = structuredClone(
       setup.patch
-        ? applyConfigPatch(config, prepareSuperConfigPatch(config, configVersion, setup.patch))
+        ? patchedConfig(config, prepareSuperConfigPatch(config, configVersion, setup.patch))
         : config,
     );
     const sponsor = ownerHandles(config)[0]!;

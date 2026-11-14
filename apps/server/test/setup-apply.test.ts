@@ -188,15 +188,19 @@ describe('the setup package (PM-1460)', () => {
     expect(config().team.members.some((m) => m.handle === 'dev-a')).toBe(false);
   });
 
-  it('fails whole on a patch the settings PATCH refuses, applying nothing', async () => {
+  it('refuses an unknown patch repository before asking the owner, applying nothing', async () => {
     const before = await historyLength();
-    const proposed = await propose({
-      ...BIG,
-      title: 'With an unknown repository',
-      patch: { repoDocs: [{ repo: 'ghost', docs: null }] },
+    await expect(
+      propose({
+        ...BIG,
+        title: 'With an unknown repository',
+        patch: { repoDocs: [{ repo: 'ghost', docs: null }] },
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('unknown_repo'),
     });
-    await answer(proposed.inbox_item_id!, 'yes');
-    expect(await settled(proposed.operationId)).toMatchObject({ state: 'failed', errorCode: 'unknown_repo' });
+    expect(h.repos.superHandoffs.openOperations()).toEqual([]);
+    expect(h.repos.inbox.listOpen('question').filter((item) => item.projectKey === 'AR')).toEqual([]);
     expect(await historyLength()).toBe(before);
     expect(config().team.members.some((m) => m.handle === 'dev-a')).toBe(false);
     expect(setupApplied()).toEqual([]);

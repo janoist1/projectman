@@ -54,6 +54,18 @@ function schemaText(schema: z.ZodType): string {
     : `Schema: ${json}`;
 }
 
+/**
+ * An item whose `detail` is built on first read and then kept: the prompt uses only the index, so the schema
+ * texts (`z.toJSONSchema`) are not computed for every context build.
+ */
+function lazyItem(base: Omit<CapabilityItem, 'detail'>, build: () => string): CapabilityItem {
+  let cached: string | undefined;
+  return Object.defineProperty({ ...base }, 'detail', {
+    enumerable: true,
+    get: () => (cached ??= build()),
+  }) as CapabilityItem;
+}
+
 function audienceText(audience: ToolAudience): string {
   const parts = [
     ...(audience.roles ?? []).map((role) => `role ${role}`),
@@ -86,12 +98,9 @@ function memberSettingItems(): CapabilityItem[] {
   return Object.keys(shape).map((id) => {
     const note = MEMBER_SETTING_NOTES[id as keyof typeof MEMBER_SETTING_NOTES];
     const ownerOnly = (PERMISSION_KEYS as readonly string[]).includes(id);
-    return {
-      id,
-      summary: note,
-      detail: [note, ...(ownerOnly ? [OWNER_ONLY_LINE] : []), schemaText(shape[id]!)].join('\n'),
-      ...(ownerOnly ? { ownerOnly: true as const } : {}),
-    };
+    return lazyItem({ id, summary: note, ...(ownerOnly ? { ownerOnly: true as const } : {}) }, () =>
+      [note, ...(ownerOnly ? [OWNER_ONLY_LINE] : []), schemaText(shape[id]!)].join('\n'),
+    );
   });
 }
 
@@ -105,22 +114,21 @@ function projectSettingItems(): CapabilityItem[] {
       const note = PROJECT_SETTING_NOTES[id as keyof typeof PROJECT_SETTING_NOTES];
       const setting = policy[id];
       const ownerOnly = setting !== undefined && setting.ownerOnly !== null;
-      return {
-        id,
-        summary: note,
-        detail: [
+      return lazyItem({ id, summary: note, ...(ownerOnly ? { ownerOnly: true as const } : {}) }, () =>
+        [
           note,
           ...(ownerOnly ? [OWNER_ONLY_LINE] : []),
           ...(setting?.default !== undefined ? [`Default: ${JSON.stringify(setting.default)}`] : []),
           schemaText(shape[id]!),
         ].join('\n'),
-        ...(ownerOnly ? { ownerOnly: true as const } : {}),
-      };
+      );
     });
-  const limitItems = Object.keys(limits).map((field): CapabilityItem => {
-    const note = TEAM_LIMIT_NOTES[field as keyof typeof TEAM_LIMIT_NOTES];
-    return { id: `limits.${field}`, summary: note, detail: [note, schemaText(limits[field]!)].join('\n') };
-  });
+  const limitItems = Object.keys(limits).map((field): CapabilityItem =>
+    lazyItem(
+      { id: `limits.${field}`, summary: TEAM_LIMIT_NOTES[field as keyof typeof TEAM_LIMIT_NOTES] },
+      () => [TEAM_LIMIT_NOTES[field as keyof typeof TEAM_LIMIT_NOTES], schemaText(limits[field]!)].join('\n'),
+    ),
+  );
   return [...items, ...limitItems];
 }
 
@@ -213,7 +221,21 @@ export function capabilityIndex(catalog: CapabilityCatalog, limit = CAPABILITY_I
     collapsed.add(area);
     text = render();
   }
-  return text.length <= limit ? text : text.slice(0, limit);
+  return text.length <= limit ? text : cutAtLines(text, limit);
+}
+
+const CUT_MARK = '… get_capability';
+
+/** The last resort: whole lines up to `limit` characters, the cut shown by a closing `… get_capability` line. */
+function cutAtLines(text: string, limit: number): string {
+  const kept: string[] = [];
+  let size = CUT_MARK.length;
+  for (const line of text.split('\n')) {
+    size += line.length + 1;
+    if (size > limit) break;
+    kept.push(line);
+  }
+  return [...kept, CUT_MARK].join('\n');
 }
 
 /**

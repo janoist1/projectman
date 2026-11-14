@@ -34,14 +34,18 @@ function quoted(text: string): string {
     .join('\n');
 }
 
-function summaryLines(summary: HandoffSummary | null, whose: string): string[] {
+/** What the reader should check before relying on a summary; the general conversation has no card or worktree. */
+const CHECK_CARD = 'check the card, its notes and the worktree (git log, git status)';
+const CHECK_OPEN_ITEMS = 'check the items above and the project with your tools';
+
+function summaryLines(summary: HandoffSummary | null, whose: string, check = CHECK_CARD): string[] {
   if (!summary) return [`No summary of ${whose} conversation is available.`];
   const source =
     summary.source === 'compact'
       ? "the conversation's own compaction summary and the replies after it"
       : 'the last replies of the conversation';
   return [
-    `A machine-made summary of ${whose} conversation follows (${source}${summary.at ? `, up to ${summary.at}` : ''}). It may be incomplete: check the card, its notes and the worktree (git log, git status) before you rely on it.`,
+    `A machine-made summary of ${whose} conversation follows (${source}${summary.at ? `, up to ${summary.at}` : ''}). It may be incomplete: ${check} before you rely on it.`,
     quoted(summary.text),
   ];
 }
@@ -85,7 +89,7 @@ function refreshedBlock(previous: PreviousConversation): string {
   }
   if (handover?.items.length === 0) lines.push('Nothing was open when the conversation ended.');
   if (handover?.note) lines.push('Your own note for this conversation:', quoted(handover.note));
-  else lines.push(...summaryLines(previous.summary, 'the earlier'));
+  else lines.push(...summaryLines(previous.summary, 'the earlier', CHECK_OPEN_ITEMS));
   return lines.join('\n');
 }
 

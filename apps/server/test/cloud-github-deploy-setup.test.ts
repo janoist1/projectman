@@ -8,12 +8,17 @@ import { EC2_HOST_ID, Ec2HostWorld } from './helpers/fake-ec2-host';
 /** `npm run cloud -- github-deploy-setup`: the OIDC provider, the role and the GitHub environment (PM-1197). */
 
 const REPOSITORY = 'janoist1/projectman';
+const OWNER_ID = 123456;
+const REPOSITORY_ID = 987654321;
+const IMMUTABLE_SUBJECT = `repo:janoist1@${OWNER_ID}/projectman@${REPOSITORY_ID}:environment:${DEPLOY_ENVIRONMENT}`;
 const ENVIRONMENT_ROUTE = `repos/${REPOSITORY}/environments/${DEPLOY_ENVIRONMENT}`;
 const ROLE_ARN = `arn:aws:iam::${ACCOUNT}:role/${DEPLOY_ROLE_NAME}`;
 const PROVIDER_ARN = `arn:aws:iam::${ACCOUNT}:oidc-provider/token.actions.githubusercontent.com`;
 
 /** The GitHub side the fake `gh api` keeps: the environment, its branch policies and its variables. */
 class FakeGithub {
+  oidc: unknown = { use_default: true, use_immutable_subject: false };
+  oidcError: RunResult | undefined;
   environment: unknown = null;
   policies: { id: number; name: string }[] = [];
   variables = new Map<string, string>();
@@ -31,7 +36,15 @@ class FakeGithub {
     this.calls.push({ method, route, body });
     const ok = (value: unknown = {}): RunResult => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
     const notFound: RunResult = { code: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
-    if (route === `repos/${REPOSITORY}`) return ok({ default_branch: 'main' });
+    if (route === `repos/${REPOSITORY}`)
+      return ok({
+        default_branch: 'main',
+        id: REPOSITORY_ID,
+        name: 'projectman',
+        owner: { login: 'janoist1', id: OWNER_ID },
+      });
+    if (route === `repos/${REPOSITORY}/actions/oidc/customization/sub`)
+      return this.oidcError ?? ok(this.oidc);
     if (route === ENVIRONMENT_ROUTE) {
       if (method === 'PUT') {
         this.environment = body;
@@ -123,23 +136,74 @@ describe('github-deploy-setup', () => {
     expect(github.mutations()).toEqual([]);
   });
 
-  it('lets only the cloud-production environment of this repository assume the role, with the audience checked', async () => {
-    expect(await run()).toBe(0);
-    expect(role().trust).toMatchObject({
-      Statement: [
-        {
-          Effect: 'Allow',
-          Action: 'sts:AssumeRoleWithWebIdentity',
-          Principal: { Federated: PROVIDER_ARN },
-          Condition: {
-            StringEquals: {
-              'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-              'token.actions.githubusercontent.com:sub': `repo:${REPOSITORY}:environment:${DEPLOY_ENVIRONMENT}`,
+  it.each([
+    { mode: 'immutable', immutable: true, subject: IMMUTABLE_SUBJECT },
+    {
+      mode: 'legacy',
+      immutable: false,
+      subject: `repo:${REPOSITORY}:environment:${DEPLOY_ENVIRONMENT}`,
+    },
+    {
+      mode: 'legacy without the immutable flag',
+      immutable: undefined,
+      subject: `repo:${REPOSITORY}:environment:${DEPLOY_ENVIRONMENT}`,
+    },
+  ])(
+    'pins the $mode subject to this repository and environment, with the audience checked',
+    async ({ immutable, subject }) => {
+      github.oidc = { use_default: true, use_immutable_subject: immutable };
+      expect(await run()).toBe(0);
+      expect(role().trust).toMatchObject({
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: 'sts:AssumeRoleWithWebIdentity',
+            Principal: { Federated: PROVIDER_ARN },
+            Condition: {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                'token.actions.githubusercontent.com:sub': subject,
+              },
             },
           },
-        },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    { status: 403, error: 'Forbidden' },
+    { status: 404, error: 'Not Found' },
+  ])('stops before mutations when OIDC settings return HTTP $status', async ({ status, error }) => {
+    github.oidcError = { code: 1, stdout: '', stderr: `gh: ${error} (HTTP ${status})` };
+    expect(await run()).toBe(1);
+    expect(world.aws.mutations()).toEqual([]);
+    expect(github.mutations()).toEqual([]);
+  });
+
+  it('stops before mutations when the immutable flag is malformed', async () => {
+    github.oidc = { use_default: true, use_immutable_subject: 'true' };
+    expect(await run()).toBe(1);
+    expect(world.aws.mutations()).toEqual([]);
+    expect(github.mutations()).toEqual([]);
+  });
+
+  it('replaces an existing legacy trust policy after the repository opts into immutable subjects', async () => {
+    expect(await run()).toBe(0);
+    github.oidc = { use_default: true, use_immutable_subject: true };
+    world.aws.clearCalls();
+    github.calls.length = 0;
+    expect(await run()).toBe(0);
+    expect(world.aws.mutations()).toEqual(['iam update-assume-role-policy']);
+    expect(role().trust).toMatchObject({
+      Statement: [
+        { Condition: { StringEquals: { 'token.actions.githubusercontent.com:sub': IMMUTABLE_SUBJECT } } },
       ],
     });
+    expect(github.mutations()).toEqual([]);
+    world.aws.clearCalls();
+    expect(await run()).toBe(0);
+    expect(world.aws.mutations()).toEqual([]);
   });
 
   it('gives the role only SSM and connection rights, on the one machine', async () => {

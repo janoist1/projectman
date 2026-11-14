@@ -48,10 +48,19 @@ const branchPoliciesSchema = z.looseObject({
   branch_policies: z.array(z.looseObject({ id: z.number(), name: z.string() })),
 });
 const variableSchema = z.looseObject({ value: z.string() });
-const defaultBranchSchema = z.looseObject({ default_branch: z.string().min(1) });
+const repositorySchema = z.looseObject({
+  default_branch: z.string().min(1),
+  id: z.number().int().positive(),
+  name: z.string().min(1),
+  owner: z.looseObject({ id: z.number().int().positive(), login: z.string().min(1) }),
+});
+const oidcSubjectSchema = z.looseObject({
+  use_default: z.boolean(),
+  use_immutable_subject: z.boolean().optional(),
+});
 
 /** Only the environment of this repository, in the workflow's job, may assume the role. */
-function trustPolicy(input: { account: string; repository: string }): unknown {
+function trustPolicy(input: { account: string; repositorySubject: string }): unknown {
   return {
     Version: '2012-10-17',
     Statement: [
@@ -62,7 +71,7 @@ function trustPolicy(input: { account: string; repository: string }): unknown {
         Condition: {
           StringEquals: {
             [`${PROVIDER_HOST}:aud`]: AUDIENCE,
-            [`${PROVIDER_HOST}:sub`]: `repo:${input.repository}:environment:${DEPLOY_ENVIRONMENT}`,
+            [`${PROVIDER_HOST}:sub`]: `${input.repositorySubject}:environment:${DEPLOY_ENVIRONMENT}`,
           },
         },
       },
@@ -334,11 +343,20 @@ export async function runGithubDeploySetup(context: CloudContext, dryRun: boolea
   const cli = new AwsCli(deps, profileTarget(config.aws));
   const plan = await report.guard('plan', async (): Promise<Plan> => {
     const repository = githubRepoOf(config.repository.url);
-    const { default_branch: branch } = ghJson(
+    const repo = ghJson(
       await gh(context, 'GET', `repos/${repository}`),
-      defaultBranchSchema,
+      repositorySchema,
       `repository ${repository}`,
     );
+    const oidc = ghJson(
+      await gh(context, 'GET', `repos/${repository}/actions/oidc/customization/sub`),
+      oidcSubjectSchema,
+      `OIDC subject settings of ${repository}`,
+    );
+    const branch = repo.default_branch;
+    const repositorySubject = oidc.use_immutable_subject
+      ? `repo:${repo.owner.login}@${repo.owner.id}/${repo.name}@${repo.id}`
+      : `repo:${repo.owner.login}/${repo.name}`;
     const { Account: account } = await cli.callAs(['sts', 'get-caller-identity'], identitySchema);
     const instance = await readEc2HostInstance(context);
     const region = config.aws.region;
@@ -354,7 +372,7 @@ export async function runGithubDeploySetup(context: CloudContext, dryRun: boolea
       region,
       instanceName: config.aws.instanceName,
       roleArn: `arn:aws:iam::${account}:role/${DEPLOY_ROLE_NAME}`,
-      trust: trustPolicy({ account, repository }),
+      trust: trustPolicy({ account, repositorySubject }),
       policy: deployPolicy({ account, region, instanceId: instance.InstanceId }),
     };
   });

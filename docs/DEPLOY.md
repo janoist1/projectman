@@ -678,6 +678,16 @@ deploy` does, reports `rolledBack: true` and fails the job.
 One-off setup, by the connected Claude and only after the owner's yes: `npm run cloud -- github-deploy-setup --dry-run`, then
 without `--dry-run`. It makes the IAM role, the `cloud-production` environment (default branch only) and its three
 variables, and is safe to repeat. Until then the workflow stops in its guard for the missing variables.
+
+The setup reads `repos/<owner>/<repo>/actions/oidc/customization/sub` through `gh api` to choose the trust policy's
+subject format (PM-1491). With `use_immutable_subject: true`, it uses
+`repo:<owner>@<ownerId>/<repo>@<repoId>:environment:cloud-production`; names and IDs come from the repository API.
+With the flag false or absent, it uses `repo:<owner>/<repo>:environment:cloud-production`.
+Both use exact `StringEquals` conditions for `sub` and `aud: sts.amazonaws.com`, so the trust remains limited to
+this repository's `cloud-production` environment. If the OIDC settings cannot be read or validated, setup stops
+before making changes. Rerun the setup after a subject-format change to update an existing role's trust policy;
+the owner reruns setup and starts the next release.
+
 `npm run cloud -- deploy` from the owner's computer keeps working, and is still how a new machine gets its first
 `cloud.env`; the job refuses with `env_missing` when the machine has none.
 

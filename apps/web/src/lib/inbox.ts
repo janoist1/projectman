@@ -157,6 +157,7 @@ export function superOperationHeading(item: InboxItem, names: SuperOperationName
 export function superOperationWhy(item: InboxItem): string {
   const summary = superOperationOf(item)?.summary;
   const reasons = [
+    ...(summary?.asked === 'involvement' ? [t('inbox.superOperation.asked.involvement')] : []),
     ...(summary?.effects.map((effect) => tDynamic(`inbox.superOperation.effects.${effect}`, '')) ?? []),
     ...(summary?.ownerOnly.map((change) => tDynamic(`inbox.superOperation.ownerOnly.${change}`, '')) ?? []),
   ].filter(Boolean);

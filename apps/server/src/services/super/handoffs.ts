@@ -276,6 +276,7 @@ export class SuperHandoffService {
     projectKey: string,
     input: { requestId: string; taskKey?: string | undefined; command: SuperCommand },
     access: ProjectAccess,
+    options: { askOwner?: 'involvement' } = {},
   ): Promise<SuperOperation> {
     const scope = integratorExecution();
     const actor = access.superActor;
@@ -306,7 +307,7 @@ export class SuperHandoffService {
       if (existing.state !== 'pending') return this.settled(existing);
       return this.resume(existing, subject, access, actor);
     }
-    return this.start(subject, keyId, input.requestId, access, actor);
+    return this.start(subject, keyId, input.requestId, access, actor, options.askOwner);
   }
 
   private async assertAppCommand(projectKey: string, command: SuperCommand): Promise<void> {
@@ -375,6 +376,7 @@ export class SuperHandoffService {
     requestId: string,
     access: ProjectAccess,
     actor: BoundActor,
+    askOwner?: 'involvement',
   ): Promise<SuperOperation> {
     const loaded = await this.projects.load(subject.projectKey);
     const executor = this.executorFor(subject.command);
@@ -386,7 +388,7 @@ export class SuperHandoffService {
       () => {
         const repo = this.ctx.repos.superHandoffs;
         const at = isoNow(this.ctx);
-        const waiting = effects.length > 0;
+        const waiting = effects.length > 0 || askOwner !== undefined;
         const stored: StoredSuperOperation = {
           id: newId('sop'),
           projectKey: subject.projectKey,
@@ -414,6 +416,7 @@ export class SuperHandoffService {
             effects,
             ownerOnly,
             actor,
+            askOwner,
           ).id;
         }
         repo.insertOperation(stored);
@@ -703,6 +706,7 @@ export class SuperHandoffService {
     effects: readonly OwnerReservedEffect[],
     ownerOnly: readonly OwnerOnlyChange[],
     actor: BoundActor,
+    askOwner?: 'involvement',
   ): InboxItem {
     // The asker is the connected Claude's actor (decision 66), or the selected PM for an in-app super step.
     const asker = hasConnectedOrigin(actor) ? actor.handle : coordinationMemberOf(config)?.handle;
@@ -728,6 +732,7 @@ export class SuperHandoffService {
           expectedConfigVersion: operation.expectedConfigVersion,
           expiresAt: operation.expiresAt!,
           summary: {
+            ...(askOwner ? { asked: askOwner } : {}),
             ...superCommandParams(subject.command),
             effects: [...effects],
             ownerOnly: [...ownerOnly],

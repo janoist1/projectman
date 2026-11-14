@@ -1014,6 +1014,7 @@ export type QuestionResponsePurpose = z.infer<typeof QuestionResponsePurpose>;
  * needs the owner's yes. Questions made before this field existed have none.
  */
 const SuperOperationSummary = z.strictObject({
+  asked: z.enum(['involvement']).optional(),
   kind: z.string(),
   params: z.record(z.string(), z.string()),
   effects: z.array(z.string()),

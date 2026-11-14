@@ -406,6 +406,7 @@ export const operator = {
     failed: 'It didn’t work. Try again.',
     kinds: {
       loop_suspected: '{key}: suspected going in circles',
+      cards_closed: 'Closed cards',
       outage: 'Outage: part of the work is stuck',
       process_cleanup_failed: '{key}: a session’s processes didn’t stop',
       stalled: '{key}: the session is waiting for a reply',
@@ -422,6 +423,7 @@ export const operator = {
       review_follow_ups: '{key}: non-blocking remarks left when it closed',
     },
     bodies: {
+      cards_closed: 'The PM summarizes recently closed cards as agreed.',
       loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
       outage: 'A provider or an engine isn’t reachable; the PM handles it, and the affected cards show it.',
       process_cleanup_failed:

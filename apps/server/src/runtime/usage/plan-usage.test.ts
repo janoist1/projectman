@@ -1,4 +1,4 @@
-import type { EngineId, PlanUsage } from '@projectman/shared';
+import type { AgentProvider, EngineId, PlanUsage } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../contracts';
@@ -12,7 +12,8 @@ const usage: PlanUsage = {
   fetchedAt: '2026-10-14T06:00:00.000Z',
 };
 
-const LIVE = [{ provider: 'claude' as const, engineId: 'local' as EngineId }];
+const LOCAL = 'local' as EngineId;
+const LIVE = [{ provider: 'claude' as const, engineId: LOCAL }];
 
 function setup(
   ttlMs = 100,
@@ -22,24 +23,33 @@ function setup(
     aiEnabled?: boolean;
     answer?: PlanUsage | null;
     idleIntervalMs?: number;
+    /** The provider the project's AI member runs on (default claude); a non-Claude one is read through `providerFor`. */
+    memberProvider?: AgentProvider;
+    source?: { get: () => Promise<PlanUsage | null> };
   } = {},
 ) {
   const live = { current: state.live ?? LIVE, paused: state.paused ?? false };
-  const provider = { get: vi.fn(async () => (state.answer === undefined ? usage : state.answer)) };
+  const memberProvider = state.memberProvider ?? 'claude';
+  const provider = state.source
+    ? { get: vi.fn(state.source.get) }
+    : { get: vi.fn(async () => (state.answer === undefined ? usage : state.answer)) };
   const bus = { publish: vi.fn() };
   const background = new BackgroundTasks();
+  const configOf = () => ({
+    project: { key: 'PM' },
+    team: {
+      members: [{ kind: 'ai', handle: 'dev', provider: memberProvider }],
+      limits: { aiEnabled: state.aiEnabled ?? true },
+    },
+  });
   const projects = {
     summaries: () => [{ key: 'PM' }],
-    config: vi.fn(async () => ({
-      project: { key: 'PM' },
-      team: {
-        members: [{ kind: 'ai', handle: 'dev', provider: 'claude' }],
-        limits: { aiEnabled: state.aiEnabled ?? true },
-      },
-    })),
+    config: vi.fn(async () => configOf()),
+    cachedConfig: () => configOf(),
   } as unknown as ProjectService;
   const monitor = new PlanUsageMonitor({
     provider,
+    providerFor: (requested) => (requested === memberProvider ? provider : undefined),
     projects,
     engines: { engineFor: () => 'local' },
     bus: bus as unknown as EventBus,
@@ -260,40 +270,21 @@ describe('PlanUsageMonitor', () => {
 
   it('measures an idle Codex account again when its engine comes online after a start probe that got no answer', async () => {
     let engineUp = false;
-    const codex = { get: vi.fn(async () => (engineUp ? { ...usage, weeklyPercent: 22 } : null)) };
-    const background = new BackgroundTasks();
-    const configOf = () => ({
-      project: { key: 'PM' },
-      team: { members: [{ kind: 'ai', handle: 'dev', provider: 'codex' }], limits: { aiEnabled: true } },
-    });
-    const projects = {
-      summaries: () => [{ key: 'PM' }],
-      config: vi.fn(async () => configOf()),
-      cachedConfig: () => configOf(),
-    } as unknown as ProjectService;
-    const monitor = new PlanUsageMonitor({
-      provider: { get: vi.fn(async () => null) },
-      providerFor: (provider) => (provider === 'codex' ? codex : undefined),
-      projects,
-      engines: { engineFor: () => A },
-      bus: { publish: vi.fn() } as unknown as EventBus,
-      background,
-      logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
-      now: () => new Date(),
-      liveAccounts: () => [],
-      isPaused: () => false,
-      ttlMs: 100,
+    const { monitor, provider, background } = setup(100, {
+      memberProvider: 'codex',
+      live: [],
       idleIntervalMs: 900_000,
+      source: { get: vi.fn(async () => (engineUp ? { ...usage, weeklyPercent: 22 } : null)) },
     });
     try {
       monitor.start();
       await vi.advanceTimersByTimeAsync(0);
-      expect(codex.get).toHaveBeenCalledTimes(1);
+      expect(provider.get).toHaveBeenCalledTimes(1);
       expect(monitor.peek('PM', 'codex')).toBeNull();
       engineUp = true;
-      monitor.engineOnline(A);
+      monitor.engineOnline(LOCAL);
       await vi.advanceTimersByTimeAsync(0);
-      expect(codex.get).toHaveBeenCalledTimes(2);
+      expect(provider.get).toHaveBeenCalledTimes(2);
       expect(monitor.peek('PM', 'codex')?.weeklyPercent).toBe(22);
     } finally {
       monitor.stop();
@@ -304,45 +295,27 @@ describe('PlanUsageMonitor', () => {
   it('follows a round in flight with another one when an engine comes online meanwhile', async () => {
     let engineUp = false;
     let release: () => void = () => {};
-    const codex = {
-      get: vi.fn(async () => {
-        const up = engineUp;
-        await new Promise<void>((resolve) => (release = resolve));
-        return up ? { ...usage, weeklyPercent: 22 } : null;
-      }),
-    };
-    const background = new BackgroundTasks();
-    const configOf = () => ({
-      project: { key: 'PM' },
-      team: { members: [{ kind: 'ai', handle: 'dev', provider: 'codex' }], limits: { aiEnabled: true } },
-    });
-    const monitor = new PlanUsageMonitor({
-      provider: { get: vi.fn(async () => null) },
-      providerFor: () => codex,
-      projects: {
-        summaries: () => [{ key: 'PM' }],
-        config: vi.fn(async () => configOf()),
-        cachedConfig: () => configOf(),
-      } as unknown as ProjectService,
-      engines: { engineFor: () => A },
-      bus: { publish: vi.fn() } as unknown as EventBus,
-      background,
-      logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
-      now: () => new Date(),
-      liveAccounts: () => [],
-      isPaused: () => false,
-      ttlMs: 100,
+    const { monitor, provider, background } = setup(100, {
+      memberProvider: 'codex',
+      live: [],
       idleIntervalMs: 900_000,
+      source: {
+        get: vi.fn(async () => {
+          const up = engineUp;
+          await new Promise<void>((resolve) => (release = resolve));
+          return up ? { ...usage, weeklyPercent: 22 } : null;
+        }),
+      },
     });
     try {
       monitor.start();
       await vi.advanceTimersByTimeAsync(0);
-      expect(codex.get).toHaveBeenCalledTimes(1);
+      expect(provider.get).toHaveBeenCalledTimes(1);
       engineUp = true;
-      monitor.engineOnline(A);
+      monitor.engineOnline(LOCAL);
       release();
       await vi.advanceTimersByTimeAsync(0);
-      expect(codex.get).toHaveBeenCalledTimes(2);
+      expect(provider.get).toHaveBeenCalledTimes(2);
       release();
       await vi.advanceTimersByTimeAsync(0);
       expect(monitor.peek('PM', 'codex')?.weeklyPercent).toBe(22);

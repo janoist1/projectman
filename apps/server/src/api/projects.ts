@@ -13,10 +13,6 @@ export function registerProjectRoutes(
   deps: { domain: ApiDomain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
-  app.get<ProjectParams>(routes.startConditionMarks(':key'), async (request) => {
-    await requireAccess(domain, request, request.params.key);
-    return domain.projects.startConditionMarks(request.params.key);
-  });
   app.get<ProjectParams>(routes.projectChecklist(':key'), async (request) => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });

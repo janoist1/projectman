@@ -278,21 +278,6 @@ export function useBoard(key: string) {
   });
 }
 
-export function useStartConditionMarks(key: string, enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.startConditionMarks(key),
-    queryFn: () => api.startConditionMarks(key),
-    enabled,
-    refetchInterval: (query) => {
-      const deadlines =
-        query.state.data?.marks
-          .map((mark) => Date.parse(mark.dueAt) - Date.now())
-          .filter((left) => left > 0) ?? [];
-      return deadlines.length ? Math.min(2_147_483_647, Math.max(100, Math.min(...deadlines))) : false;
-    },
-  });
-}
-
 export function useTaskDetail(key: string, taskKey: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.task(key, taskKey ?? ''),

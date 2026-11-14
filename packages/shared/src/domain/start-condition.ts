@@ -4,15 +4,10 @@ import { effectivePriority, PRIORITY_RANK, pullSourceStage } from './start-order
 import { isOpenTask } from './task';
 import type { Task } from './task';
 
-type ConditionCard = Pick<
-  Task,
-  'key' | 'kind' | 'status' | 'archivedAt' | 'stageId' | 'priority' | 'parentKey' | 'themeKey' | 'labels'
->;
-
 export const startConditionOf = (config: ProjectConfig): StartCondition | null =>
   config.team.startCondition ?? null;
 
-export function startConditionTracked(task: ConditionCard, config: ProjectConfig): boolean {
+export function startConditionTracked(task: Task, config: ProjectConfig): boolean {
   const source = pullSourceStage(config);
   const index = stageIndex(config.pipeline, task.stageId);
   return (
@@ -27,31 +22,21 @@ export function startConditionTracked(task: ConditionCard, config: ProjectConfig
   );
 }
 
-function inheritedLabels(task: ConditionCard, tasks: readonly ConditionCard[]): string[] {
+function inheritedLabels(task: Task, tasks: readonly Task[]): string[] {
   const parent = tasks.find((card) => card.key === task.parentKey);
   const theme = tasks.find((card) => card.key === (task.themeKey ?? parent?.themeKey));
   return [
     task,
-    ...[parent, theme].filter(
-      (card): card is ConditionCard => !!card && isOpenTask(card) && !card.archivedAt,
-    ),
+    ...[parent, theme].filter((card): card is Task => !!card && isOpenTask(card) && !card.archivedAt),
   ].flatMap((card) => card.labels);
 }
 
-export function startConditionHeld(
-  task: ConditionCard,
-  tasks: readonly ConditionCard[],
-  config: ProjectConfig,
-): boolean {
+export function startConditionHeld(task: Task, tasks: readonly Task[], config: ProjectConfig): boolean {
   const labels = inheritedLabels(task, tasks);
   return !!startConditionOf(config)?.hold.some((id) => labels.includes(id));
 }
 
-export function startConditionHolds(
-  task: ConditionCard,
-  tasks: readonly ConditionCard[],
-  config: ProjectConfig,
-): boolean {
+export function startConditionHolds(task: Task, tasks: readonly Task[], config: ProjectConfig): boolean {
   const condition = startConditionOf(config);
   if (!condition || !startConditionTracked(task, config) || startConditionHeld(task, tasks, config))
     return false;
@@ -71,11 +56,7 @@ export function startConditionHolds(
   return condition.combine === 'all' ? forms.every(Boolean) : forms.some(Boolean);
 }
 
-export function startConditionImmediate(
-  task: ConditionCard,
-  tasks: readonly ConditionCard[],
-  config: ProjectConfig,
-): boolean {
+export function startConditionImmediate(task: Task, tasks: readonly Task[], config: ProjectConfig): boolean {
   const condition = startConditionOf(config);
   return (
     !!condition &&

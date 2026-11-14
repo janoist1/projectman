@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ProjectChecklistView,
-  ProvidersView,
-  StartCondition,
-  StartConditionMarksResponse,
-  validateProjectConfig,
-} from '@projectman/shared';
-import type { ServerEvent } from '@projectman/shared';
+import { ProjectChecklistView, ProvidersView, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 
 const role = {
@@ -18,37 +11,6 @@ const role = {
   instructions: 'Check reference records.',
 };
 const base = '/api/projects/AC';
-
-it('publishes persisted mock mark changes once and serves their timestamps through the read endpoint', () => {
-  const backend = new MockBackend();
-  const task = backend.findTask('AC-24')!;
-  backend.tasks = [task];
-  Object.assign(task, {
-    priority: null,
-    stageId: 'ready',
-    status: 'active',
-    parentKey: null,
-    themeKey: null,
-  });
-  backend.config.team.startCondition = StartCondition.parse({ priority: 'any' });
-  const events: ServerEvent[] = [];
-  const connection = { deliver: (event: ServerEvent) => events.push(event) };
-  const disconnect = backend.connect(connection);
-  backend.handleCommand(connection, { type: 'subscribe_project', projectKey: 'AC' });
-  backend.updateTask(task.key, { priority: 'high' });
-  const marks = StartConditionMarksResponse.parse(
-    backend.handle('GET', `${base}/start-condition-marks`, undefined).body,
-  ).marks;
-  expect(marks).toHaveLength(1);
-  expect(marks[0]!.taskKey).toBe(task.key);
-  expect(Date.parse(marks[0]!.dueAt) - Date.parse(marks[0]!.metSince)).toBe(300_000);
-  backend.updateTask(task.key, { priority: 'high' });
-  expect(events.filter((event) => event.type === 'start_condition_marks_changed')).toHaveLength(1);
-  backend.updateTask(task.key, { priority: null });
-  expect(events.filter((event) => event.type === 'start_condition_marks_changed')).toHaveLength(2);
-  expect(backend.handle('GET', `${base}/start-condition-marks`, undefined).body).toEqual({ marks: [] });
-  disconnect();
-});
 
 it('serves checklist state changes and computes conditions and progress in the fake', () => {
   const backend = new MockBackend();

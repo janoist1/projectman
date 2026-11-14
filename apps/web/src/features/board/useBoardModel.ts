@@ -101,5 +101,5 @@ export function useBoardModel() {
     };
   }, [tasks, labels, items, pipeline, members, myHandle, pause, config, engineNames]);
 
-  return { board, inbox, members, pipeline, model, config };
+  return { board, inbox, members, pipeline, model };
 }

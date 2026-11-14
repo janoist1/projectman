@@ -40,9 +40,7 @@ export class StartConditionMarks {
       this.timers.delete(projectKey);
       const condition = startConditionOf(config);
       if (!condition) {
-        const changed = repo.ofProject(projectKey).size > 0;
         repo.clearProject(projectKey);
-        if (changed) ctx.bus.publish({ type: 'start_condition_marks_changed', projectKey });
         return new Map();
       }
       const source = pullSourceStage(config);
@@ -54,15 +52,10 @@ export class StartConditionMarks {
         : [];
       const context = startContext(tasks, projectKey, cards);
       const now = isoNow(ctx);
-      const changes = startConditionMarkChanges({
-        config,
-        tasks: context,
-        marks: repo.ofProject(projectKey),
-        now,
-      });
-      repo.apply(projectKey, changes);
-      if (changes.add.length || changes.remove.length)
-        ctx.bus.publish({ type: 'start_condition_marks_changed', projectKey });
+      repo.apply(
+        projectKey,
+        startConditionMarkChanges({ config, tasks: context, marks: repo.ofProject(projectKey), now }),
+      );
       const marks = repo.ofProject(projectKey);
       const deadlines = cards
         .filter((task) => marks.has(task.key) && !startConditionImmediate(task, context, config))

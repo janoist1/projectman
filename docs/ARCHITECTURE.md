@@ -1642,16 +1642,7 @@ Migration 125 drops the then empty table `project_focus_items`.
 `team.startCondition` (PM-1462) optionally filters automatic starts from the queue immediately before work.
 The owner-only setting combines queue stages, effective priority and inherited labels with `any`/`all`,
 and may name hold labels on the card, its open parent or its open, unarchived theme. The shared rules in
-`domain/start-condition.ts` keep this separate from priority ordering. The board (PM-1470) uses these same
-rules for Go ahead / Idea / Held back, with direct own-priority controls and linked effective-priority
-sources. `GET /api/projects/:key/start-condition-marks` is available to project members through
-`ProjectService.startConditionMarks`: it reads persisted marks without updating the tracker or taking
-its lock, returning `{ marks: { taskKey, metSince, dueAt }[] }` (empty without a condition). The web
-refreshes on `start_condition_marks_changed` (published after tracker additions, removals or a nonempty
-clear), configuration changes and the earliest future server deadline; task writes do not invalidate
-marks before the asynchronous tracker has saved them. It never creates
-business timestamps. This browser–hub read adds no engine call or machine-dependent assumption.
-Priority and label matches wait
+`domain/start-condition.ts` keep this separate from priority ordering. Priority and label matches wait
 five minutes by default; effective urgent and sufficient stage matches act immediately. Without the
 setting, starts and urgent pulls retain their earlier behavior. Cards already in work are unaffected.
 `StartConditionMarks` (`runtime/admission`) serializes updates per project and stores `met_since` in

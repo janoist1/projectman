@@ -65,7 +65,6 @@ import {
   PublicInviteView,
   RolesView,
   BoardView,
-  StartConditionMarksResponse,
   CheckOutageResponse,
   PullWaitingResponse,
   ConfigHistoryView,
@@ -290,8 +289,6 @@ export const api = {
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 
   board: (key: string) => apiRequest(routes.board(key), { schema: BoardView }),
-  startConditionMarks: (key: string) =>
-    apiRequest(routes.startConditionMarks(key), { schema: StartConditionMarksResponse }),
   createTaskComment: (key: string, taskKey: string, body: CreateTaskCommentRequest) =>
     apiRequest(routes.taskComments(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
   /** Edits the text of a comment (PM-1277); a stale `baseRevision` is a 409 `comment_edit_conflict`. */

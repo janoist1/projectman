@@ -396,10 +396,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidate(queryKeys.checklist(event.projectKey));
       return;
     }
-    case 'start_condition_marks_changed': {
-      invalidate(queryKeys.startConditionMarks(event.projectKey));
-      return;
-    }
     case 'email_changed': {
       // The channel, a contact or a mail changed: the settings section and the log read again, and the
       // member views (their `email` field) with them.
@@ -433,7 +429,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'config_changed': {
       const key = event.projectKey;
-      invalidate(queryKeys.startConditionMarks(key));
       invalidate(queryKeys.me);
       invalidate(queryKeys.roles(key));
       invalidate(queryKeys.config(key));

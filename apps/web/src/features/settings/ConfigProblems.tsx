@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { validateProjectConfig } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
+import type { ConfigIssue, ProjectConfig } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
@@ -11,9 +11,42 @@ import { showParams } from './selection';
 import styles from './ConfigProblems.module.css';
 
 export function ConfigProblems({ config, section }: { config: ProjectConfig; section?: SettingsSectionId }) {
+  const issues = validateProjectConfig(config);
+  const problems = issues.filter((issue) => issue.severity !== 'warning');
+  const holdWarnings = issues.filter((issue) => issue.code === 'start_condition_ai_hold');
+  return (
+    <>
+      {problems.length > 0 ? <ProblemsBanner config={config} section={section} problems={problems} /> : null}
+      {holdWarnings.length > 0 ? (
+        <section className={styles.banner} role="status">
+          {holdWarnings.map((issue, i) => (
+            <p className={styles.warning} key={i}>
+              <Icon name="exclamation" size={16} />
+              <span>
+                <strong>
+                  {config.pipeline.labels.find((label) => label.id === issue.detail)?.name ?? issue.detail}
+                </strong>
+                {': '}
+                {issueMessage(issue)}
+              </span>
+            </p>
+          ))}
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function ProblemsBanner({
+  config,
+  section,
+  problems,
+}: {
+  config: ProjectConfig;
+  section?: SettingsSectionId;
+  problems: ConfigIssue[];
+}) {
   const { key } = useProject();
-  const problems = validateProjectConfig(config).filter((issue) => issue.severity !== 'warning');
-  if (problems.length === 0) return null;
   return (
     <section className={styles.banner} aria-labelledby="settings-problems">
       <div className={styles.intro}>

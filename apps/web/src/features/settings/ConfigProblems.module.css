@@ -33,6 +33,18 @@
 .problems a {
   color: var(--c-accent-text);
 }
+.warning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.warning + .warning {
+  margin-top: 6px;
+}
+.warning > svg {
+  color: var(--c-warn-mark);
+  flex-shrink: 0;
+}
 .code {
   font-family: var(--font-mono);
   font-size: 12px;

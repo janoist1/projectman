@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PERMISSION_KEYS,
   ProjectManagerConfigPatch,
@@ -19,6 +19,13 @@ import {
 } from './capability-catalog';
 
 const OWNER_EMAIL = 'anna@example.com';
+
+const toJSONSchema = vi.hoisted(() => vi.fn());
+vi.mock('zod', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('zod')>();
+  toJSONSchema.mockImplementation(actual.z.toJSONSchema);
+  return { ...actual, z: { ...actual.z, toJSONSchema } };
+});
 
 function project(): ProjectConfig {
   const config = getTemplate('web-client-project')!.build({
@@ -170,7 +177,33 @@ describe('the capability index', () => {
     expect(withoutConnected).not.toContain('list them with get_capability { area: "team_tools" }');
     const bothCollapsed = capabilityIndex(catalog, withoutConnected.length - 1);
     expect(bothCollapsed).toContain('list them with get_capability { area: "team_tools" }');
-    expect(capabilityIndex(catalog, 300).length).toBeLessThanOrEqual(300);
+  });
+
+  it('cuts at a line end with a get_capability mark when even the collapsed index is too long', () => {
+    const limit = 300;
+    const cut = capabilityIndex(catalog, limit);
+    const lines = cut.split('\n');
+    expect(cut.length).toBeLessThanOrEqual(limit);
+    expect(lines.at(-1)).toBe('… get_capability');
+    // Every kept area line is a whole, collapsed line: none ends in the middle of a word.
+    const areaLines = lines.slice(2, -1);
+    expect(areaLines.length).toBeGreaterThan(0);
+    for (const line of areaLines) expect(line).toMatch(/^- .*(" \}|ask_host.*)$/);
+  });
+});
+
+describe('the schema texts', () => {
+  it('are not computed by building the catalog or the index, only by reading a detail, once', () => {
+    toJSONSchema.mockClear();
+    const catalog = buildCapabilityCatalog(project(), sources('host@example.test'));
+    capabilityIndex(catalog);
+    expect(toJSONSchema).not.toHaveBeenCalled();
+
+    const first = capabilityDetail(catalog, 'member_settings', 'provider');
+    expect(first).toContain('Schema:');
+    expect(toJSONSchema).toHaveBeenCalledTimes(1);
+    expect(capabilityDetail(catalog, 'member_settings', 'provider')).toBe(first);
+    expect(toJSONSchema).toHaveBeenCalledTimes(1);
   });
 });
 

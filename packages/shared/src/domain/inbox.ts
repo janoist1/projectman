@@ -1084,11 +1084,11 @@ export const ProjectManagerHandoff = z.object({
 });
 export type ProjectManagerHandoff = z.infer<typeof ProjectManagerHandoff>;
 
-export const SetupSourceQuestion = z.strictObject({
+/** `payload.setupSource`: the owner asked which other own project may be an idea source (PM-1463). */
+const SetupSourceQuestion = z.strictObject({
   owner: MemberHandle,
   candidates: z.array(z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/)).min(1),
 });
-export type SetupSourceQuestion = z.infer<typeof SetupSourceQuestion>;
 
 /** The option of a setup source question that lets the project manager look at no other project. */
 export const SETUP_SOURCE_NONE_OPTION = 'setup_source_none';

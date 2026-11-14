@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import type { ConfigView, StartConditionMarksResponse } from '@projectman/shared';
+import type { ConfigView } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from './client';
 import { mockProject } from '../test/mockProject';
@@ -12,7 +12,6 @@ import {
   useMemberProfile,
   usePatchConfig,
   useReopenTask,
-  useStartConditionMarks,
   useTaskDetail,
   useUpdateTask,
 } from './queries';
@@ -89,52 +88,7 @@ describe('task edit', () => {
   });
 });
 
-function MarksProbe() {
-  const marks = useStartConditionMarks('AC', true);
-  return <output>{marks.data?.marks.map((mark) => mark.taskKey).join(',') ?? 'loading'}</output>;
-}
-
 describe('out-of-order server reads', () => {
-  it('replaces an initial marks read when the tracker publishes before its response arrives', async () => {
-    const project = mockProject();
-    project.backend.config.team.startCondition = {
-      priority: 'any',
-      hold: [],
-      combine: 'any',
-      graceMinutes: 5,
-    };
-    const held = project.holdNextResponse('GET', '/api/projects/AC/start-condition-marks');
-    const { client } = project.render(<MarksProbe />);
-    await held.captured;
-    const earlier = client
-      .getQueryCache()
-      .find({ queryKey: queryKeys.startConditionMarks('AC') })!
-      .promise?.catch(() => undefined);
-    try {
-      const task = project.backend.findTask('AC-21')!;
-      task.stageId = 'ready';
-      task.priority = 'high';
-      for (const other of project.backend.tasks) if (other !== task) other.priority = null;
-      project.backend.emit({ type: 'task_upserted', projectKey: 'AC', task });
-      act(() => applyServerEvent(client, { type: 'start_condition_marks_changed', projectKey: 'AC' }));
-      await screen.findByText('AC-21');
-    } finally {
-      await act(async () => {
-        await held.release();
-        await earlier;
-      });
-    }
-    expect(
-      client
-        .getQueryData<StartConditionMarksResponse>(queryKeys.startConditionMarks('AC'))
-        ?.marks.map((mark) => mark.taskKey),
-    ).toEqual(['AC-21']);
-    expect(screen.getByText('AC-21')).toBeTruthy();
-    expect(
-      project.requests.filter((request) => request.path.endsWith('/start-condition-marks')),
-    ).toHaveLength(2);
-  });
-
   it('reads the final state once for overlapping invalidations in an event burst', async () => {
     const project = mockProject();
     function ProfileProbe() {

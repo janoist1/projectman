@@ -98,8 +98,10 @@ export function IntegratorSection() {
             {t(`integratorKey.states.${info.state}`)}
           </Chip>
           <Chip tone="outline">{t(`integratorKey.modes.${info.mode}`)}</Chip>
-          <code>{info.prefix}…</code>
-          {info.paired ? <span>{t('pairing.paired')}</span> : null}
+          <span>
+            <code>{info.prefix}…</code>
+            {info.paired ? t('pairing.paired') : null}
+          </span>
         </div>
         {info.state === 'active' ? (
           <dl className={styles.facts}>

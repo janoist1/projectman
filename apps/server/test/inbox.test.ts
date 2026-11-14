@@ -595,6 +595,7 @@ describe('inbox repository: items opened to the integrator (PM-1494)', () => {
         source: 'dev-1',
         title: kind,
         payload,
+        options: [],
       }).id;
     const opened = '2026-11-14T09:00:00.000Z';
     const question = create('question', { question: 'Q?', integratorOpenedAt: opened });

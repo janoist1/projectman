@@ -131,6 +131,8 @@ const REBOUND_PREFIX = 'rebound:';
 
 const COORDINATOR_ONLY_KINDS = coordinatorOnlySignalKindsText();
 const WAKE_NEVER = `A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about a ${COORDINATOR_ONLY_KINDS} signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.`;
+/** How many completed cards a cards_closed notice lists; the rest is only counted (facts_more). */
+const CLOSED_CARDS_SHOWN = 20;
 const WAKE_ONE_MESSAGE = `Send the owners one message for the whole wake-up (send_message with signal_ids, excluding cards_closed, operations_review and ${COORDINATOR_ONLY_KINDS}; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision. A cards_closed notice is informational: summarize its facts for the owners without signal_ids or a question; it closes on delivery so later closures get a new notice. An operations_review notice is informational too: follow the operations review rule of your role guide, without signal_ids.`;
 const WAKE_STRUCTURAL = `${COORDINATOR_ONLY_KINDS} are for you only: the owners never see them. Never put them in signal_ids. For structural_pattern and milestone_closed: weigh their evidence; use request_structural_review if a review would help. Name only those worth a review in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. For review_follow_ups: decide each of facts.items (add it to an open card that already covers it, open a card with create_task related to the closed card, or drop it). Close every one you do not propose a review on with dismiss_signal and a short note.`;
 const WAKE_CHECK =
@@ -1007,6 +1009,10 @@ export class ProjectManagerSignals {
     let cards: Task[] | undefined;
     const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
+    const closedCards = (s: ProjectManagerSignalRecord) =>
+      ctx.repos.tasks
+        .readClosedSince(projectKey, s.subject ?? s.raisedAt)
+        .filter((task) => task.status === 'done');
     return (
       `${WAKE_HEADERS[level]} ${WAKE_LOOP}\n` +
       signals
@@ -1039,10 +1045,7 @@ export class ProjectManagerSignals {
                 : s.kind === 'start_condition_met'
                   ? this.startConditionFacts(config, s, (cards ??= this.openCards(projectKey)))
                   : s.kind === 'cards_closed'
-                    ? ctx.repos.tasks
-                        .readClosedSince(projectKey, s.subject ?? s.raisedAt)
-                        .filter((task) => task.status === 'done')
-                        .slice(0, 20)
+                    ? closedCards(s).slice(0, CLOSED_CARDS_SHOWN)
                     : s.kind === 'operations_review'
                       ? OperationsReviewFacts.parse(JSON.parse(s.subject!))
                       : structuralKind(s.kind)
@@ -1068,6 +1071,10 @@ export class ProjectManagerSignals {
                                           : s.subject
                                             ? ctx.repos.sessions.get(s.subject)?.activity
                                             : null,
+            // The completed cards beyond the ones listed in facts (oldest first dropped), "and N more".
+            ...(s.kind === 'cards_closed'
+              ? { facts_more: Math.max(0, closedCards(s).length - CLOSED_CARDS_SHOWN) }
+              : {}),
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,

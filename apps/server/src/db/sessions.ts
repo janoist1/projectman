@@ -1,5 +1,6 @@
 import {
   Approver,
+  ConversationRefresh,
   DEFAULT_AGENT_PROVIDER,
   EngineId,
   LOCAL_ENGINE_ID,
@@ -269,6 +270,8 @@ export function createSessionRepository(db: Db) {
                     SELECT 1 FROM tasks t WHERE t.key = s.work_item_ref AND t.status NOT IN ('done', 'cancelled'))))`,
     ),
     compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
+    conversationRefresh: db.prepare('SELECT conversation_refresh FROM sessions WHERE id = ?'),
+    setConversationRefresh: db.prepare('UPDATE sessions SET conversation_refresh = ? WHERE id = ?'),
     setCompactPending: db.prepare('UPDATE sessions SET compact_pending = ? WHERE id = ?'),
     setContextTokens: db.prepare('UPDATE sessions SET context_tokens = ? WHERE id = ?'),
     reviewedCommit: db.prepare('SELECT reviewed_commit FROM sessions WHERE id = ?'),
@@ -362,6 +365,21 @@ export function createSessionRepository(db: Db) {
       const row = statements.compaction.get(id) as
         { compact_pending: number; context_tokens: number | null } | undefined;
       return { pending: Boolean(row?.compact_pending), contextTokens: row?.context_tokens ?? null };
+    },
+    /** Where the refresh of the session's conversation stands (PM-1461); null: none, or an unreadable value. */
+    conversationRefresh(id: string): ConversationRefresh | null {
+      const row = statements.conversationRefresh.get(id) as
+        { conversation_refresh: string | null } | undefined;
+      if (!row?.conversation_refresh) return null;
+      try {
+        const parsed = ConversationRefresh.safeParse(JSON.parse(row.conversation_refresh));
+        return parsed.success ? parsed.data : null;
+      } catch {
+        return null;
+      }
+    },
+    setConversationRefresh(id: string, refresh: ConversationRefresh | null): void {
+      statements.setConversationRefresh.run(refresh ? JSON.stringify(refresh) : null, id);
     },
     setCompactPending(id: string, pending: boolean): void {
       statements.setCompactPending.run(Number(pending), id);

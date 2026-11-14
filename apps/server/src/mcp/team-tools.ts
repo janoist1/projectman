@@ -513,6 +513,9 @@ export class TeamToolsService implements TeamToolsHandler {
   async triageLoop(ctx: ToolContext, args: Parameters<ProjectManagerToolsHandler['triageLoop']>[1]) {
     return this.tools.operator.triageLoop(ctx, args);
   }
+  async saveHandover(ctx: ToolContext, args: { note: string }) {
+    return this.tools.operator.saveHandover(ctx, args);
+  }
 
   async dismissSignal(
     ctx: ToolContext,

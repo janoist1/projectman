@@ -1296,6 +1296,11 @@ export interface ProjectManagerToolsHandler {
     loopId: string;
     inboxItemId: string | null;
   }>;
+  /**
+   * The project manager's note for its next conversation (PM-1461), asked for before its long general
+   * conversation is refreshed. Only from its own general session; `saved: false` when no note is asked for.
+   */
+  saveHandover(ctx: ToolContext, args: { note: string }): Promise<{ saved: boolean }>;
 }
 
 /**

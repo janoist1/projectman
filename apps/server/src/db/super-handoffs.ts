@@ -144,6 +144,10 @@ export function createSuperHandoffRepository(db: Db) {
     operationsOpen: db.prepare(
       `SELECT * FROM super_operations WHERE state IN ${OPEN} ORDER BY created_at, rowid`,
     ),
+    operationsOpenOfKey: db.prepare(
+      `SELECT * FROM super_operations WHERE project_key = ? AND key_id = ? AND state IN ${OPEN}
+       ORDER BY created_at, rowid`,
+    ),
     casOperation: db.prepare(
       `UPDATE super_operations
          SET state = ?,
@@ -219,6 +223,10 @@ export function createSuperHandoffRepository(db: Db) {
     },
     openOperations(): StoredSuperOperation[] {
       return (st.operationsOpen.all() as OperationRow[]).map(toOperation);
+    },
+    /** The not yet settled operations one token (for the in-app project manager: its session id) started, oldest first (PM-1461). */
+    openOperationsOfKey(projectKey: string, keyId: string): StoredSuperOperation[] {
+      return (st.operationsOpenOfKey.all(projectKey, keyId) as OperationRow[]).map(toOperation);
     },
     casOperation(projectKey: string, id: string, revision: number, patch: SuperOperationPatch): boolean {
       return (

@@ -23,6 +23,8 @@ it('preserves signals and their indexes while allowing cards_closed', () => {
       migrations.filter((file) => file.version <= 159),
     );
     expect(db.prepare('SELECT * FROM operator_signals').all()).toEqual(before);
+    // The repositories prepare statements against the whole schema, so the later migrations are applied too.
+    migrate(db, migrations);
     const repo = createRepositories(db).projectManagerSignals;
     repo.insert({ ...repo.get('ops_old')!, id: 'ops_closed', kind: 'cards_closed', caseKey: 'cards_closed' });
     expect(repo.get('ops_closed')?.kind).toBe('cards_closed');

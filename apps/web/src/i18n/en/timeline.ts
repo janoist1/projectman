@@ -266,6 +266,8 @@ export const timeline = {
       lostNote:
         'The earlier conversation was lost: a new one starts from the card and the last handoff note ({member})',
       relocated: 'A new conversation started: the earlier one ran elsewhere ({member})',
+      refreshed:
+        'Fresh page: a new conversation started with a handover, the earlier one is closed ({member})',
       providerShift:
         'Provider change ({fromProvider} → {toProvider}): a new conversation starts, with the automatic summary of the old one ({member})',
       providerShiftNoSummary:

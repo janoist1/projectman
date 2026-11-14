@@ -267,6 +267,7 @@ export const timeline = {
       lostNote:
         'A korábbi beszélgetés elveszett: új beszélgetés indul a kártyából és az utolsó átadó jegyzetből ({member})',
       relocated: 'Új beszélgetés indult: a korábbi máshol futott ({member})',
+      refreshed: 'Friss lap: új beszélgetés indult átadóval, a korábbit lezárták ({member})',
       providerShift:
         'Szolgáltatóváltás ({fromProvider} → {toProvider}): új beszélgetés indul, a régi gépi összefoglalójával ({member})',
       providerShiftNoSummary:

@@ -1,6 +1,6 @@
 import type { Db } from './database';
 
-export type EnginePairingState = 'pending' | 'approved' | 'denied' | 'cancelled';
+type EnginePairingState = 'pending' | 'approved' | 'denied' | 'cancelled';
 
 /**
  * One device pairing (PM-1437). Only hashes of the code and the keys are stored; the keys themselves stay on the

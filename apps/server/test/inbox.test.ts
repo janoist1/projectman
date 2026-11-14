@@ -575,3 +575,39 @@ describe('inbox: read-only commands of a reviewer in the developer worktree', ()
     expect((await pending).behavior).toBe('deny');
   });
 });
+
+describe('inbox repository: items opened to the integrator (PM-1494)', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+  });
+  afterEach(() => h.cleanup());
+
+  it('selects in SQL only questions and decisions with an integratorOpenedAt key, JSON null too', () => {
+    const create = (
+      kind: 'question' | 'decision' | 'alert' | 'permission',
+      payload: Record<string, unknown>,
+    ) =>
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind,
+        assignees: ['owner'],
+        source: 'dev-1',
+        title: kind,
+        payload,
+      }).id;
+    const opened = '2026-11-14T09:00:00.000Z';
+    const question = create('question', { question: 'Q?', integratorOpenedAt: opened });
+    create('question', { question: 'Q?' });
+    const decision = create('decision', { integratorOpenedAt: opened });
+    const nullDecision = create('decision', { integratorOpenedAt: null });
+    create('alert', { integratorOpenedAt: opened });
+    create('permission', { integratorOpenedAt: opened });
+
+    expect(h.repos.inbox.list('AR', { integratorOpened: true }).map((item) => item.id)).toEqual([
+      question,
+      decision,
+      nullDecision,
+    ]);
+  });
+});

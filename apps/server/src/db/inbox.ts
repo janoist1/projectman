@@ -28,6 +28,11 @@ interface InboxFilter {
   state?: InboxState | readonly InboxState[];
   kind?: InboxKind;
   taskKey?: string;
+  /**
+   * Only questions and decisions whose payload has an `integratorOpenedAt` key, JSON null too (PM-1494): a
+   * superset of `wasIntegratorInboxItem`, so the integrator queue does not read the whole inbox history.
+   */
+  integratorOpened?: true;
   /** The newest N matching items (still returned oldest first). Without it nothing is cut off. */
   limit?: number;
 }
@@ -396,6 +401,7 @@ export function createInboxRepository(db: Db) {
         states.length > 0 && `state${states.length}`,
         filter.kind && 'kind',
         filter.taskKey && 'task',
+        filter.integratorOpened && 'integrator',
         limited && 'limit',
       ].join(',');
       let statement = lists.get(signature);
@@ -404,6 +410,9 @@ export function createInboxRepository(db: Db) {
         if (states.length > 0) sql += ` AND state IN (${states.map((_, i) => `@state${i}`).join(', ')})`;
         if (filter.kind) sql += ' AND kind = @kind';
         if (filter.taskKey) sql += ' AND task_key = @taskKey';
+        if (filter.integratorOpened)
+          sql +=
+            " AND kind IN ('question', 'decision') AND json_type(payload, '$.integratorOpenedAt') IS NOT NULL";
         statement = db.prepare(`${sql} ORDER BY seq ${limited ? 'DESC LIMIT @limit' : 'ASC'}`);
         lists.set(signature, statement);
       }

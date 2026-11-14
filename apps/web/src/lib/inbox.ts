@@ -98,6 +98,8 @@ export function inboxHeading(item: InboxItem): string {
     if (alert?.alert === 'email_parked') return t('inbox.email.parkedTitle');
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    // Pairing notices go to Messages, never to inbox items.
+    if (alert?.alert === 'engine_paired') return t('inbox.alerts.unknown');
     if (alert?.alert === 'release_failed')
       return releaseFailedWords(alert.step, alert.rolledBack, alert.taskKey).title;
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
@@ -359,6 +361,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'engine_paired') return null;
   if (alert.alert === 'email_parked') return null;
   // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
   if (alert.alert === 'merge_blocked') return null;

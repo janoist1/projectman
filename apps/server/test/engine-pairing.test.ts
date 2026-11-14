@@ -10,6 +10,7 @@ import {
 } from '@projectman/shared';
 import type { EngineView } from '@projectman/shared';
 import type { EngineRegistry } from '../src/runtime/sessions';
+import { forbidden } from '../src/kernel';
 import {
   addHumanAndLogin,
   createAppHarness,
@@ -119,6 +120,15 @@ describe('engine pairing', () => {
   });
 
   describe('the machine’s doors', () => {
+    it('rejects a machine name containing bidirectional formatting at the HTTP boundary', async () => {
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.enginePairings(),
+        payload: machineKeys().body('\u202eFriend Mac'),
+      });
+      expect(response.statusCode).toBe(400);
+      expect(h.app.projectman.repos.enginePairings.livePending(now.toISOString()).count).toBe(0);
+    });
     it('starts a pairing with a short code and stores only the hashes of the keys', async () => {
       const keys = machineKeys();
       const res = await start(keys);
@@ -294,9 +304,77 @@ describe('engine pairing', () => {
       expect(refused.headers['retry-after']).toBe('900');
       expect(refused.json().error.details).toEqual({ retryAfterSeconds: 900 });
     });
+
+    it.each(['owner_only', 'database'] as const)(
+      'releases both wrong-code reservations after a %s failure',
+      async (failure) => {
+        const { pairing } = await started();
+        const spy =
+          failure === 'owner_only'
+            ? vi.spyOn(h.app.projectman.auth, 'createPairedKey').mockImplementation(() => {
+                throw forbidden('owner_only', 'the key holder is no longer allowed');
+              })
+            : vi.spyOn(h.app.projectman.repos.engines, 'create').mockImplementation(() => {
+                throw new Error('disk full');
+              });
+        for (let attempt = 0; attempt < 11; attempt += 1) {
+          expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(
+            failure === 'owner_only' ? 403 : 500,
+          );
+        }
+        h.errors.length = 0;
+        spy.mockRestore();
+        for (let attempt = 0; attempt < 10; attempt += 1)
+          expect((await web('lookup', tenant.cookie, 'AEIO-1234')).statusCode).toBe(404);
+        expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(429);
+      },
+    );
   });
 
   describe('the approval', () => {
+    it('notifies the owners of reached projects once through system notices, including the approver', async () => {
+      const { pairing, keys } = await started();
+      const { messages, inbox } = h.app.projectman.repos;
+      const notices = (key: string) =>
+        messages
+          .list(key)
+          .filter(
+            (message) =>
+              message.origin?.kind === 'system_notice' && message.origin.notice === 'engine_paired',
+          );
+      expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(200);
+      await vi.waitFor(() => expect(notices('BR')).toHaveLength(1));
+      expect(notices('BR')[0]).toMatchObject({
+        from: 'system',
+        to: ['owner'],
+        kind: 'info',
+        origin: {
+          kind: 'system_notice',
+          notice: 'engine_paired',
+          params: {
+            machine: 'Friend Mac',
+            prefix: keys.integratorKey.slice(0, 12),
+            approver: 'tenant',
+          },
+        },
+      });
+      expect(notices('AR')).toHaveLength(0);
+      expect(inbox.list('BR', { kind: 'alert' })).toHaveLength(0);
+      expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(200);
+      expect(notices('BR')).toHaveLength(1);
+    });
+
+    it('keeps approval successful when notification fails', async () => {
+      const { pairing, keys } = await started();
+      vi.spyOn(h.app.projectman.domain.inbox, 'raiseAlert').mockImplementation(() => {
+        throw new Error('notice unavailable');
+      });
+      expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(200);
+      await vi.waitFor(() =>
+        expect(logLines.some((line) => line.msg === 'Engine pairing notice failed')).toBe(true),
+      );
+      expect((await poll(pairing.id, keys.machineKey)).json().state).toBe('approved');
+    });
     it('makes the engine and the super key from the hashes, in the approver’s name, and the machine learns it', async () => {
       const previous = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
         mode: 'super',
@@ -474,6 +552,35 @@ describe('engine pairing', () => {
       const { enginePairings } = h.app.projectman.repos;
       expect(enginePairings.findById(expired.pairing.id)).toBeNull();
       expect(enginePairings.findById(cancelled.pairing.id)).toBeNull();
+    });
+
+    it.each([
+      [23, 200],
+      [25, 404],
+    ])('retains a cancelled pairing for one day (%i hours later)', async (hours, status) => {
+      const { pairing, keys } = await started();
+      // Even an already expired pending pairing gets a full day after cancellation.
+      advance(25 * 60 * 60_000);
+      expect((await cancel(pairing.id, keys.machineKey)).statusCode).toBe(204);
+      advance(hours * 60 * 60_000);
+      expect((await cancel(pairing.id, keys.machineKey)).statusCode).toBe(204);
+      await started();
+      const response = await poll(pairing.id, keys.machineKey);
+      expect(response.statusCode).toBe(status);
+      if (status === 200) expect(response.json()).toEqual({ state: 'cancelled' });
+    });
+
+    it('uses expiry as the retention timestamp for legacy cancellations without a decision timestamp', async () => {
+      const { pairing, keys } = await started();
+      h.app.projectman.repos.db
+        .prepare("UPDATE engine_pairings SET state = 'cancelled' WHERE id = ?")
+        .run(pairing.id);
+      advance(23 * 60 * 60_000);
+      await started();
+      expect((await poll(pairing.id, keys.machineKey)).json()).toEqual({ state: 'cancelled' });
+      advance(2 * 60 * 60_000);
+      await started();
+      expect((await poll(pairing.id, keys.machineKey)).statusCode).toBe(404);
     });
   });
 });

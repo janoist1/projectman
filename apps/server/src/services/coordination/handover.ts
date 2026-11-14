@@ -58,7 +58,12 @@ export class ConversationHandovers {
     const limit = CONVERSATION_HANDOVER_ITEM_LIMIT;
     const items: ConversationHandoverItem[] = [];
     // One limit for the whole handover; the kinds fill it in the order below, so what waits on someone comes first.
-    const add = (list: ConversationHandoverItem[]) => items.push(...list.slice(0, limit - items.length));
+    // A list in oldest-first order that should keep its newest entries is cut from its end (`newest`).
+    const add = (list: ConversationHandoverItem[], newest = false) => {
+      const room = limit - items.length;
+      if (room <= 0) return;
+      items.push(...(newest ? list.slice(-room) : list.slice(0, room)));
+    };
 
     const open = repos.inbox.list(projectKey, { state: 'open' }).filter((item) => item.source === member);
     const operations = repos.superHandoffs.openOperationsOfKey(projectKey, input.sessionId);
@@ -99,13 +104,13 @@ export class ConversationHandovers {
       repos.inbox
         .listAnsweredQuestions(projectKey, since, true)
         .filter((item) => item.source === member && item.resolution)
-        .slice(-limit)
         .map((item) => ({
           kind: 'answer',
           id: item.id,
           text: `${questionOf(item)} → ${answerOf(item)}`,
           at: item.resolution?.at ?? item.createdAt,
         })),
+      true,
     );
     add(
       repos.projectManagerSignals.listOpen(projectKey).map((signal) => ({

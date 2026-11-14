@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -76,6 +76,7 @@ it('ignores dotfiles and the README and accepts matching metadata', () => {
   const path = folder();
   writeFileSync(join(path, '.DS_Store'), 'ignored');
   writeFileSync(join(path, 'README.md'), 'guide');
+  writeFileSync(join(path, 'LATEST'), '0153-first\n');
   writeFileSync(join(path, '0153-first.sql'), 'SELECT 1;');
   writeFileSync(join(path, '0153-first.meta.json'), '{"tables":{}}');
   expect(loadMigrationFiles(new URL(`file://${path}/`), 152)[0]).toMatchObject({
@@ -83,6 +84,13 @@ it('ignores dotfiles and the README and accepts matching metadata', () => {
     name: 'first',
     meta: { tables: {} },
   });
+});
+
+it('keeps the LATEST marker equal to the name of the newest migration', () => {
+  const last = migrationFiles().at(-1)!;
+  const name = `${String(last.version).padStart(4, '0')}-${last.name}`;
+  const marker = readFileSync(new URL('../src/db/migrations/LATEST', import.meta.url), 'utf8');
+  expect(marker).toBe(`${name}\n`);
 });
 
 it('creates metadata journal triggers in the migration transaction', () => {

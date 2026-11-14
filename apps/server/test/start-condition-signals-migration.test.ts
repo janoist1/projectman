@@ -1,16 +1,12 @@
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { createRepositories, migrate } from '../src/db';
-import { migrationFiles } from '../src/db/migration-files';
+import { migrateRemaining, migrationsBefore } from './helpers/migrations';
 
 it('preserves signal delivery and decisions and permits both start condition kinds', () => {
   const db = new Database(':memory:');
   try {
-    const migrations = migrationFiles();
-    migrate(
-      db,
-      migrations.filter((file) => file.version < 162),
-    );
+    migrate(db, migrationsBefore('start-condition-signals'));
     db.exec(`INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable,
       task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at,
       delivered_at, follow_up_at, decision_note, delivered_to)
@@ -18,7 +14,7 @@ it('preserves signal delivery and decisions and permits both start condition kin
         'inb_old', 'msg_old', '2026-11-14', 'owner', '2026-11-14', '2026-11-14',
         '2026-11-15', 'Checked', 'pm');`);
     const before = db.prepare('SELECT * FROM operator_signals').all();
-    migrate(db, migrations);
+    migrateRemaining(db);
     expect(db.prepare('SELECT * FROM operator_signals').all()).toEqual(before);
     const repo = createRepositories(db).projectManagerSignals;
     for (const kind of ['start_condition_met', 'start_condition_changed'] as const) {

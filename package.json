@@ -15,6 +15,8 @@
   "scripts": {
     "projectman": "node scripts/projectman/bin.mjs",
     "generate:barrels": "node --import tsx scripts/barrels/cli.ts",
+    "migrations:renumber": "node --import tsx scripts/migrations/cli.ts",
+    "merge:regenerate": "npm run migrations:renumber -- --base HEAD^1 && npm exec -w apps/server -- vitest run --configLoader runner -u src/context/context-pack.test.ts src/mcp/tools.test.ts",
     "demo": "node scripts/demo.mjs",
     "shots": "node --import tsx scripts/heavy/cli.ts --places 3 node scripts/shots.mjs",
     "heavy": "node --import tsx scripts/heavy/cli.ts",

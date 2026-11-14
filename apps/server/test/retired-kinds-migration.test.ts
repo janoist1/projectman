@@ -1,15 +1,12 @@
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { latestSchemaVersion, migrate } from '../src/db';
-import { migrationFiles } from '../src/db/migration-files';
+import { migrationsBefore } from './helpers/migrations';
 
 it('rewrites the retired release and Operator approval items to alerts and drops the retired signal rows (PM-1384)', () => {
   const db = new Database(':memory:');
   try {
-    migrate(
-      db,
-      migrationFiles().filter((m) => m.version < 157),
-    );
+    migrate(db, migrationsBefore('retired-inbox-and-signal-kinds'));
     const item = db.prepare(
       `INSERT INTO inbox_items (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
        VALUES (?, 'AR', ?, '[]', 'system', 'Old', ?, '[]', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,

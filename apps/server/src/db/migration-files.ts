@@ -56,6 +56,11 @@ export interface MigrationFile {
   meta?: MigrationMeta;
 }
 
+/** `NNNN-name.sql` or `NNNN-name.meta.json`; groups: number, name, extension. */
+export const MIGRATION_FILE_PATTERN = /^(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.(sql|meta\.json)$/;
+/** Marker file with the name of the newest migration: parallel cards that both add one conflict on it. */
+export const LATEST_MARKER = 'LATEST';
+
 /** Validate all files before the caller can write to a database. */
 export function loadMigrationFiles(folder: string | URL, baselineVersion: number): MigrationFile[] {
   const path = folder instanceof URL ? fileURLToPath(folder) : folder;
@@ -70,8 +75,8 @@ export function loadMigrationFiles(folder: string | URL, baselineVersion: number
   }
   const sqlFiles = new Map<number, string>();
   for (const name of names) {
-    if (name.startsWith('.') || name === 'README.md') continue;
-    const match = /^(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.(sql|meta\.json)$/.exec(name);
+    if (name.startsWith('.') || name === 'README.md' || name === LATEST_MARKER) continue;
+    const match = MIGRATION_FILE_PATTERN.exec(name);
     if (!match)
       throw new Error(
         `Unknown migration file ${name}: rename it to NNNN-name.sql or NNNN-name.meta.json (four digits, lowercase words separated by hyphens).`,

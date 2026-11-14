@@ -2035,6 +2035,20 @@ describe('system prompt', () => {
       expect(without.guide.role).not.toContain('doc lessons');
     });
 
+    it('points the shared agreements document only at the repository docs the project keeps (PM-1465)', () => {
+      const guideOf = (docs?: { decisions?: string; roadmap?: string }) => {
+        const project = buildProject();
+        if (docs) project.project.repos[0]!.docs = docs;
+        return builder.build(input({ project, handle: 'pm' })).guide.role;
+      };
+      expect(guideOf()).toContain('## Shared agreements document');
+      expect(guideOf()).not.toContain('never duplicate them');
+      expect(guideOf({ roadmap: 'docs/ROADMAP.md' })).toContain('repository’s roadmap for');
+      expect(guideOf({ decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' })).toContain(
+        'repository’s decision log and roadmap for',
+      );
+    });
+
     describe('the level of the signals (PM-550)', () => {
       // The wording below is the `owner_request` authority's; the default authority has its own (PM-1287).
       const promptAt = (

@@ -719,6 +719,13 @@ export class SessionLauncher {
       if (mergeFix && placed)
         this.live.mergeFixes.set(session.id, { branch: placed.branch, cwd: placed.path });
       else this.live.mergeFixes.delete(session.id);
+      // The handover is built: the refresh is consumed before the process runs (PM-1492). The new process may
+      // report idle before `start` returns, and a refresh still pending would end it, or a measure still high
+      // would ask its note again. A failed start puts the refresh back.
+      if (refreshed) {
+        this.ctx.repos.sessions.setConversationRefresh(session.id, null);
+        this.ctx.repos.sessions.setContextTokens(session.id, null);
+      }
       const info = await this.deps.runner.start({
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
@@ -765,8 +772,6 @@ export class SessionLauncher {
         this.ctx.repos.sessions.setCompactPending(session.id, false);
         this.ctx.repos.sessions.setContextTokens(session.id, null);
         this.ctx.repos.sessions.setReviewedCommit(session.id, null);
-        // The new conversation has started: the refresh is done (a failed start keeps it for the next one).
-        if (refreshed) this.ctx.repos.sessions.setConversationRefresh(session.id, null);
       } else if (!compactFirst) {
         this.ctx.repos.sessions.setCompactPending(session.id, false);
       }
@@ -781,6 +786,8 @@ export class SessionLauncher {
         this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });
       }
     } catch (err) {
+      // A failed start keeps the refresh for the next one.
+      if (refreshed && refresh) this.ctx.repos.sessions.setConversationRefresh(session.id, refresh);
       // The start is over before a process ran: the session ends the way any does (what is held for it goes, its
       // folder is removed, the timeline and the listeners are told).
       this.host.markStartFailed(session.id, errorCode(err) ?? 'session_start_failed');

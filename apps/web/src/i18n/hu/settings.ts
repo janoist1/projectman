@@ -982,6 +982,8 @@ export const settings = {
     unknown_column: 'A megadott oszlop nem létezik.',
     start_condition_invalid_stage:
       'Az indító feltétel csak a munka előtti sorig tartó várakozó oszlopot jelölhet.',
+    start_condition_ai_hold:
+      'Ezt a visszatartó címkét AI-tag is ráteheti vagy leveheti, így a visszatartást is feloldhatja.',
     duplicate_column: 'Az oszlopok azonosítói nem ismétlődhetnek.',
     first_stage_not_queue: 'Az első lépés várólista kell legyen.',
     last_stage_not_done: 'Az utolsó lépés kész állapot kell legyen.',

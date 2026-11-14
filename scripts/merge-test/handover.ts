@@ -66,6 +66,17 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
     reason:
+      'configuration owner-only diagnostics and setup approval are exercised through HTTP and domain calls (PM-1482)',
+    sources: [
+      'packages/shared/src/config/owner-only.ts',
+      'packages/shared/src/config/team-settings.ts',
+      'apps/server/src/core/projects/projects.ts',
+      'apps/server/src/services/super/handoffs.ts',
+    ],
+    tests: ['apps/server/test/config-patch.test.ts', 'apps/server/test/setup-apply.test.ts'],
+  },
+  {
+    reason:
       'the MCP tool definition snapshots include shared API schemas and tool registries without a complete import path (PM-1476)',
     sources: ['packages/shared/src/api/', 'apps/server/src/mcp/'],
     tests: ['apps/server/src/mcp/tools.test.ts'],

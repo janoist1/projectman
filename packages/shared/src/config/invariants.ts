@@ -35,6 +35,7 @@ export interface ConfigIssue {
     | 'conditional_release_gate'
     | 'unknown_column'
     | 'start_condition_invalid_stage'
+    | 'start_condition_ai_hold'
     | 'duplicate_column'
     | 'first_stage_not_queue'
     | 'last_stage_not_done'
@@ -230,8 +231,19 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     }
     for (const field of ['labels', 'hold'] as const)
       (condition[field] ?? []).forEach((id, index) => {
-        if (!labelDefinition(config, id))
+        const label = labelDefinition(config, id);
+        if (!label)
           issues.push({ code: 'unknown_label', path: `team.startCondition.${field}[${index}]`, detail: id });
+        else if (
+          field === 'hold' &&
+          labelHolders(config, label).some((handle) => members.get(handle)?.kind === 'ai')
+        )
+          issues.push({
+            code: 'start_condition_ai_hold',
+            severity: 'warning',
+            path: `team.startCondition.hold[${index}]`,
+            detail: id,
+          });
       });
   }
   config.pipeline.stages.forEach((stage, i) => {

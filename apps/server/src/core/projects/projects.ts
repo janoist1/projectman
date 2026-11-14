@@ -138,6 +138,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   task_create_access: 'only an owner may change who may open new cards',
   owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
   project_manager_authority: 'only an owner may change what the project manager may do on its own authority',
+  start_condition: 'only an owner may change the condition for automatically starting queued cards',
 };
 
 /** The card mover a create request names; absent means the worker. */

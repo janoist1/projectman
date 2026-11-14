@@ -55,6 +55,7 @@ export function PairPage() {
   const [running, setRunning] = useState<Decision | null>(null);
   const [failed, setFailed] = useState<{ decision: Decision } | null>(null);
   const [limitUntil, setLimitUntil] = useState<number | null>(null);
+  const [limitedDecision, setLimitedDecision] = useState<Decision | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const limitLeft = useCountdown(limitUntil);
   const waited = useRef(false);
@@ -113,7 +114,7 @@ export function PairPage() {
   }, [linked, find]);
 
   const decide = (decision: Decision) => {
-    if (phase.kind !== 'approve') return;
+    if (phase.kind !== 'approve' || limitLeft > 0) return;
     const { code } = phase.view;
     void flight(async () => {
       runningRef.current = true;
@@ -127,7 +128,12 @@ export function PairPage() {
         const failure = classifyFailure(error);
         if (failure.kind === 'invalid') setPhase({ kind: 'expired' });
         else if (failure.kind === 'no_right') setPhase({ kind: 'noRight' });
-        else setFailed({ decision });
+        else if (failure.kind === 'limit') {
+          // The code is still good and the machine waits: stay on the approval with the countdown.
+          setLimitUntil(Date.now() + failure.seconds * 1000);
+          setLimitedDecision(decision);
+          setAnnouncement(t('pairing.approve.tooMany', { time: formatCountdown(failure.seconds) }));
+        } else setFailed({ decision });
       } finally {
         runningRef.current = false;
         setRunning(null);
@@ -143,6 +149,7 @@ export function PairPage() {
   const again = () => {
     setTyped('');
     setLimitUntil(null);
+    setLimitedDecision(null);
     setFailed(null);
     setPhase({ kind: 'enter', invalid: false, failure: null });
     // A link's code leaves the address with it.
@@ -176,6 +183,7 @@ export function PairPage() {
           view={phase.view}
           running={running}
           failure={failed}
+          limit={limitedDecision && limitLeft > 0 ? { decision: limitedDecision, seconds: limitLeft } : null}
           onDecide={decide}
           onExpired={onExpired}
         />

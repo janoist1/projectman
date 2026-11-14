@@ -160,6 +160,31 @@ describe('the approval', () => {
     expect(screen.getByText(t('pairing.approve.replaces', { prefix: 'pmi_old1' }))).toBeTruthy();
   });
 
+  it('records the replaced live key as revoked in the audit, as the server does', async () => {
+    const backend = new MockBackend();
+    backend.integratorKeys = [
+      {
+        id: 'k1',
+        mode: 'super',
+        prefix: 'pmi_old1',
+        state: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: null,
+        lastUsedAt: null,
+        lastUsedChannel: null,
+        revokedAt: null,
+      },
+    ];
+    await openApproval(backend);
+    fireEvent.click(screen.getByRole('button', { name: t('pairing.approve.approve') }));
+    await screen.findByRole('heading', { name: t('pairing.done.title') });
+    expect(backend.integratorKeys.find((key) => key.id === 'k1')?.state).toBe('revoked');
+    expect(backend.integratorKeyAudits.map((entry) => [entry.keyId, entry.action])).toEqual([
+      ['k1', 'revoked'],
+      [expect.stringMatching(/^mock_key_/), 'created'],
+    ]);
+  });
+
   it('approves: the machine and its key exist, the title has the focus, the keys never reach the page', async () => {
     const backend = new MockBackend();
     const project = await openApproval(backend);
@@ -189,6 +214,40 @@ describe('the approval', () => {
     expect(lookups(project, 'deny')).toHaveLength(1);
     expect(backend.engines.some((engine) => engine.paired)).toBe(false);
   });
+
+  it.each([
+    ['approve', 'pairing.approve.approve'],
+    ['deny', 'pairing.approve.deny'],
+  ] as const)(
+    'stays on the approval with a countdown when the %s call is rate limited',
+    async (decision, label) => {
+      const backend = new MockBackend();
+      const project = await openApproval(backend);
+      backend.pairing.rateLimitedFor = 1;
+      const pressed = screen.getByRole('button', { name: t(label) });
+      pressed.focus();
+      fireEvent.click(pressed);
+      const message = t('pairing.approve.tooMany', { time: '0:01' });
+      // The banner shows it; the page's polite live region says it once for a screen reader.
+      await waitFor(() => expect(screen.getAllByText(message)).toHaveLength(2));
+      expect(screen.getByRole('heading', { name: t('pairing.approve.title') })).toBeTruthy();
+      expect(screen.queryByText(t('pairing.approve.approveFailed'))).toBeNull();
+      for (const key of ['pairing.approve.approve', 'pairing.approve.deny'] as const)
+        expect(screen.getByRole('button', { name: t(key) }).getAttribute('aria-disabled')).toBe('true');
+      expect(document.activeElement).toBe(pressed);
+      fireEvent.click(screen.getByRole('button', { name: t('pairing.approve.approve') }));
+      expect(lookups(project, decision)).toHaveLength(1);
+      expect(lookups(project, decision === 'approve' ? 'deny' : 'approve')).toHaveLength(0);
+      backend.pairing.rateLimitedFor = null;
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: t(label) }).getAttribute('aria-disabled')).toBeNull(),
+        { timeout: 3000 },
+      );
+      expect(await screen.findByText(t('pairing.enter.announceReady'))).toBeTruthy();
+      expect(screen.queryByText(message)).toBeNull();
+      expect(document.activeElement).toBe(pressed);
+    },
+  );
 
   it('blocks both buttons while a decision is sent and keeps the focus on the pressed one', async () => {
     const backend = new MockBackend();
@@ -257,7 +316,7 @@ describe('the approval', () => {
     expect(screen.queryByRole('button', { name: t('pairing.approve.approve') })).toBeNull();
   });
 
-  it('leaves the expired link to the code step with the code out of the address', async () => {
+  it('shows the code step for an expired link and leaves the link in the address', async () => {
     const backend = new MockBackend();
     const code = backend.pairing.open('Mac mini', { ttlMs: 1 });
     await new Promise((resolve) => setTimeout(resolve, 5));

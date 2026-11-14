@@ -1,6 +1,11 @@
 import type { EmailParkReason, ProviderOutageProblem, TeamMessage } from '@projectman/shared';
 import { t } from '../i18n/t';
 
+/** A system notice carries values from outside (a machine's name): its text is plain text, never Markdown. */
+export function isSystemNotice(message: TeamMessage): boolean {
+  return message.origin?.kind === 'system_notice';
+}
+
 /**
  * The text of a message as the reader sees it (PM-1250). A system notice is drawn from its kind and values in
  * the interface language; the stored English text is for AI readers. Every other message shows its own text.

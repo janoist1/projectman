@@ -109,8 +109,9 @@ applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the r
 its `keep` list; an open todo also blocks a new one whose `onceSince` has passed); `work_outage` and
 `relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by
 `services/coordination`), and become an owner notice when the project has no project manager; `session_tokens`,
-`provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered` and `email_parked` become a
-`system_notice` message through the `AlertNoticeSink` port (`core/messages/system-notices.ts`: no push, no inbox
+`provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered`, `email_parked` and
+`engine_paired` (a device pairing was approved; the machine's name comes from an untrusted machine, so the web shows a
+notice as plain text, never as Markdown) become a `system_notice` message through the `AlertNoticeSink` port (`core/messages/system-notices.ts`: no push, no inbox
 item); a notice goes to the owners, a parked e-mail also to the admins, and a `refinement` done to the people its
 creator names (who prioritises). The notice is sent asynchronously, so two events in quick succession may not see each
 other's message (the daily e-mail count, the Gemini hold's stored copy). A `session_input` todo is one per card: when

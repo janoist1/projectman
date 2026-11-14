@@ -1,0 +1,8 @@
+.plain {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  min-width: 0;
+}

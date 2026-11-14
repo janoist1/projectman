@@ -4,6 +4,7 @@ import { formatDayHeading } from '../../i18n/format';
 import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { t } from '../../i18n/t';
+import { isSystemNotice, messageText } from '../../lib/systemNotice';
 
 export function attachmentPreview(message: Pick<TeamMessage, 'attachments'>): string {
   const files = message.attachments ?? [];
@@ -213,6 +214,20 @@ function contentLines(markdown: string): string[] {
  */
 export function plainPreview(markdown: string): string {
   return plainLine(contentLines(markdown)[0] ?? '');
+}
+
+/**
+ * The text of a message for a list row, on one line. A system notice is plain text already (its values come from
+ * outside): its marks stay as they are. Every other message loses its Markdown marks.
+ */
+export function previewText(message: TeamMessage, firstLineOnly = false): string {
+  const text = messageText(message);
+  if (!isSystemNotice(message)) return firstLineOnly ? plainPreview(text) : plainText(text);
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  return (firstLineOnly ? lines.slice(0, 1) : lines).join(' ');
 }
 
 /** The whole body as plain text on one line, its lines joined by a space (the row clamps it). */

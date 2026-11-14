@@ -12,6 +12,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('integrator key settings', () => {
+  it('marks a key that a pairing made, in its row and in its log', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.backend.integratorKeys = [
+      {
+        id: 'k1',
+        mode: 'super',
+        prefix: 'pmi_pair0001',
+        state: 'active',
+        createdAt: '2026-11-14T10:00:00.000Z',
+        expiresAt: '2027-11-14T10:00:00.000Z',
+        lastUsedAt: null,
+        lastUsedChannel: null,
+        revokedAt: null,
+        paired: true,
+      },
+    ];
+    project.backend.integratorKeyAudits.push({
+      seq: 1,
+      keyId: 'k1',
+      action: 'created',
+      prefix: 'pmi_pair0001',
+      mode: 'super',
+      at: '2026-11-14T10:00:00.000Z',
+      paired: true,
+    });
+    project.render(<IntegratorSection />);
+    await screen.findByText('pmi_pair0001…');
+    await waitFor(() =>
+      expect(document.querySelectorAll('li')).toSatisfy(
+        (items: NodeListOf<HTMLElement>) =>
+          [...items].filter((item) => item.textContent?.includes(t('pairing.paired'))).length >= 2,
+      ),
+    );
+  });
+
   it('shows an inactive empty state and compact past rows when all keys have expired', async () => {
     const project = mockProject();
     project.context.me.hostOwner = true;

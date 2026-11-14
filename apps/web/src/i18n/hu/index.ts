@@ -51,6 +51,7 @@ import { ownerCommand } from './ownerCommand';
 import { ownerOnboarding } from './ownerOnboarding';
 import { ownerTopics } from './ownerTopics';
 import { owners } from './owners';
+import { pairing } from './pairing';
 import { pause } from './pause';
 import { permissionControls } from './permissionControls';
 import { permissionModes } from './permissionModes';
@@ -152,6 +153,7 @@ export const hu = {
   ownerOnboarding,
   ownerTopics,
   owners,
+  pairing,
   pause,
   permissionControls,
   permissionModes,

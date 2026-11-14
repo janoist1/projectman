@@ -4,6 +4,9 @@
 }
 .newButton {
   margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .list {
   list-style: none;

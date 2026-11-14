@@ -99,6 +99,7 @@ export function IntegratorSection() {
           </Chip>
           <Chip tone="outline">{t(`integratorKey.modes.${info.mode}`)}</Chip>
           <code>{info.prefix}…</code>
+          {info.paired ? <span>{t('pairing.paired')}</span> : null}
         </div>
         {info.state === 'active' ? (
           <dl className={styles.facts}>
@@ -161,7 +162,7 @@ export function IntegratorSection() {
     ...(audit.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => ({
       id: `key-${entry.seq}`,
       at: entry.at,
-      text: `${entry.prefix}… · ${t(`integratorKey.auditActions.${entry.action}`)}`,
+      text: `${entry.prefix}… · ${t(`integratorKey.auditActions.${entry.action}`)}${entry.paired ? t('pairing.paired') : ''}`,
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (

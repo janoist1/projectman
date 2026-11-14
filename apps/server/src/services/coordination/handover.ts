@@ -34,8 +34,8 @@ function answerOf(item: InboxItem): string {
 /**
  * What the project manager's next conversation must know of the old one (PM-1461), from server facts only: its
  * open questions and approvals, the super operations it started that are not settled, the owners' answers of
- * the last days, the open signals and the agreement in force, plus the note it wrote itself. Each kind lists at
- * most `CONVERSATION_HANDOVER_ITEM_LIMIT` items. Nothing of the old conversation's text goes into it.
+ * the last days, the open signals and the agreement in force, plus the note it wrote itself. All kinds together
+ * list at most `CONVERSATION_HANDOVER_ITEM_LIMIT` items, in that order (PM-1480). Nothing of the old conversation's text goes into it.
  */
 export class ConversationHandovers {
   private readonly deps: { ctx: DomainContext; knowledge: Pick<ProjectManagerKnowledge, 'read'> };
@@ -57,7 +57,8 @@ export class ConversationHandovers {
     const { projectKey, member } = input;
     const limit = CONVERSATION_HANDOVER_ITEM_LIMIT;
     const items: ConversationHandoverItem[] = [];
-    const add = (list: ConversationHandoverItem[]) => items.push(...list.slice(0, limit));
+    // One limit for the whole handover; the kinds fill it in the order below, so what waits on someone comes first.
+    const add = (list: ConversationHandoverItem[]) => items.push(...list.slice(0, limit - items.length));
 
     const open = repos.inbox.list(projectKey, { state: 'open' }).filter((item) => item.source === member);
     const operations = repos.superHandoffs.openOperationsOfKey(projectKey, input.sessionId);

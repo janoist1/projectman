@@ -189,7 +189,7 @@ export interface ConversationHandoverItem {
 export interface ConversationHandover {
   /** The operating agreement now in force; null: none is approved. */
   agreement: { version: number; involvement: 'every_step' | 'important' | 'minimal' } | null;
-  /** At most `CONVERSATION_HANDOVER_ITEM_LIMIT` items per kind, oldest first. */
+  /** At most `CONVERSATION_HANDOVER_ITEM_LIMIT` items in all, kinds in their listed order, oldest first within a kind. */
   items: ConversationHandoverItem[];
   /** What the project manager wrote itself (`save_handover`); null: nothing. */
   note: string | null;

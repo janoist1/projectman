@@ -5463,6 +5463,8 @@ describe('handover and previous conversation (PM-342)', () => {
       );
       expect(text).toContain('> I finished the form.');
       expect(text).not.toContain('inb_q1');
+      // The general conversation has no card or worktree to check (PM-1480).
+      expect(text).not.toMatch(/card|worktree|git /i);
     });
 
     it('gives a general conversation without a refresh no first message', () => {

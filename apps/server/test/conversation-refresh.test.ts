@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CONVERSATION_HANDOVER_ITEM_LIMIT } from '@projectman/shared';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
@@ -299,6 +300,32 @@ describe('the refresh of the project manager general conversation (PM-1461)', ()
         ['answer', answered.inboxItemId],
       ]);
       expect(items[1]!.text).toContain('Serif');
+    });
+
+    it('lists at most the item limit in all, the open questions before the answers (PM-1480)', async () => {
+      const answered = await h.domain.teamTools.askHuman(ctx, {
+        question: 'Which font?',
+        options: ['Serif', 'Sans'],
+        ownerTopic: 'cost',
+      });
+      const serif = h.domain.inbox.get('AR', answered.inboxItemId).options[0]!;
+      await h.domain.inbox.resolve(
+        'AR',
+        answered.inboxItemId,
+        { optionId: serif.id },
+        { handle: 'owner', access: 'owner' },
+      );
+      for (let index = 0; index < CONVERSATION_HANDOVER_ITEM_LIMIT; index += 1)
+        await h.domain.teamTools.askHuman(ctx, {
+          question: `Question ${index}?`,
+          options: ['A', 'B'],
+          ownerTopic: 'cost',
+        });
+      await refreshed();
+      await h.domain.sessions.ensureSession('AR', 'pm', GENERAL);
+      const items = h.contextBuilder.inputs.at(-1)!.previousConversation?.handover?.items ?? [];
+      expect(items).toHaveLength(CONVERSATION_HANDOVER_ITEM_LIMIT);
+      expect(items.every((item) => item.kind === 'question')).toBe(true);
     });
 
     it('runs the owner`s yes to an approval asked before the switch in the new conversation', async () => {

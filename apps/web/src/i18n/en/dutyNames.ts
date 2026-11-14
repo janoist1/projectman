@@ -1,4 +1,5 @@
 export const dutyNames = {
+  accounting: 'Accounting',
   boundary_authorization: 'Permission requests',
   prioritization: 'Prioritisation',
   requirements_analysis: 'Requirements analysis',

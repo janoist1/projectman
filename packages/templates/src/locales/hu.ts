@@ -98,6 +98,11 @@ export const hu: TemplateLocale = {
     done: 'Kész',
   },
   duties: {
+    accounting: {
+      name: 'Könyvelés',
+      description:
+        'Számlavázlatok előkészítése, számlák nyilvántartása, költségkövetés és kérdések megválaszolása engedélyezett források alapján.',
+    },
     boundary_authorization: {
       name: 'Engedélykérések eldöntése',
       description:
@@ -356,6 +361,15 @@ export const hu: TemplateLocale = {
       summary: 'Naprakészen tartja a leírásokat és a döntésnaplót.',
       notTheirJob: 'Nem hoz döntést, csak rögzíti.',
       whenToAsk: 'Ha egy leírást vagy a döntésnaplót frissíteni kell.',
+    },
+    accountant: {
+      name: 'Könyvelő',
+      summary:
+        'Számlavázlatokat készít elő, nyilvántartja a számlákat, követi a költségeket és a kapott forrásokból válaszol könyvelési kérdésekre.',
+      notTheirJob:
+        'Számla kiállításához, küldéséhez és pénzmozgatáshoz a megállapodás szerinti döntnök előzetes jóváhagyása kell; megállapodás nélkül a tulajdonos dönt.',
+      whenToAsk:
+        'Számla-előkészítés, számlaállapot, költségkövetés vagy forrásokkal alátámasztható könyvelési kérdés esetén.',
     },
   },
   members: {

@@ -29,6 +29,10 @@ describe('role data mapping', () => {
     expect(aiRoleView(role.id, 'Backend', [role])).toMatchObject({ name: role.name, tone: 'backend' });
   });
   it('retains built-in visuals and gives custom roles neutral visuals', () => {
+    expect(roleView(builtInRoles.find((role) => role.id === 'accountant')!)).toMatchObject({
+      tone: 'docs',
+      icon: 'doc',
+    });
     expect(roleView(builtInRoles.find((role) => role.id === 'qa')!)).toMatchObject({
       tone: 'qa',
       icon: 'flask',

@@ -104,9 +104,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   pick chooses now. Nothing is handed to anyone by name, whoever set the leave arranges the
   replacement, and a call-back gives nothing back.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
-  code-backed catalogue of 28 duties (implementation, code review, testing and acceptance,
+  code-backed catalogue of 29 duties (implementation, accounting, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
-  receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
+  receives and its tool policy. A **role** is a named bundle of duties: 22 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
   Release approval and final decision are human-only.
 - **Permission request delegation** — when the owner enables `team.boundary`, the server routes

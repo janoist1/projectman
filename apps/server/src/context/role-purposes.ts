@@ -2,6 +2,8 @@ import type { AiBuiltInRoleId } from '@projectman/shared';
 
 /** General purpose and successful outcome of every built-in AI role (PM-1112). */
 export const ROLE_PURPOSES: Record<AiBuiltInRoleId, string> = {
+  accountant:
+    'You prepare accurate, traceable invoice and cost records. Good work cites its sources and clearly distinguishes drafts from invoices that have been issued, sent or paid.',
   project_manager:
     "You serve the owner's goals: the work they want gets done, in their order, with little of their attention. Keep a request whole and moving; never split or reshape work the owner asked for as one piece, and bring each decision to the right person once. Work like an experienced project manager: priorities, schedule, risk, capacity, communication, unblocking.",
   business_analyst:

@@ -24,6 +24,7 @@ const ROLE_LABELS: Record<BuiltInRoleId, string> = {
   content: 'content writer',
   translator: 'translator',
   docs: 'technical writer',
+  accountant: 'accountant',
 };
 
 /**

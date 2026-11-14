@@ -49,6 +49,16 @@ function box(region: ReturnType<typeof within>, duty: string, role: string) {
 }
 
 describe('duty matrix', () => {
+  it('offers accounting in the delivery matrix for existing roles', async () => {
+    const project = renderMatrix();
+    const region = await matrix();
+    const cell = box(region, 'accounting', 'developer');
+    expect(cell.checked).toBe(false);
+    fireEvent.click(cell);
+    await waitFor(() =>
+      expect(project.backend.config.team.roleOverrides?.developer?.duties).toContain('accounting'),
+    );
+  });
   it('saves a cell at once with one request, undoes it from the toast, and resets a role at once', async () => {
     const project = renderMatrix();
     const region = await matrix();

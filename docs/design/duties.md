@@ -3,7 +3,7 @@
 Status: built (decision 16). An approval gate is a label that only humans holding a duty may
 set (`setBy: { duties: [...], humansOnly: true }`; decision 17, [labels.md](labels.md)).
 
-The fixed catalogue (`DUTY_IDS`, `packages/shared/src/domain/duty.ts`) contains 28 duties.
+The fixed catalogue (`DUTY_IDS`, `packages/shared/src/domain/duty.ts`) contains 29 duties.
 Testing and acceptance form one quality duty; standup, refinement and retro facilitation are
 separate so teams can delegate each ritual. Release approval and final decision are human-only.
 All other duties admit humans and AI.
@@ -83,6 +83,14 @@ human owner-side role (final decision, release approval).
 | content            | content                                                                        |
 | translator         | translation                                                                    |
 | docs               | documentation                                                                  |
+| accountant         | accounting                                                                     |
+
+The accountant prepares invoice drafts, tracks invoice status and costs, and answers questions
+from authorised records. Its accounting duty is read-only and admits humans and AI. Issuing or
+sending invoices and moving money require prior approval from the decision maker agreed by
+the owner and project manager, defaulting to the owner. The role grants no tools or machine
+access: unavailable operations go through the project manager's machine to-do, or `ask_human`
+without a project manager (PM-1455; external tool delivery is PM-1453).
 
 Deployment is a read-only source policy: deployment commands still require the normal
 permission decision. It does not grant application-file editing. Mixed read/edit bundles

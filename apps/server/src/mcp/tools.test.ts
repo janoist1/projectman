@@ -87,6 +87,7 @@ describe('tool audience', () => {
       content: 40_000,
       translator: 40_000,
       docs: 40_000,
+      accountant: 40_000,
     };
     // PM-1361 adds the bounded follow_ups schema and its usage description to update_task.
     expect(bytes).toBeLessThanOrEqual(budgets[role] + 512);

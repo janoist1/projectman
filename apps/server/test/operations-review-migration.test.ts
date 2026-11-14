@@ -9,7 +9,7 @@ it('preserves signals and their indexes while allowing operations_review', () =>
     const migrations = migrationFiles();
     migrate(
       db,
-      migrations.filter((file) => file.version < 162),
+      migrations.filter((file) => file.version < 163),
     );
     db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at)
       VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');

@@ -408,6 +408,8 @@ export const operator = {
       loop_suspected: '{key}: suspected going in circles',
       cards_closed: 'Closed cards',
       operations_review: 'Weekly operations review',
+      start_condition_met: '{key}: the start condition is met',
+      start_condition_changed: 'The start condition changed',
       outage: 'Outage: part of the work is stuck',
       process_cleanup_failed: '{key}: a session’s processes didn’t stop',
       stalled: '{key}: the session is waiting for a reply',
@@ -424,6 +426,10 @@ export const operator = {
       review_follow_ups: '{key}: non-blocking remarks left when it closed',
     },
     bodies: {
+      start_condition_met:
+        'The card meets the start condition. The PM arranges refinement or moves it through the gates, skipping held cards.',
+      start_condition_changed:
+        'The PM compares which cards could go before and now, then proposes relabelling or restoring the previous setting.',
       cards_closed: 'The PM summarizes recently closed cards as agreed.',
       operations_review:
         'Once a week the PM briefly sums up the team’s measures and the settings changes, with at most three suggestions; the signal closes on delivery.',

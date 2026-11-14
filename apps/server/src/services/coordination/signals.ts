@@ -39,6 +39,13 @@ import {
   PROJECT_MANAGER_START_FETCH_FAILED_MINUTES,
   START_BLOCKED_REASONS,
   StartBlockedFacts,
+  effectivePriority,
+  isRefining,
+  projectRefines,
+  pullSourceStage,
+  stageIndex,
+  startConditionGoes,
+  startConditionShift,
 } from '@projectman/shared';
 import type {
   AnswerEvidence,
@@ -72,7 +79,7 @@ import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
 import type { InboxService } from '../../core/inbox';
 import type { MemberQueue } from '../../core/member-queue';
-import type { ProjectService } from '../../core/projects';
+import type { ConfigChange, ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
 import type { TaskSchedulingReader, UnreleasedWork } from '../../contracts';
@@ -92,7 +99,11 @@ type SignalInput = {
 };
 
 /** The kinds raised and closed from the board's facts (PM-547), not from an event. */
-const BOARD_KINDS: ReadonlySet<ProjectManagerSignalKind> = new Set(['merge_blocked', 'answer_stalled']);
+const BOARD_KINDS: ReadonlySet<ProjectManagerSignalKind> = new Set([
+  'merge_blocked',
+  'answer_stalled',
+  'start_condition_met',
+]);
 
 /**
  * `unreleased` is retired by PM-1333: the `release_due` integrator todo carries the case, so an open row an
@@ -229,6 +240,7 @@ export class ProjectManagerSignals {
     closedCards: OperationsReviewDeps['closedCards'];
     /** Asks for the project manager's conversation to be refreshed (PM-1461). */
     requestRefresh: (projectKey: string, reason: 'review') => Promise<boolean>;
+    startConditionMarks: { update(projectKey: string): Promise<ReadonlyMap<string, string>> };
   }) {
     this.deps = privateDeps;
   }
@@ -255,6 +267,7 @@ export class ProjectManagerSignals {
     closedCards: OperationsReviewDeps['closedCards'];
     /** Asks for the project manager's conversation to be refreshed after a review (PM-1461). */
     requestRefresh: (projectKey: string, reason: 'review') => Promise<boolean>;
+    startConditionMarks: { update(projectKey: string): Promise<ReadonlyMap<string, string>> };
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -265,6 +278,43 @@ export class ProjectManagerSignals {
   /** The cards that are not done or cancelled: everything the board cases and the waits are decided on. */
   private openCards(projectKey: string): Task[] {
     return this.cardReader.readSchedulingTasks(projectKey, { kind: 'open' });
+  }
+
+  /** Only a condition change replaces the comparison; unrelated configuration edits leave it open. */
+  configChanged({ projectKey, previous, previousVersion, next, version }: ConfigChange): boolean {
+    if (
+      !previous ||
+      JSON.stringify(previous.team.startCondition) === JSON.stringify(next.team.startCondition)
+    )
+      return false;
+    for (const signal of this.deps.ctx.repos.projectManagerSignals.listOpen(projectKey))
+      if (signal.kind === 'start_condition_changed') this.resolve(projectKey, signal.caseKey);
+    this.raise({
+      projectKey,
+      kind: 'start_condition_changed',
+      caseKey: `start_condition_changed:${version}`,
+      subject: previousVersion,
+    });
+    return true;
+  }
+
+  private startConditionCase(
+    config: ProjectConfig,
+    task: Task,
+    cards: readonly Task[],
+    marks: ReadonlyMap<string, string>,
+  ): string | null {
+    const source = pullSourceStage(config);
+    const metSince = marks.get(task.key) ?? null;
+    if (
+      !source ||
+      !metSince ||
+      stageIndex(config.pipeline, task.stageId) >= stageIndex(config.pipeline, source.id) ||
+      isRefining(task, config) ||
+      !startConditionGoes({ task, tasks: cards, config, metSince, now: isoNow(this.deps.ctx) })
+    )
+      return null;
+    return `start_condition_met:${task.key}:${metSince}`;
   }
 
   raise(input: SignalInput): ProjectManagerSignalRecord {
@@ -681,6 +731,7 @@ export class ProjectManagerSignals {
 
   private async sweepBody(key: string): Promise<void> {
     const config = await this.deps.projects.config(key);
+    const marks = await this.deps.startConditionMarks.update(key);
     const cards = this.openCards(key);
     const reads = this.readBoard(config, cards);
     const live = this.deps.ctx.repos.sessions.listLive(key);
@@ -752,7 +803,7 @@ export class ProjectManagerSignals {
       });
     }
     // Built once and reused within this sweep; never kept between sweeps.
-    const board = this.boardRead(config, cards, reads);
+    const board = this.boardRead(config, cards, reads, marks);
     for (const input of board.cases.values()) {
       active.add(input.caseKey);
       this.raise(input);
@@ -930,15 +981,30 @@ export class ProjectManagerSignals {
   }
 
   /** The input that gives the coordinator these signals: the wake-up text of its level, one JSON line each. */
-  noticeText(projectKey: string, signalIds: string[]): string {
+  async noticeText(projectKey: string, signalIds: string[]): Promise<string> {
     const { ctx, projects } = this.deps;
-    const config = projects.cachedConfig(projectKey);
-    if (!config) return '';
-    const structural = this.lazyStructuralEvaluation(config);
     const signals = signalIds.flatMap((id) => {
       const signal = ctx.repos.projectManagerSignals.get(id);
       return signal ? [signal] : [];
     });
+    // Version reads are fallible; a missing old version must never turn a notice into a failed start.
+    const previous = new Map(
+      await Promise.all(
+        signals
+          .filter((s) => s.kind === 'start_condition_changed')
+          .map(
+            async (s) =>
+              [
+                s.id,
+                s.subject ? await projects.versionConfig(projectKey, s.subject).catch(() => null) : null,
+              ] as const,
+          ),
+      ),
+    );
+    const config = projects.cachedConfig(projectKey);
+    if (!config) return '';
+    const structural = this.lazyStructuralEvaluation(config);
+    let cards: Task[] | undefined;
     const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
     return (
@@ -957,36 +1023,51 @@ export class ProjectManagerSignals {
           return JSON.stringify({
             ...ProjectManagerSignal.parse(s),
             facts:
-              s.kind === 'cards_closed'
-                ? ctx.repos.tasks
-                    .readClosedSince(projectKey, s.subject ?? s.raisedAt)
-                    .filter((task) => task.status === 'done')
-                    .slice(0, 20)
-                : s.kind === 'operations_review'
-                  ? OperationsReviewFacts.parse(JSON.parse(s.subject!))
-                  : structuralKind(s.kind)
-                    ? structural()!.facts(s)
-                    : s.kind === 'loop_suspected'
-                      ? LoopTriageFacts.parse(JSON.parse(s.subject!))
-                      : s.kind === 'obligation_overdue'
-                        ? this.obligationOverdueFacts(s)
-                        : s.kind === 'senior_wait'
-                          ? this.seniorWaitFacts(config, s)
-                          : s.kind === 'answer_stalled'
-                            ? this.answerStalledFacts(s)
-                            : s.kind === 'start_blocked'
-                              ? this.startBlockedFacts(config, s)
-                              : s.kind === 'relation_check'
-                                ? relationCheckFacts(s)
-                                : s.kind === 'review_follow_ups'
-                                  ? reviewFollowUpsFacts(ctx, s)
-                                  : s.inboxItemId
-                                    ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                                    : s.kind === 'outage'
-                                      ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
-                                      : s.subject
-                                        ? ctx.repos.sessions.get(s.subject)?.activity
-                                        : null,
+              s.kind === 'start_condition_changed'
+                ? {
+                    previousVersion: s.subject,
+                    shift: previous.get(s.id)
+                      ? startConditionShift({
+                          before: previous.get(s.id)!,
+                          after: config,
+                          tasks: (cards ??= this.openCards(projectKey)),
+                        })
+                      : null,
+                    nextAction:
+                      'Ask the owner once: propose labels or priorities to preserve the former selection, or config_revert to subject. If shift is null, explain that the previous version could not be read and ask without lists.',
+                  }
+                : s.kind === 'start_condition_met'
+                  ? this.startConditionFacts(config, s, (cards ??= this.openCards(projectKey)))
+                  : s.kind === 'cards_closed'
+                    ? ctx.repos.tasks
+                        .readClosedSince(projectKey, s.subject ?? s.raisedAt)
+                        .filter((task) => task.status === 'done')
+                        .slice(0, 20)
+                    : s.kind === 'operations_review'
+                      ? OperationsReviewFacts.parse(JSON.parse(s.subject!))
+                      : structuralKind(s.kind)
+                        ? structural()!.facts(s)
+                        : s.kind === 'loop_suspected'
+                          ? LoopTriageFacts.parse(JSON.parse(s.subject!))
+                          : s.kind === 'obligation_overdue'
+                            ? this.obligationOverdueFacts(s)
+                            : s.kind === 'senior_wait'
+                              ? this.seniorWaitFacts(config, s)
+                              : s.kind === 'answer_stalled'
+                                ? this.answerStalledFacts(s)
+                                : s.kind === 'start_blocked'
+                                  ? this.startBlockedFacts(config, s)
+                                  : s.kind === 'relation_check'
+                                    ? relationCheckFacts(s)
+                                    : s.kind === 'review_follow_ups'
+                                      ? reviewFollowUpsFacts(ctx, s)
+                                      : s.inboxItemId
+                                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                                        : s.kind === 'outage'
+                                          ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
+                                          : s.subject
+                                            ? ctx.repos.sessions.get(s.subject)?.activity
+                                            : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -1004,6 +1085,35 @@ export class ProjectManagerSignals {
         })
         .join('\n')
     );
+  }
+
+  private startConditionFacts(config: ProjectConfig, signal: ProjectManagerSignalRecord, cards: Task[]) {
+    const task = cards.find((card) => card.key === signal.taskKey);
+    if (!task) return null;
+    const themeKey = task.themeKey ?? cards.find((card) => card.key === task.parentKey)?.themeKey ?? null;
+    const stage = stageOf(config, task.stageId);
+    return {
+      taskKey: task.key,
+      stage: stage ? { id: stage.id, name: stage.name } : null,
+      effectivePriority: effectivePriority(task, cards),
+      themeKey,
+      parentKey: task.parentKey ?? null,
+      otherThemeSignals: themeKey
+        ? this.deps.ctx.repos.projectManagerSignals
+            .listOpen(signal.projectKey)
+            .filter(
+              (s) =>
+                s.kind === 'start_condition_met' &&
+                s.id !== signal.id &&
+                (s.state === 'pending' || s.state === 'open') &&
+                cards.some((card) => card.key === s.taskKey && card.themeKey === themeKey),
+            )
+            .map((s) => ({ id: s.id, taskKey: s.taskKey }))
+        : [],
+      refines: projectRefines(config),
+      nextAction:
+        'Read get_task; add refine for an idea when the project refines, move a prepared card through its gates, or ask the owner. Process theme children by priority then board order, skip held cards and collect decisions in one question.',
+    };
   }
 
   /** A start for the item failed for good: the item stays queued and is tried again, and says so (`startRefused`). */
@@ -1173,6 +1283,9 @@ export class ProjectManagerSignals {
     config: ProjectConfig,
     cards: readonly Task[],
     reads: BoardReads = this.readBoard(config, cards),
+    marks: ReadonlyMap<string, string> = config.team.startCondition
+      ? this.deps.ctx.repos.startConditionMarks.ofProject(config.project.key)
+      : new Map(),
   ): BoardRead {
     const { ctx, sessions } = this.deps;
     const projectKey = config.project.key;
@@ -1186,6 +1299,12 @@ export class ProjectManagerSignals {
     };
     const { waits, merges } = reads;
     const openMerges = [...merges.values()];
+
+    if (config.team.startCondition)
+      for (const task of cards) {
+        const caseKey = this.startConditionCase(config, task, cards, marks);
+        if (caseKey) add({ kind: 'start_condition_met', caseKey, taskKey: task.key });
+      }
 
     if (works) {
       for (const task of cards) {

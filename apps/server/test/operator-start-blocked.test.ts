@@ -95,8 +95,8 @@ async function blocked(reason: StartBlockedReason, level?: ProjectManagerWatch):
 }
 
 /** The facts and the step the project manager reads on the signal, as its notice carries them. */
-function noticeOf(signalId: string): { facts: unknown; step: unknown } {
-  const text = h.domain.projectManagerSignals.noticeText('AR', [signalId]);
+async function noticeOf(signalId: string): Promise<{ facts: unknown; step: unknown }> {
+  const text = await h.domain.projectManagerSignals.noticeText('AR', [signalId]);
   return JSON.parse(text.split('\n').at(-1)!);
 }
 
@@ -248,7 +248,7 @@ describe('start_blocked signal', () => {
         now.toISOString(),
       );
       await sweep();
-      const { facts, step } = noticeOf(signals()[0]!.id);
+      const { facts, step } = await noticeOf(signals()[0]!.id);
       expect(facts).toMatchObject({
         reason: 'workspace_dirty',
         member: 'dev-1',
@@ -262,7 +262,7 @@ describe('start_blocked signal', () => {
     it('has no step for a dirty workspace nobody holds', async () => {
       await blocked('workspace_dirty', 'unblock');
       await sweep();
-      const { facts, step } = noticeOf(signals()[0]!.id);
+      const { facts, step } = await noticeOf(signals()[0]!.id);
       expect(facts).toMatchObject({ heldBy: null });
       expect(step).toBeNull();
     });
@@ -272,7 +272,7 @@ describe('start_blocked signal', () => {
       await sweep();
       later(PROJECT_MANAGER_START_FETCH_FAILED_MINUTES);
       await sweep();
-      const { step } = noticeOf(signals()[0]!.id);
+      const { step } = await noticeOf(signals()[0]!.id);
       expect(step).toMatchObject({ tool: 'start_member', task_key: key, members: expect.any(Array) });
       expect((step as { members: string[] }).members.length).toBeGreaterThan(0);
     });
@@ -280,7 +280,7 @@ describe('start_blocked signal', () => {
     it('has no step for a repository choice, and tells the repositories', async () => {
       await blocked('repo_required', 'unblock');
       await sweep();
-      const { facts, step } = noticeOf(signals()[0]!.id);
+      const { facts, step } = await noticeOf(signals()[0]!.id);
       expect(facts).toMatchObject({ reason: 'repo_required', repos: ['web', 'api'], branch: null });
       expect(step).toBeNull();
     });
@@ -290,7 +290,7 @@ describe('start_blocked signal', () => {
       await sweep();
       later(PROJECT_MANAGER_START_FETCH_FAILED_MINUTES);
       await sweep();
-      expect(noticeOf(signals()[0]!.id).step).toBeNull();
+      expect((await noticeOf(signals()[0]!.id)).step).toBeNull();
     });
   });
 

@@ -405,6 +405,8 @@ export const operator = {
       loop_suspected: '{key}: körbejárás gyanúja',
       cards_closed: 'Lezárt kártyák',
       operations_review: 'Heti működési áttekintés',
+      start_condition_met: '{key}: teljesült az indító feltétel',
+      start_condition_changed: 'Megváltozott az indító feltétel',
       outage: 'Kiesés: a munka egy része áll',
       process_cleanup_failed: '{key}: egy ülés folyamatai nem álltak le',
       stalled: '{key}: válaszra vár a munkamenet',
@@ -421,6 +423,10 @@ export const operator = {
       review_follow_ups: '{key}: lezáráskor megmaradt nem blokkoló megjegyzések',
     },
     bodies: {
+      start_condition_met:
+        'A kártya indító feltétele teljesült. A PM megszervezi a kidolgozást vagy a kapuk szerinti továbbvitelt, a visszatartott kártyákat kihagyva.',
+      start_condition_changed:
+        'A PM összehasonlítja, mely kártyák mehettek korábban és most, majd átjelölést vagy a korábbi beállítás visszaállítását javasolja.',
       cards_closed: 'A PM a megállapodás szerint összefoglalja a legutóbb lezárt kártyákat.',
       operations_review:
         'A PM hetente röviden összefoglalja a csapat mérőszámait és a beállítás változásait, legfeljebb három javaslattal; a jelzés kézbesítéskor lezárul.',

@@ -258,6 +258,10 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
 
 function signalLine(signal: ProjectManagerSignal): string {
   const explanations: Record<ProjectManagerSignal['kind'], string> = {
+    start_condition_met:
+      'A card before the ready queue meets the configured start condition. Read its facts; arrange refinement or move it through the gates. Process theme children by priority and board order, skip held cards and group owner decisions in one question.',
+    start_condition_changed:
+      'The start condition changed (subject: previous configuration version). Compare stopped and started cards; ask the owner once about relabelling or reprioritising to preserve the former work, or config_revert to subject.',
     cards_closed:
       'Recently completed cards under every_step involvement; summarize the facts for the owners without signal_ids or a question. This informational notice closes on delivery.',
     operations_review:

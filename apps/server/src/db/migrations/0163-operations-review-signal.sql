@@ -4,7 +4,7 @@ DROP INDEX operator_signals_delivery;
 ALTER TABLE operator_signals RENAME TO operator_signals_old;
 CREATE TABLE operator_signals (
   id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('outage','stalled','silent','merge_blocked','unreleased','answer_stalled','process_cleanup_failed','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue','senior_wait','relation_check','review_follow_ups','cards_closed','operations_review')), case_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('outage','stalled','silent','merge_blocked','unreleased','answer_stalled','process_cleanup_failed','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue','senior_wait','relation_check','review_follow_ups','cards_closed','start_condition_met','start_condition_changed','operations_review')), case_key TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
   actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
   raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,

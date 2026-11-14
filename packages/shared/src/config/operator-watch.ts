@@ -49,6 +49,8 @@ export function ownerQuestionSignalRefusalMessage(kind: ProjectManagerSignalKind
 
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const PROJECT_MANAGER_DISMISSIBLE_SIGNAL_KINDS: readonly ProjectManagerSignalKind[] = [
+  'start_condition_met',
+  'start_condition_changed',
   'obligation_overdue',
   'relation_check',
   ...COORDINATOR_ONLY_SIGNAL_KINDS,

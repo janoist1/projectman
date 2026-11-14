@@ -4,6 +4,8 @@ import {
   DUTIES,
   DUTY_IDS,
   LabelDefinition,
+  StartCondition,
+  startConditionSummary,
   TEAM_RULE_IDS,
   teamRules,
 } from '@projectman/shared';
@@ -3041,6 +3043,37 @@ describe('expected steps', () => {
     const pack = builder.build(input({ project, handle: 'pm' }));
     expect(pack.guide.role!).not.toContain('update_task priority');
     expect(pack.appendSystemPrompt).not.toContain('and priorities');
+  });
+
+  it('renders the configured start condition and its coordination rules for the project manager', async () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    project.team.startCondition = StartCondition.parse({ priority: 'high', hold: ['waiting-answer'] });
+    const pack = builder.build(
+      input({ project, handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
+    );
+    const role = section(pack.appendSystemPrompt, '# Your role instructions');
+    expect(role).toContain(startConditionSummary(project.team.startCondition, project));
+    for (const key of [
+      'start_condition_met',
+      'start_condition_changed',
+      'refine',
+      'config_revert',
+      'team.ruleReasons.start_order',
+    ]) {
+      expect(role).toContain(key);
+    }
+    await expect(`${role}\n`).toMatchFileSnapshot('__snapshots__/project-manager-start-condition.role.txt');
+  });
+
+  it('retains queue-based behavior and offers owner-approved start condition setup when unconfigured', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const pack = builder.build(input({ project, handle: 'pm' }));
+    expect(section(pack.appendSystemPrompt, '# Your role instructions')).not.toContain('start_condition_met');
+    expect(pack.guide.role).toContain('team.startCondition');
+    expect(pack.guide.role).toContain('config_patch');
+    expect(pack.guide.role).toContain('team.ruleReasons.start_order');
   });
 
   it('names the card lifecycle tools in the project manager prompt only for the actions the setting allows (PM-1098)', () => {

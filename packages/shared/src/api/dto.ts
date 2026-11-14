@@ -243,6 +243,8 @@ export const ProjectManagerSignalKind = z.enum([
   'structural_pattern',
   'milestone_closed',
   'start_blocked',
+  'start_condition_met',
+  'start_condition_changed',
   'obligation_overdue',
   'senior_wait',
   'relation_check',

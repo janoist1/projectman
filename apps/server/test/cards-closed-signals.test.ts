@@ -42,8 +42,8 @@ async function setup(involvement?: ProjectManagerAgreementData['involvement']) {
 
 const signals = () =>
   h.repos.projectManagerSignals.list('AR').filter((signal) => signal.kind === 'cards_closed');
-const facts = (id: string) =>
-  JSON.parse(h.domain.projectManagerSignals.noticeText('AR', [id]).split('\n').at(-1)!).facts as {
+const facts = async (id: string) =>
+  JSON.parse((await h.domain.projectManagerSignals.noticeText('AR', [id])).split('\n').at(-1)!).facts as {
     key: string;
     title: string;
   }[];
@@ -69,7 +69,7 @@ describe('card closure notices', () => {
     const second = await closeCard('Second card');
     expect(h.domain.projectManagerSignals.deliver).toHaveBeenCalled();
     expect(signals()).toMatchObject([{ caseKey: 'cards_closed', resolvedAt: null }]);
-    expect(facts(signals()[0]!.id)).toEqual(
+    expect(await facts(signals()[0]!.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: first, title: 'First card' }),
         expect.objectContaining({ key: second, title: 'Second card' }),
@@ -91,7 +91,7 @@ describe('card closure notices', () => {
     const first = await closeCard('First batch');
     const previous = signals()[0]!;
     const notice = JSON.parse(
-      h.domain.projectManagerSignals.noticeText('AR', [previous.id]).split('\n').at(-1)!,
+      (await h.domain.projectManagerSignals.noticeText('AR', [previous.id])).split('\n').at(-1)!,
     );
     expect(notice).toMatchObject({ step: null, steps_left: 0, next_step_at: null });
     expect(notice.facts).toEqual([expect.objectContaining({ key: first })]);
@@ -106,7 +106,7 @@ describe('card closure notices', () => {
     expect(signals()).toHaveLength(2);
     const current = signals()[1]!;
     expect(current.resolvedAt).toBeNull();
-    expect(facts(current.id)).toEqual([expect.objectContaining({ key: second })]);
+    expect(await facts(current.id)).toEqual([expect.objectContaining({ key: second })]);
   });
 
   it('limits the notice to twenty completed cards and excludes cancellations', async () => {
@@ -114,7 +114,7 @@ describe('card closure notices', () => {
     for (let index = 0; index < 22; index++) await closeCard(`Card ${index}`);
     const cancelled = await h.domain.tasks.create('AR', { title: 'Cancelled' }, OWNER_ACTOR);
     await h.domain.tasks.cancel('AR', cancelled.key, {}, OWNER_ACTOR);
-    const cards = facts(signals()[0]!.id);
+    const cards = await facts(signals()[0]!.id);
     expect(cards).toHaveLength(20);
     expect(cards.map((card) => card.key)).not.toContain(cancelled.key);
   });

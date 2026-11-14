@@ -295,7 +295,7 @@ no steps, it is never in `signal_ids` and `markDelivered` resolves it. Delivery 
 `ConversationRefreshes.requestRefresh(projectKey, 'review')` (PM-1461), so the pm ends the review with `save_handover`
 and continues in a fresh conversation. The role guide's `operations_review` rule tells the pm what the review holds
 (one to three suggestions within its authority, a lesson for a recurring problem, the agreement and the rules checked
-against the settings changes). Migration 162 adds the kind to the `operator_signals` CHECK. Server only; no
+against the settings changes). Migration 163 adds the kind to the `operator_signals` CHECK. Server only; no
 machine-dependent part.
 
 ## Question screening

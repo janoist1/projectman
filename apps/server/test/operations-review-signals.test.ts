@@ -42,8 +42,8 @@ const sweep = async () => {
 };
 const reviews = () =>
   h.repos.projectManagerSignals.list('AR').filter((signal) => signal.kind === 'operations_review');
-const notice = (id: string) =>
-  JSON.parse(h.domain.projectManagerSignals.noticeText('AR', [id]).split('\n').at(-1)!);
+const notice = async (id: string) =>
+  JSON.parse((await h.domain.projectManagerSignals.noticeText('AR', [id])).split('\n').at(-1)!);
 const by = { actor: OWNER_ACTOR, author: OWNER };
 async function patch(change: object) {
   const loaded = await h.domain.projects.load('AR');
@@ -75,7 +75,7 @@ describe('the weekly operations review (PM-1464)', () => {
     expect(reviews()).toHaveLength(1);
     const [signal] = reviews();
     expect(signal).toMatchObject({ caseKey: 'operations_review:2026-W46', resolvedAt: null });
-    const line = notice(signal!.id);
+    const line = await notice(signal!.id);
     expect(line).toMatchObject({ kind: 'operations_review', steps_left: 0, next_step_at: null });
     expect(line.facts.measures).toMatchObject({ closedCards: 1 });
     expect(line.facts.measures.medianLeadHours).toBeGreaterThanOrEqual(0);
@@ -97,7 +97,7 @@ describe('the weekly operations review (PM-1464)', () => {
     await closeCard('Second card');
     await sweep();
     expect(reviews()).toHaveLength(2);
-    expect(notice(reviews()[1]!.id).facts.measures.closedCards).toBe(1);
+    expect((await notice(reviews()[1]!.id)).facts.measures.closedCards).toBe(1);
   });
 
   it('raises none while the setting is off', async () => {
@@ -122,7 +122,7 @@ describe('the weekly operations review (PM-1464)', () => {
     later(6);
     await sweep();
     const [signal] = reviews();
-    const facts = OperationsReviewFacts.parse(notice(signal!.id).facts);
+    const facts = OperationsReviewFacts.parse((await notice(signal!.id)).facts);
     // The history stamps the real time, not the test clock, so the harness's own setup versions are listed too.
     expect(facts.settingChanges[0]).toMatchObject({
       version: saved.version,

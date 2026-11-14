@@ -128,11 +128,8 @@ export function startConditionShift(input: {
   };
 }
 
-export function startConditionSummary(
-  condition: StartCondition,
-  config: ProjectConfig,
-  _locale?: string,
-): string {
+/** English summary for agent prompts; UI translations belong in the locale catalogues. */
+export function startConditionSummary(condition: StartCondition, config: ProjectConfig): string {
   const forms: string[] = [];
   if (condition.stages)
     forms.push(

@@ -7,6 +7,7 @@ import type {
 } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { setAgreementInvolvement } from './helpers/agreement';
 import { seedProjectManagerRequest } from './helpers/operator-session';
 import type { IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
@@ -67,20 +68,8 @@ describe('the in-app project manager on the shared super-operation path (PM-888)
   const execute = (requestKey: string, command: NewSuperCommand = TASK, as: ToolContext = ctx) =>
     h.domain.teamTools.executeOperation(as, { requestKey, command });
 
-  const setInvolvement = async (involvement: ProjectManagerAgreementData['involvement']) => {
-    const store = h.domain.projectManagerKnowledge;
-    const doc = await store.readKnowledge('AR');
-    await store.compareAndSwapKnowledge('AR', doc.revision, {
-      ...doc,
-      revision: doc.revision + 1,
-      agreement: {
-        version: 1,
-        data: { summary: 'Working agreement', involvement, extraCritical: [] },
-        approvedBy: 'owner',
-        approvedAt: NOW,
-      },
-    });
-  };
+  const setInvolvement = (involvement: ProjectManagerAgreementData['involvement']) =>
+    setAgreementInvolvement(h, involvement, NOW);
 
   describe('agreement involvement', () => {
     beforeEach(() => boot());

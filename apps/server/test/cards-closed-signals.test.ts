@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectManagerAgreementData } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { setAgreementInvolvement } from './helpers/agreement';
 import { makeRepoless } from './helpers/test-template';
 import { flush } from './helpers/fakes';
 
@@ -24,29 +25,17 @@ async function setup(involvement?: ProjectManagerAgreementData['involvement']) {
   });
   // Hold delivery so independently committed closures can join the queued notice.
   vi.spyOn(h.domain.projectManagerSignals, 'deliver').mockResolvedValue();
-  if (involvement) {
-    const store = h.domain.projectManagerKnowledge;
-    const doc = await store.readKnowledge('AR');
-    await store.compareAndSwapKnowledge('AR', doc.revision, {
-      ...doc,
-      revision: doc.revision + 1,
-      agreement: {
-        version: 1,
-        approvedBy: 'owner',
-        approvedAt: now.toISOString(),
-        data: { summary: 'Working agreement', involvement, extraCritical: [] },
-      },
-    });
-  }
+  if (involvement) await setAgreementInvolvement(h, involvement, now.toISOString());
 }
 
 const signals = () =>
   h.repos.projectManagerSignals.list('AR').filter((signal) => signal.kind === 'cards_closed');
-const facts = async (id: string) =>
-  JSON.parse((await h.domain.projectManagerSignals.noticeText('AR', [id])).split('\n').at(-1)!).facts as {
-    key: string;
-    title: string;
-  }[];
+const notice = async (id: string) =>
+  JSON.parse((await h.domain.projectManagerSignals.noticeText('AR', [id])).split('\n').at(-1)!) as {
+    facts: { key: string; title: string }[];
+    facts_more: number;
+  };
+const facts = async (id: string) => (await notice(id)).facts;
 async function closeCard(title = 'Finished card') {
   const task = await h.domain.tasks.create(
     'AR',
@@ -114,8 +103,15 @@ describe('card closure notices', () => {
     for (let index = 0; index < 22; index++) await closeCard(`Card ${index}`);
     const cancelled = await h.domain.tasks.create('AR', { title: 'Cancelled' }, OWNER_ACTOR);
     await h.domain.tasks.cancel('AR', cancelled.key, {}, OWNER_ACTOR);
-    const cards = await facts(signals()[0]!.id);
+    const { facts: cards, facts_more } = await notice(signals()[0]!.id);
     expect(cards).toHaveLength(20);
     expect(cards.map((card) => card.key)).not.toContain(cancelled.key);
+    expect(facts_more).toBe(2);
+  });
+
+  it('counts no omitted cards at or under twenty closures', async () => {
+    await setup('every_step');
+    await closeCard();
+    expect((await notice(signals()[0]!.id)).facts_more).toBe(0);
   });
 });

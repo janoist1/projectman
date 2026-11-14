@@ -263,7 +263,7 @@ function signalLine(signal: ProjectManagerSignal): string {
     start_condition_changed:
       'The start condition changed (subject: previous configuration version). Compare stopped and started cards; ask the owner once about relabelling or reprioritising to preserve the former work, or config_revert to subject.',
     cards_closed:
-      'Recently completed cards under every_step involvement; summarize the facts for the owners without signal_ids or a question. This informational notice closes on delivery.',
+      'Recently completed cards under every_step involvement; summarize the facts for the owners without signal_ids or a question; facts_more counts completed cards left out of the list ("and N more"). This informational notice closes on delivery.',
     operations_review:
       'The weekly operations review (facts.measures, facts.settingChanges, facts.rules); informational, never put in signal_ids. Follow the operations review rule of your role guide; it closes on delivery.',
     structural_pattern:

@@ -18,7 +18,8 @@ export const profile = {
   waiting: 'Döntésére vár',
   email: 'E-mail',
   capacity: 'Kapacitás: {used} / {max}',
-  machineAccess: 'Külső teendőt adhat a tulajdonosoknak (MCP).',
+  machineAccess:
+    'Teendőt adhat a tulajdonosok csatlakoztatott Claude-jának (a tulajdonos gépén vagy fiókjával elvégezhető bármi), a tulajdonos jóváhagyásával.',
   /** A card waits for this member's place (PM-297). */
   full: 'Tele van.',
   fullOf: 'Tele van ({used}/{max}).',

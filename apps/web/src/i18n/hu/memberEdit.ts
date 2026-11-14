@@ -23,9 +23,9 @@ export const memberEdit = {
   emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
   emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
   ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
-  machineAccess: 'Külső teendőt adhat (MCP)',
+  machineAccess: 'Külső teendőt adhat',
   machineAccessHint:
-    'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
+    'Teendőt tehet a tulajdonosok sorába. A teendő bármi lehet, amit a csatlakoztatott Claude a tulajdonos gépén vagy fiókjával meg tud csinálni (telepítés, beállítás, levél, tárhely, naptár, böngésző). A sort a tulajdonos csatlakoztatott Claude-ja dolgozza fel, a tulajdonos jóváhagyásával.',
   save: 'Mentés',
   saved: 'A tag adatai mentve.',
 } as const;

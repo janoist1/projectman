@@ -160,12 +160,20 @@ export function createEnginePairingService(deps: EnginePairingDeps) {
       releaseUser();
       throw err;
     }
-    const code = normalizePairingCode(rawCode);
-    if (!code) throw codeInvalid();
-    const result = work(code, sha256(code));
-    releaseUser();
-    releaseAddress();
-    return result;
+    let consume = false;
+    try {
+      const code = normalizePairingCode(rawCode);
+      if (!code) throw codeInvalid();
+      return work(code, sha256(code));
+    } catch (err) {
+      consume = err instanceof DomainError && err.code === 'pairing_code_invalid';
+      throw err;
+    } finally {
+      if (!consume) {
+        releaseUser();
+        releaseAddress();
+      }
+    }
   };
 
   return {

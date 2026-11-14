@@ -10,6 +10,7 @@ import {
 } from '@projectman/shared';
 import type { EngineView } from '@projectman/shared';
 import type { EngineRegistry } from '../src/runtime/sessions';
+import { forbidden } from '../src/kernel';
 import {
   addHumanAndLogin,
   createAppHarness,
@@ -119,6 +120,15 @@ describe('engine pairing', () => {
   });
 
   describe('the machine’s doors', () => {
+    it('rejects a machine name containing bidirectional formatting at the HTTP boundary', async () => {
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.enginePairings(),
+        payload: machineKeys().body('\u202eFriend Mac'),
+      });
+      expect(response.statusCode).toBe(400);
+      expect(h.app.projectman.repos.enginePairings.livePending(now.toISOString()).count).toBe(0);
+    });
     it('starts a pairing with a short code and stores only the hashes of the keys', async () => {
       const keys = machineKeys();
       const res = await start(keys);
@@ -294,6 +304,31 @@ describe('engine pairing', () => {
       expect(refused.headers['retry-after']).toBe('900');
       expect(refused.json().error.details).toEqual({ retryAfterSeconds: 900 });
     });
+
+    it.each(['owner_only', 'database'] as const)(
+      'releases both wrong-code reservations after a %s failure',
+      async (failure) => {
+        const { pairing } = await started();
+        const spy =
+          failure === 'owner_only'
+            ? vi.spyOn(h.app.projectman.auth, 'createPairedKey').mockImplementation(() => {
+                throw forbidden('owner_only', 'the key holder is no longer allowed');
+              })
+            : vi.spyOn(h.app.projectman.repos.engines, 'create').mockImplementation(() => {
+                throw new Error('disk full');
+              });
+        for (let attempt = 0; attempt < 11; attempt += 1) {
+          expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(
+            failure === 'owner_only' ? 403 : 500,
+          );
+        }
+        h.errors.length = 0;
+        spy.mockRestore();
+        for (let attempt = 0; attempt < 10; attempt += 1)
+          expect((await web('lookup', tenant.cookie, 'AEIO-1234')).statusCode).toBe(404);
+        expect((await web('approve', tenant.cookie, pairing.code)).statusCode).toBe(429);
+      },
+    );
   });
 
   describe('the approval', () => {

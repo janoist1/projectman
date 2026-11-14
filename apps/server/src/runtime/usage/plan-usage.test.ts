@@ -278,6 +278,37 @@ describe('PlanUsageMonitor', () => {
     }
   });
 
+  it('coalesces forced refreshes during a targeted round into one full follow-up round', async () => {
+    let release = () => {};
+    const { monitor, provider, background } = setup(0, {
+      engineIds: [A, B],
+      live: [],
+      source: {
+        get: async () => {
+          await new Promise<void>((resolve) => (release = resolve));
+          return usage;
+        },
+      },
+    });
+    try {
+      monitor.refresh({ force: true, engineIds: new Set([A]) });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A]);
+      monitor.refresh({ force: true });
+      monitor.refresh({ force: true });
+      monitor.engineOnline(A);
+      expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A]);
+      provider.get.mockResolvedValue(usage);
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(provider.get.mock.calls.map(([id]) => id)).toEqual([A, A, B]);
+      expect(monitor.cache.peek('claude', B)).toEqual(usage);
+    } finally {
+      release();
+      await background.stop();
+    }
+  });
+
   it('measures an idle Codex account again when its engine comes online after a start probe that got no answer', async () => {
     let engineUp = false;
     const { monitor, provider, background } = setup(100, {

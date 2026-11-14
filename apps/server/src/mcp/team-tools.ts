@@ -142,6 +142,18 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.operator.getCapability(ctx, args);
   }
 
+  async previewTemplate(ctx: ToolContext, args: { templateId?: string }) {
+    return this.tools.operator.previewTemplate(ctx, args);
+  }
+
+  async askSetupSource(ctx: ToolContext) {
+    return this.tools.operator.askSetupSource(ctx);
+  }
+
+  async readSetupSource(ctx: ToolContext, args: { projectKey: string }) {
+    return this.tools.operator.readSetupSource(ctx, args);
+  }
+
   async getChecklist(ctx: ToolContext) {
     return this.tools.operator.getChecklist(ctx);
   }

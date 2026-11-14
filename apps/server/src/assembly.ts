@@ -147,7 +147,7 @@ import {
   wireProjectManagerSignals,
 } from './services/coordination';
 import { QuestionScreening } from './core/inbox';
-import { ProjectManagerChannels, WorkQueues } from './services/coordination';
+import { ProjectManagerChannels, SetupSources, WorkQueues } from './services/coordination';
 import { ProjectState } from './services/coordination';
 import { PmReplyRelay } from './services/coordination';
 import { CardQuestions } from './core/inbox';
@@ -1724,6 +1724,12 @@ export function createDomain(opts: DomainOptions) {
           if (!superPath) throw new Error('the super-operation path is not composed yet');
           return superPath;
         },
+        setupSources: new SetupSources({
+          ctx,
+          projects,
+          questions: humanQuestions,
+          readLessons: (projectKey, member) => docWrites.read(projectKey, member, 'lessons'),
+        }),
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({

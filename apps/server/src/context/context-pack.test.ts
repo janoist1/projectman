@@ -1757,6 +1757,24 @@ describe('system prompt', () => {
       expect(role.indexOf('ROLE_STYLE_OVERRIDE')).toBeLessThan(role.indexOf('MEMBER_STYLE_OVERRIDE'));
     });
 
+    it('surveys, then proposes the whole setup with a reason per rule, in text free of this project (PM-1463)', () => {
+      const pack = builder.build(
+        input({ project: withPm('en'), handle: 'pm', workItem: { type: 'general' }, task: null }),
+      );
+      const role = `${roleOf(pack.appendSystemPrompt)}\n${pack.guide.role ?? ''}`;
+      for (const pattern of [/\bPM-\d+\b/, /\bprojectman\b/i, /docs\/DECISIONS/])
+        expect(role).not.toMatch(pattern);
+      const survey = section(pack.guide.role ?? '', '## Setup survey and proposal');
+      for (const part of [
+        'ask_setup_source',
+        'read_setup_source',
+        'preview_template',
+        'team.ruleReasons',
+        'setup_apply',
+      ])
+        expect(survey).toContain(part);
+    });
+
     it('tells the PM about the integrator todo only while it has machine access (decision 66)', () => {
       const prompt = (machineAccess: boolean | undefined) => {
         const project = withPm('en');

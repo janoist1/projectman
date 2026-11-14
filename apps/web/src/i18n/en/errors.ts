@@ -405,6 +405,9 @@ export const errors = {
     super_operation_superseded: 'A newer setup package replaced this one, so it won’t run.',
     setup_owner_only_step:
       'The setup package holds a change only the owner can make themselves. It has to be set outside the package.',
+    setup_source_none: 'The owner has no other project of their own to take ideas from.',
+    setup_source_not_allowed:
+      'This project can only be looked at when its owner allowed it themselves within the last day.',
     super_executor_unavailable: 'This installation can’t carry out this action yet.',
     super_operation_unsupported:
       'The connected Claude can’t carry out this action even with the super permission.',

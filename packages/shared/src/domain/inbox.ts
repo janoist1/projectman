@@ -1084,6 +1084,15 @@ export const ProjectManagerHandoff = z.object({
 });
 export type ProjectManagerHandoff = z.infer<typeof ProjectManagerHandoff>;
 
+export const SetupSourceQuestion = z.strictObject({
+  owner: MemberHandle,
+  candidates: z.array(z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/)).min(1),
+});
+export type SetupSourceQuestion = z.infer<typeof SetupSourceQuestion>;
+
+/** The option of a setup source question that lets the project manager look at no other project. */
+export const SETUP_SOURCE_NONE_OPTION = 'setup_source_none';
+
 export const QuestionPayload = z.object({
   requestedRecipient: QuestionRecipient.optional(),
   recipient: QuestionRecipient.optional(),
@@ -1140,6 +1149,11 @@ export const QuestionPayload = z.object({
   operatorHandoff: ProjectManagerHandoff.optional(),
   /** The system signal this question was asked about (PM-455): the question closes when the signal's case ends. */
   signalId: z.string().optional(),
+  /**
+   * The project manager asks the owner which other own project it may look at for a setup (PM-1463): the asked
+   * owner and the offered project keys, which are also the option ids. Only that owner's own answer grants it.
+   */
+  setupSource: SetupSourceQuestion.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -1164,7 +1178,9 @@ export function superDecisionRefusal(
   if (
     !facts.operatorHandle ||
     item.kind === 'permission' ||
-    ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
+    ['superOperation', 'operatorApproval', 'operatorKnowledge', 'setupSource'].some(
+      (key) => key in item.payload,
+    ) ||
     (item.kind === 'approval' && ('operator' in item.payload || 'email' in item.payload)) ||
     item.source === facts.operatorHandle ||
     facts.sessionMember === facts.operatorHandle
@@ -1184,7 +1200,9 @@ export function hasProtectedQuestionPayload(item: Pick<InboxItem, 'kind' | 'payl
   if (!item.payload || typeof item.payload !== 'object') return true;
   return (
     item.kind !== 'question' ||
-    ['approvalLabel', 'superOperation', ...APPROVAL_PAYLOAD_KEYS].some((key) => key in item.payload)
+    ['approvalLabel', 'superOperation', 'setupSource', ...APPROVAL_PAYLOAD_KEYS].some(
+      (key) => key in item.payload,
+    )
   );
 }
 

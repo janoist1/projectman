@@ -172,6 +172,8 @@ export interface TemplateLocale {
     items: Record<ChecklistItemKey, { title: string; hint: string }>;
   };
   structuralReview: { question: string; details: string; approve: string; reject: string };
+  /** The project manager's question for another project of the owner's as a setup idea source (PM-1463). */
+  setupSource: { question: string; details: string; none: string };
   /** Primary language subtag (BCP 47), e.g. "hu". */
   language: string;
   /** Time zone (IANA) of projects created in this language. */

@@ -58,6 +58,12 @@ export const en: TemplateLocale = {
     approve: 'Approve review',
     reject: 'No review needed now',
   },
+  setupSource: {
+    question: 'May I look at the setup of another project of yours for ideas?',
+    details:
+      'I read only its process, labels, roles, the role and provider of its AI members and its lessons; no cards, messages, documents or names. The permission lasts one day, and what I see there is an idea, not a rule.',
+    none: "Don't look at any other",
+  },
   language: 'en',
   timezone: 'UTC',
   columns: {

@@ -229,6 +229,60 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       },
     }),
     defineTool({
+      name: 'preview_template',
+      audience: { roles: ['project_manager'] },
+      title: 'Preview a project template',
+      readOnly: true,
+      description:
+        'Without template_id: the templates with stage and member counts. With it: that template built from ' +
+        "this project's data: stages and gates, labels, roles, AI members by role and provider, checklist " +
+        'titles. An idea for your setup proposal; changes nothing.',
+      input: {
+        template_id: z.string().max(60).optional().describe('A template id from the list.'),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.previewTemplate(
+            ctx,
+            args.template_id !== undefined ? { templateId: args.template_id } : {},
+          ),
+        );
+      },
+    }),
+    defineTool({
+      name: 'ask_setup_source',
+      audience: { roles: ['project_manager'] },
+      title: "Ask for another of the owner's projects as an idea source",
+      readOnly: false,
+      description:
+        'Asks the owner whose open request you work on which of their other projects (same e-mail) you may ' +
+        'look at for setup ideas, or none. Once per setup. None owned: setup_source_none. Their own answer ' +
+        'lets read_setup_source read that project for a day.',
+      input: {},
+      async run({ ctx, handler }) {
+        return JSON.stringify(await handler.askSetupSource(ctx));
+      },
+    }),
+    defineTool({
+      name: 'read_setup_source',
+      audience: { roles: ['project_manager'] },
+      title: "Read another of the owner's projects as an idea source",
+      readOnly: true,
+      description:
+        'The project the owner allowed via ask_setup_source in the last day: stages, gates, labels, roles, AI ' +
+        'members by role and provider, lessons (null if unavailable). No cards, messages, documents or people. ' +
+        'Else setup_source_not_allowed. Ideas only, never principles.',
+      input: {
+        project_key: z
+          .string()
+          .regex(/^[A-Z][A-Z0-9]{0,9}$/)
+          .describe('The key of the allowed project.'),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.readSetupSource(ctx, { projectKey: args.project_key }));
+      },
+    }),
+    defineTool({
       name: 'get_checklist',
       audience: { roles: ['project_manager'] },
       title: 'Read the project startup checklist',

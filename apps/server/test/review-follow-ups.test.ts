@@ -95,7 +95,7 @@ describe('review follow-ups of a closed card (PM-1362)', () => {
     const id = remark(['Reuse the helper', 'Add a test'], 'code-review-ok');
     await close();
     const signal = signals()[0]!;
-    const text = h.domain.projectManagerSignals.noticeText('AR', [signal.id]);
+    const text = await h.domain.projectManagerSignals.noticeText('AR', [signal.id]);
     const facts = JSON.parse(text.split('\n').at(-1)!).facts as ReviewFollowUpsFacts;
     expect(facts).toMatchObject({ taskKey: 'AR-1', title: 'Reviewed card', status: 'done' });
     expect(facts.items).toEqual([

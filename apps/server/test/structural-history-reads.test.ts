@@ -523,7 +523,7 @@ describe('synchronous structural evaluations (PM-783)', () => {
     const ids = h.repos.projectManagerSignals.list('AR').map((signal) => signal.id);
     const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
     const states = vi.spyOn(h.repos.timeline, 'latestTaskStatesBefore');
-    const payload = h.domain.projectManagerSignals.noticeText('AR', ids);
+    const payload = await h.domain.projectManagerSignals.noticeText('AR', ids);
     expect(evidence).toHaveBeenCalledTimes(2);
     expect(states).toHaveBeenCalledTimes(1);
     expect(payload).toContain(`"windowEndedAt":"${refs[1]!.raisedAt}"`);

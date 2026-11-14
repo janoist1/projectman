@@ -621,7 +621,7 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        `Close an obligation_overdue or relation_check signal, or one of ${coordinatorOnlySignalKindsText()}, ` +
+        `Close an obligation_overdue, relation_check, start_condition_met or start_condition_changed signal, or one of ${coordinatorOnlySignalKindsText()}, ` +
         'of your wake-up with the reason in note: a plain closing, not a human decision. When: role guide. ' +
         "A signal you already presented is the owners' to decide.",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },

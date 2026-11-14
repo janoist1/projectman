@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export const StartConditionMarksResponse = z.object({
+  marks: z.array(
+    z.object({ taskKey: z.string(), metSince: z.string().datetime(), dueAt: z.string().datetime() }),
+  ),
+});
+export type StartConditionMarksResponse = z.infer<typeof StartConditionMarksResponse>;
+
 import { BoardPlacement } from '../domain/board-order';
 import { ComplexityPoints, COMPLEXITY_REASON_MAX } from '../domain/complexity';
 import { DutyId } from '../domain/duty';

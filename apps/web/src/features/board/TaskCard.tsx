@@ -28,6 +28,7 @@ import { LabelChip, LabelCountChip } from '../../components/LabelChip';
 import { summarizeLabels } from '../../lib/labelSummary';
 import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
+import { StartBadge, useStartCondition } from './StartCondition';
 
 interface TaskCardProps {
   task: BoardCard;
@@ -133,6 +134,7 @@ export function TaskCard({
   myHandle = null,
 }: TaskCardProps) {
   const pr = prChip(task);
+  const startData = useStartCondition();
   const rows = stageRows(task, pipeline);
   // A label the status line already names ("● Válaszra vár") is not a chip as well; the drawer lists them all.
   const summary = summarizeLabels({
@@ -151,7 +153,11 @@ export function TaskCard({
     <Link
       to={to}
       draggable={false}
-      className={clsx(styles.card, selected && styles.selected, fileState && styles.fileTarget)}
+      className={clsx(
+        startData ? styles.content : styles.card,
+        !startData && selected && styles.selected,
+        !startData && fileState && styles.fileTarget,
+      )}
       aria-current={selected ? 'true' : undefined}
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
@@ -162,6 +168,7 @@ export function TaskCard({
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} /> : null}
       <span className={styles.head}>
         <span className={styles.key}>{task.key}</span>
+        <StartBadge task={task} />
         {task.priority && task.status !== 'done' && task.status !== 'cancelled' ? (
           <span title={t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}>
             <PriorityMark priority={task.priority} />

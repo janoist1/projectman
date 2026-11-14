@@ -10,6 +10,7 @@ export interface AllMessagesFilter {
  * ['project', key] so a reconnect can refetch a whole project at once.
  */
 export const queryKeys = {
+  startConditionMarks: (key: string) => ['project', key, 'start-condition-marks'] as const,
   ownerInvitations: ['owners', 'invitations'] as const,
   ownerAccounts: ['owners', 'accounts'] as const,
   hostRequestsAll: ['host-requests'] as const,

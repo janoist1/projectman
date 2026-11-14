@@ -1,8 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardView, Me, MemberView, ServerEvent } from '@projectman/shared';
+import {
+  BoardView,
+  Me,
+  MemberView,
+  ServerEvent,
+  StartConditionMarksResponse,
+  routes,
+} from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import { PlanUsageMonitor } from '../src/runtime/usage';
-import { cookieOf, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  cookieOf,
+  createAppHarness,
+  createProject,
+  inject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import { planUsage } from './helpers/fakes';
@@ -25,6 +39,35 @@ describe('board API', () => {
   });
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
+
+  it('reads persisted start marks for project viewers without mutating them, and returns none when disabled', async () => {
+    const { domain, repos } = h.app.projectman;
+    await domain.projects.update('AR', by, (draft) => {
+      draft.team.startCondition = { priority: 'any', hold: [], graceMinutes: 5, combine: 'any' };
+      return 'Configure start condition';
+    });
+    const task = await domain.tasks.create('AR', { title: 'Idea' }, OWNER_ACTOR);
+    // A persisted mark with a condition that no longer matches proves this route never updates the tracker.
+    repos.startConditionMarks.apply('AR', {
+      add: [{ taskKey: task.key, metSince: '2026-11-14T00:00:00.000Z' }],
+      remove: [],
+    });
+    const viewer = await addHumanAndLogin(h.app, { handle: 'reader', access: 'viewer' });
+    const response = await inject(h.app, 'GET', routes.startConditionMarks('AR'), viewer);
+    expect(response.statusCode).toBe(200);
+    expect(StartConditionMarksResponse.parse(response.json())).toEqual({
+      marks: [{ taskKey: task.key, metSince: '2026-11-14T00:00:00.000Z', dueAt: '2026-11-14T00:05:00.000Z' }],
+    });
+    expect(repos.startConditionMarks.ofProject('AR').get(task.key)).toBe('2026-11-14T00:00:00.000Z');
+    expect((await inject(h.app, 'GET', routes.startConditionMarks('AR'))).statusCode).toBe(401);
+    await domain.projects.update('AR', by, (draft) => {
+      delete draft.team.startCondition;
+      return 'Disable start condition';
+    });
+    expect((await inject(h.app, 'GET', routes.startConditionMarks('AR'), cookie)).json()).toEqual({
+      marks: [],
+    });
+  });
 
   it.each(['client', 'viewer'] as const)(
     'exposes AI session settings to a %s through the board',

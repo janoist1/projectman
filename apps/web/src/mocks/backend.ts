@@ -3072,6 +3072,8 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    // Marks are persisted by the real server, never inferred by the browser mock.
+    if (rest === '/start-condition-marks') return ok({ marks: [] });
     if (rest === '/structure' && method === 'GET') return ok(clone(this.structure));
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     const checklistState = /^\/checklist\/items\/([a-z][a-z0-9_]{0,39})\/state$/.exec(rest);

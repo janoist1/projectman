@@ -669,7 +669,17 @@ const WorkStalledAlert = z.object({
   ),
 });
 
+export const EnginePairedAlert = z.object({
+  alert: z.literal('engine_paired'),
+  pairingId: z.string(),
+  engineId: z.string(),
+  machineName: z.string(),
+  keyPrefix: z.string(),
+  approverName: z.string(),
+});
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  EnginePairedAlert,
   EmailParkedAlert,
   ReleaseFailedAlert,
   WorkOutageAlert,

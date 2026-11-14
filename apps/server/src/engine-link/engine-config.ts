@@ -21,6 +21,7 @@ import { readInstanceMarker } from '../instance';
 export const ENGINE_CONFIG_FILE = 'engine.json';
 export const ENGINE_KEY_FILE = 'engine.key';
 const ENGINE_NANOGPT_KEY_FILE = 'nanogpt.key';
+const ENGINE_PAIRING_PENDING_FILE = 'pairing-pending.json';
 export const ENGINE_STATUS_FILE = 'engine-status.json';
 const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
 
@@ -101,6 +102,8 @@ interface EngineFiles {
   key: string;
   /** Default place of the engine's own NanoGPT key (PM-1068); used when `nanogptKeyFile` is not set. */
   nanogptKey: string;
+  /** A device pairing that `pair start` began and `pair wait` has not ended yet (PM-1449); it holds both new keys. */
+  pairingPending: string;
   status: string;
   auditDir: string;
   audit: string;
@@ -113,6 +116,7 @@ export function engineFiles(home: string, config?: Pick<EngineConfig, 'keyFile'>
     config: path.join(home, ENGINE_CONFIG_FILE),
     key: config?.keyFile ?? path.join(home, ENGINE_KEY_FILE),
     nanogptKey: path.join(home, ENGINE_NANOGPT_KEY_FILE),
+    pairingPending: path.join(home, ENGINE_PAIRING_PENDING_FILE),
     status: path.join(home, ENGINE_STATUS_FILE),
     auditDir,
     audit: path.join(auditDir, ENGINE_AUDIT_FILE),

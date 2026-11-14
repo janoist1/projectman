@@ -1418,6 +1418,29 @@ export function useVerifyEmailLogin() {
   });
 }
 
+/* ---------- device pairing (PM-1437) ---------- */
+
+export function usePairingLookup() {
+  return useMutation({ mutationFn: (code: string) => api.pairingLookup(code) });
+}
+
+/** An approval makes an engine and a Claude Code key: the lists that show them load again. */
+export function usePairingApprove() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api.pairingApprove(code),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.engines });
+      void client.invalidateQueries({ queryKey: ['integrator-keys'] });
+      void client.invalidateQueries({ queryKey: ['integrator-key-audit'] });
+    },
+  });
+}
+
+export function usePairingDeny() {
+  return useMutation({ mutationFn: (code: string) => api.pairingDeny(code) });
+}
+
 /* ---------- password set or reset with an e-mail code (PM-946) ---------- */
 
 export function useRequestPasswordCode() {

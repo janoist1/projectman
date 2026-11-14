@@ -270,6 +270,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1427's [guided owner handoff](HYBRID.md#adding-a-further-owner-guided) supplies the new owner's
   `engine-access-token.json`; its manifest names that file relative to the extracted directory. The friend
   protects the received file on their own machine and passes its local path to `init --link-headers-file`.
+  PM-1449: `pair start --link-headers-file <path>` (`scripts/engine/pair.ts`) resolves and checks the path the
+  same way, and unlike `init` it reads the file: its headers go with the pairing's start, poll and cancel
+  requests to the hub's `/engine/pairings` (the Access engine audience). The real path is kept in the
+  pending file for `pair wait` and `pair cancel` and written into `engine.json` on approval; without the flag
+  a previous `engine.json`'s file is used.
 
 - **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
   the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
@@ -1086,8 +1091,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     `clientIpHeader`, trusted only from loopback. The browser approves through `/api/pairings/*`
     behind the usual app audience with its own login only (no integrator bearer). Approval
     creates the paired engine and super key in one transaction and wakes the link afterwards.
-    Single-machine mode: nothing is affected, the routes are not registered. The machine side
-    (keys, polling, writing the files) follows on PM-1437's card B.
+    Single-machine mode: nothing is affected, the routes are not registered.
+    Device pairing, machine side (PM-1449; `scripts/engine/{pair,setup}.ts`): `pair start` runs on
+    the friend's machine, refuses before any request while a server uses the engine home, a
+    configuration or a differing client file exists, or a pairing is pending. It generates both
+    keys locally, sends only their hashes and prefixes and keeps the request in
+    `<engine home>/pairing-pending.json` (mode 0600, both keys, the cloud and integrator
+    addresses, the header-file paths). `pair wait` polls with the machine key as bearer and, on
+    approval, writes `engine.key` and `engine.json` through the same `setup.ts` writer as `init`
+    plus the client files (see "Connected Claude credentials"); a file in the way keeps the pending
+    file (exit 4). Denied, expired, cancelled or a different approver deletes it and writes nothing;
+    `pair cancel` withdraws the request on the hub and deletes it. No key appears in argv, output
+    or the environment.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1476,7 +1491,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Device pairing (PM-1437, PM-1448) creates the super key on approval from the hash the
   machine sent: 365 days, it revokes the approver's previous super key, writes its audit row
   in the same transaction and is marked `paired`; its scope is that of a manual super key.
-  The key itself never reaches the hub or the browser.
+  The key itself never reaches the hub or the browser. On the machine, `pair wait` (PM-1449)
+  writes the generated integrator key, `cloud/integrator-access-token.json` (from
+  `--integrator-access-headers-file`) and `client.json` under the user's `~/.config/projectman`
+  through `connect`'s own `prepareClientCredentials`/`writeClientCredentials`
+  (`scripts/projectman/connect.ts`): the same modes, symlink and `--replace` rules; all
+  checks run before anything is written, and `pair start` runs them before the request too.
   **Remote engine:** authentication, scope, audit, knowledge and inbox persistence stay
   on the hub. The client runs on the connected Claude's host. Neither its bearer nor
   its edge service token is sent to an engine or member session; engines enforce the

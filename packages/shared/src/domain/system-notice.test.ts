@@ -4,6 +4,14 @@ import type { AlertPayload } from './inbox';
 import { SYSTEM_NOTICE_KINDS, systemNoticeOf, waitingDigestNotice } from './system-notice';
 
 const sample: Partial<Record<string, AlertPayload>> = {
+  engine_paired: {
+    alert: 'engine_paired',
+    pairingId: 'epr_1',
+    engineId: 'eng_1',
+    machineName: 'Friend "Mac"',
+    keyPrefix: 'pmi_12345678',
+    approverName: 'Owner',
+  },
   session_tokens: {
     alert: 'session_tokens',
     countedTokens: 5,
@@ -50,6 +58,12 @@ describe('systemNoticeOf', () => {
     const notice = systemNoticeOf(sample.provider_rate_limited!)!;
     expect(notice.params).not.toHaveProperty('until');
     expect(String(notice.params.message).length).toBeLessThan(400);
+  });
+
+  it('quotes the untrusted machine name and exposes only display values in a pairing notice', () => {
+    const notice = systemNoticeOf(sample.engine_paired!)!;
+    expect(notice.params).toEqual({ machine: 'Friend "Mac"', prefix: 'pmi_12345678', approver: 'Owner' });
+    expect(notice.text).toContain(JSON.stringify('Friend "Mac"'));
   });
 
   it('names the card only when the session works on one', () => {

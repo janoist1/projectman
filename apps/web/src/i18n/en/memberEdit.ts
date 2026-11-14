@@ -27,9 +27,9 @@ export const memberEdit = {
   emailAutoHint:
     'Their emails go out at once. Afterwards you can see them in the log under Settings › Email.',
   ownerOnly: 'Only the owner can change this.',
-  machineAccess: 'Can give owners to-dos (MCP)',
+  machineAccess: 'Can give owners external to-dos',
   machineAccessHint:
-    'They can put installs and settings in the owners’ queue. The owner’s Claude, connected over MCP, works through the queue.',
+    'They can put a to-do in the owners’ queue. A to-do can be anything the connected Claude can do on the owner’s machine or with the owner’s accounts (an install, a setting, an email, storage, a calendar, a browser). The owner’s connected Claude works through the queue, with the owner’s approval.',
   save: 'Save',
   saved: 'The member’s details are saved.',
 } as const;

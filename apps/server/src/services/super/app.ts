@@ -4,6 +4,7 @@ import {
   appRequestOrigin,
   coordinationMemberOf,
   isLiveSessionState,
+  involvementAsksOwner,
 } from '@projectman/shared';
 import type {
   HumanMemberConfig,
@@ -11,6 +12,7 @@ import type {
   NewSuperCommand,
   SuperOperation,
   SuperOperationDetail,
+  ProjectManagerAgreementData,
 } from '@projectman/shared';
 import type {
   IntegratorCredentialAuthority,
@@ -201,11 +203,13 @@ export function createProjectManagerAppOperations(deps: {
   superExecution: Pick<SuperExecution, 'access' | 'execute'>;
   superOperations: Pick<SuperOperations, 'operate' | 'operation'>;
   projects: Pick<ProjectService, 'config'>;
+  involvementOf(projectKey: string): Promise<ProjectManagerAgreementData['involvement']>;
 }) {
   const run = async (
     principal: IntegratorPrincipal | null,
     projectKey: string,
     input: AppOperationInput,
+    askOwner?: 'involvement',
   ): Promise<SuperOperation> => {
     const email = principal ? deps.credentials.authority.user(principal.userId)?.email : undefined;
     if (!principal || !email) throw forbidden('insufficient_access', 'the project has no owner to act for');
@@ -227,6 +231,7 @@ export function createProjectManagerAppOperations(deps: {
             ...(input.taskKey ? { taskKey: input.taskKey } : {}),
           },
           access,
+          askOwner ? { askOwner } : undefined,
         ),
     );
   };
@@ -237,7 +242,10 @@ export function createProjectManagerAppOperations(deps: {
       const session = deps.ctx.repos.sessions.get(sessionId);
       if (!session || session.projectKey !== projectKey)
         throw forbidden('insufficient_access', 'the app session belongs to another project');
-      return run(deps.credentials.issue(config, sessionId, session.member), projectKey, input);
+      const askOwner = involvementAsksOwner(await deps.involvementOf(projectKey), input.command)
+        ? 'involvement'
+        : undefined;
+      return run(deps.credentials.issue(config, sessionId, session.member), projectKey, input, askOwner);
     },
     /** Goes on with an operation the owner said yes to; the same call as the first one, now under the owner's yes. */
     async resume(operation: SuperOperation, keyId: string, ownerHandle: string): Promise<SuperOperation> {

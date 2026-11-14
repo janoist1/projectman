@@ -533,6 +533,9 @@ export const inbox = {
     /** Why the owner's yes is needed: "Miért kell az igened: ..." with the effects below. */
     why: 'Miért kell az igened: {reasons}.',
     whyNone: 'Ehhez a te igened kell, mert tulajdonosi jóváhagyáshoz kötött.',
+    asked: {
+      involvement: 'a megállapodás szerint minden beállítás-változtatás előtt kérdezlek',
+    },
     effects: {
       deletion: 'törlést jelent, és nem vonható vissza',
       security: 'a biztonságot vagy a jogosultságokat érinti',

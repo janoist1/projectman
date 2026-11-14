@@ -18,6 +18,7 @@ export interface EnginePairingRecord {
   expiresAt: string;
   state: EnginePairingState;
   decidedBy: string | null;
+  /** When the pairing left pending: approved, denied or cancelled. */
   decidedAt: string | null;
   engineId: string | null;
   integratorKeyId: string | null;
@@ -133,14 +134,17 @@ export function createEnginePairingRepository(db: Db) {
       );
     },
     /** Cancels a pending pairing; a decided one stays as it is. */
-    cancel(id: string): void {
-      db.prepare(`UPDATE engine_pairings SET state = 'cancelled' WHERE id = ? AND state = 'pending'`).run(id);
+    cancel(id: string, at: string): void {
+      db.prepare(
+        `UPDATE engine_pairings SET state = 'cancelled', decided_at = ? WHERE id = ? AND state = 'pending'`,
+      ).run(at, id);
     },
-    /** Deletes the pending pairings that expired before `before` and the cancelled ones; decided rows stay. */
+    /** Deletes pairings expired or cancelled before `before`; approved and denied rows stay. */
     prune(before: string): void {
       db.prepare(
-        `DELETE FROM engine_pairings WHERE state = 'cancelled' OR (state = 'pending' AND expires_at < ?)`,
-      ).run(before);
+        `DELETE FROM engine_pairings WHERE (state = 'cancelled' AND COALESCE(decided_at, expires_at) < @before)
+           OR (state = 'pending' AND expires_at < @before)`,
+      ).run({ before });
     },
     /** The pending pairings that have not expired at `at`, and the earliest of their expiries. */
     livePending(at: string): { count: number; firstExpiry: string | null } {

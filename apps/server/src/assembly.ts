@@ -22,12 +22,14 @@ import {
   SessionTools,
   ExternalTools,
   visibleTeamTools,
+  teamToolCatalog,
+  connectedToolCatalog,
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createWebPushService } from './services/web-push';
 import { createNtfyService } from './services/ntfy';
 import { createHostRequestsService } from './services/host-requests';
-import type { NtfyTransport, PushTransport } from './contracts';
+import type { CapabilityTools, NtfyTransport, PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
@@ -59,6 +61,7 @@ import {
   LOCAL_ENGINE_ID,
   memberOf,
   coordinationMemberOf,
+  involvementOf,
   pullSourceStage,
   reviewTestRunnerBeforeReview,
   routeFor,
@@ -674,6 +677,8 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
   });
+  const readInvolvement = async (projectKey: string) =>
+    involvementOf(await opts.projectManagerKnowledge.readKnowledge(projectKey));
   const tasks = createTaskService({
     ctx,
     timeline,
@@ -767,7 +772,13 @@ export function createDomain(opts: DomainOptions) {
     holdStarts: (key, handle) => startHolds.hold(key, handle),
     deferredStartNames: (key, handle) => deferredStarts.names(key, handle),
   });
+  // The registers the project manager's capability catalog lists (PM-1468): its prompt and its tool read the same ones.
+  const capabilityTools: CapabilityTools = {
+    teamTools: teamToolCatalog(),
+    connectedTools: connectedToolCatalog(),
+  };
   const sessions = new SessionOrchestrator({
+    capabilityTools,
     startHolds,
     mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
@@ -1524,6 +1535,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     projectManagerSignals,
     background,
+    involvementOf: readInvolvement,
   });
   projects.useAgreementVersion(
     async (key) => (await opts.projectManagerKnowledge.readKnowledge(key)).agreement?.version ?? null,
@@ -1684,6 +1696,8 @@ export function createDomain(opts: DomainOptions) {
         projectManagerSignals,
         loopTriages,
         checklist,
+        capabilityTools,
+        hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
         superPath: () => {
           if (!superPath) throw new Error('the super-operation path is not composed yet');
           return superPath;
@@ -1853,6 +1867,8 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err, engineId: id }, 'loop triage engine check failed'),
     );
     if (!online) return;
+    // A hub restart probes the plan usage before its engines reconnect: measure the engine's accounts now.
+    usage.engineOnline(id);
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
     if (!opts.standby)
       background.run(
@@ -2033,6 +2049,7 @@ export function createDomain(opts: DomainOptions) {
     superExecution,
     superOperations,
     projects,
+    involvementOf: readInvolvement,
   });
   superPath = { operations: appOperations, direct: superOperations };
   superHandoffs.registerAppResume(appOperations.resume);

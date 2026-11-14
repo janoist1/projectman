@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PROJECT_MANAGER_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
-import type { NewSuperCommand } from '@projectman/shared';
+import { PROJECT_MANAGER_APP_CREDENTIAL_PREFIX, questionPayloadOf } from '@projectman/shared';
+import type {
+  NewSuperCommand,
+  ProjectManagerAgreementData,
+  ProjectManagerOperation,
+} from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { seedProjectManagerRequest } from './helpers/operator-session';
@@ -62,6 +66,108 @@ describe('the in-app project manager on the shared super-operation path (PM-888)
 
   const execute = (requestKey: string, command: NewSuperCommand = TASK, as: ToolContext = ctx) =>
     h.domain.teamTools.executeOperation(as, { requestKey, command });
+
+  const setInvolvement = async (involvement: ProjectManagerAgreementData['involvement']) => {
+    const store = h.domain.projectManagerKnowledge;
+    const doc = await store.readKnowledge('AR');
+    await store.compareAndSwapKnowledge('AR', doc.revision, {
+      ...doc,
+      revision: doc.revision + 1,
+      agreement: {
+        version: 1,
+        data: { summary: 'Working agreement', involvement, extraCritical: [] },
+        approvedBy: 'owner',
+        approvedAt: NOW,
+      },
+    });
+  };
+
+  describe('agreement involvement', () => {
+    beforeEach(() => boot());
+
+    const renameProject: NewSuperCommand = {
+      kind: 'operate',
+      operation: { op: 'config_patch', patch: { project: { name: 'Updated project' } } },
+    };
+
+    it('asks before a routine setting change at every_step and executes once after the owner says yes', async () => {
+      await setInvolvement('every_step');
+      const before = (await h.domain.projects.config('AR')).project.name;
+      const { operation } = await execute('involvement', renameProject);
+      expect(operation.state).toBe('waiting_owner');
+      const question = h.domain.inbox.get('AR', operation.ownerQuestionId!);
+      expect(questionPayloadOf(question)?.superOperation?.summary).toMatchObject({
+        asked: 'involvement',
+        effects: [],
+        ownerOnly: [],
+      });
+      expect((await h.domain.projects.config('AR')).project.name).toBe(before);
+      await h.domain.inbox.resolve(
+        'AR',
+        question.id,
+        { optionId: 'yes' },
+        { handle: 'owner', access: 'owner' },
+      );
+      await vi.waitFor(() =>
+        expect(h.domain.superHandoffs.operation('AR', operation.id).state).toBe('succeeded'),
+      );
+      expect((await h.domain.projects.config('AR')).project.name).toBe('Updated project');
+      expect((await execute('involvement', renameProject)).operation.id).toBe(operation.id);
+    });
+
+    it.each(['important', 'minimal', null] as const)(
+      'runs routine settings without an extra question at %s',
+      async (involvement) => {
+        if (involvement) await setInvolvement(involvement);
+        expect((await execute('routine', renameProject)).operation.state).toBe('succeeded');
+        expect((await h.domain.projects.config('AR')).project.name).toBe('Updated project');
+      },
+    );
+
+    it.each([
+      [{ op: 'member_update', handle: 'dev-1', changes: { outboundNetwork: false } }, 'security'],
+      [{ op: 'member_hire', request: { role: 'developer', provider: 'nanogpt', model: 'paid' } }, 'cost'],
+      [{ op: 'config_patch', patch: { projectManagerAuthority: 'owner_request' } }, 'security'],
+    ] as const)('keeps reserved approval at minimal: %j', async (operation, effect) => {
+      await setInvolvement('minimal');
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
+      const result = await execute('protected', {
+        kind: 'operate',
+        operation: operation as ProjectManagerOperation,
+      });
+      expect(result.operation.state).toBe('waiting_owner');
+      const summary = questionPayloadOf(h.domain.inbox.get('AR', result.operation.ownerQuestionId!))
+        ?.superOperation?.summary;
+      expect(summary?.effects).toContain(effect);
+      expect(summary?.asked).toBeUndefined();
+    });
+
+    it('keeps member rename forbidden at minimal', async () => {
+      await setInvolvement('minimal');
+      await expect(
+        h.domain.teamTools.operate(ctx, {
+          title: 'Rename',
+          operation: { op: 'member_rename', handle: 'dev-1', to: 'renamed' },
+        }),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+    });
+
+    it('keeps restricted authority at minimal when no owner request is open', async () => {
+      await setInvolvement('minimal');
+      h.repos.projectManagerRequests.close(REQUEST, NOW);
+      h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
+      await expect(execute('restricted', renameProject)).rejects.toMatchObject({
+        message: expect.stringContaining('operator_no_request'),
+      });
+    });
+
+    it('does not add a question to a pause at every_step', async () => {
+      await setInvolvement('every_step');
+      expect(
+        (await execute('pause', { kind: 'operate', operation: { op: 'project_pause' } })).operation.state,
+      ).toBe('succeeded');
+    });
+  });
 
   describe('execute_operation', () => {
     beforeEach(() => boot());

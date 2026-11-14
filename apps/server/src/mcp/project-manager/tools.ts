@@ -14,7 +14,7 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
-import { TeamToolError } from '../../contracts';
+import { CAPABILITY_AREAS, TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
 import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
@@ -189,6 +189,26 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
         return JSON.stringify(
           await handler.getProjectManagerDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
         );
+      },
+    }),
+    defineTool({
+      name: 'get_capability',
+      audience: { roles: ['project_manager'] },
+      title: 'Read what the project can do',
+      readOnly: true,
+      description:
+        'Details behind the Capabilities section of your prompt, from the code: an area’s items (no id) or one ' +
+        'item (role view, tool description, setting note, owner-only flag, schema). Look here before you say ' +
+        'there is no way. Unknown id: not_found. Needs no owner request.',
+      input: {
+        area: z.enum(CAPABILITY_AREAS),
+        id: z.string().max(80).optional().describe('An item of the area, as the area’s list names it.'),
+      },
+      async run({ ctx, args, handler }) {
+        return handler.getCapability(ctx, {
+          area: args.area,
+          ...(args.id !== undefined ? { id: args.id } : {}),
+        });
       },
     }),
     defineTool({
@@ -624,9 +644,9 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners " +
-        'do not get it, it waits for a connected integrator. Its answer comes back to you. An owner ' +
-        'decision is not a todo: use ask_human.',
+        "Queue a todo for the owner's connected client: anything it can do on the owner's machine or with " +
+        "the owner's accounts (an install, a setting, an email, a calendar). The question field holds why " +
+        'it is needed. The answer comes back to you. A decision is not a todo: use ask_human.',
       input: {
         task_key: TaskKey.optional().describe(
           'A card projectman already follows (an open or handed-over obligation) is refused with ' +

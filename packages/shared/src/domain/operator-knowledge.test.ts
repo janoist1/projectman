@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canReadProjectManagerKnowledge,
+  involvementOf,
   DEFAULT_PROJECT_MANAGER_PREFERENCE,
   ProjectManagerAgreementData,
   ProjectManagerKnowledgeChange,
@@ -33,6 +34,19 @@ const preference = {
   data: DEFAULT_PROJECT_MANAGER_PREFERENCE,
   updatedAt: null,
 };
+
+it('defaults missing knowledge or agreement to important involvement', () => {
+  expect(involvementOf(null)).toBe('important');
+  expect(involvementOf({ agreement: null })).toBe('important');
+});
+
+it.each(['every_step', 'important', 'minimal'] as const)('reads approved %s involvement', (involvement) => {
+  const doc = ProjectManagerKnowledgeDocument.parse({
+    ...knowledge,
+    agreement: { ...knowledge.agreement, data: { ...agreement, involvement } },
+  });
+  expect(involvementOf(doc)).toBe(involvement);
+});
 
 describe('operator knowledge schemas', () => {
   it('accepts only strict knowledge changes and permits a server-generated principle id', () => {

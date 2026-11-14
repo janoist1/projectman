@@ -1,6 +1,7 @@
 // The engine's setup and start commands (PM-314; docs/MACHINE-DEPENDENT.md).
 //
 //   npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--force]   (the key on standard input)
+//   npm run engine -- pair start|wait|cancel   (PM-1449; device pairing instead of copying the machine and client keys)
 //   npm run engine -- project set <KEY> <path>
 //   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
 //   npm run engine -- repo remove <KEY> <repo>
@@ -43,6 +44,7 @@ runEngineCli(process.argv.slice(2), {
   },
   env: process.env,
   cwd: process.cwd(),
+  userHome: homedir(),
   readStdin,
   out: (text) => console.log(text),
   err: (text) => console.error(text),

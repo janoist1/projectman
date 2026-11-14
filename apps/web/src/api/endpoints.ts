@@ -1,4 +1,5 @@
 import {
+  PairingView,
   OwnerInvitationsView,
   CreatedOwnerInvitation,
   OwnerAccountsView,
@@ -257,6 +258,13 @@ export const api = {
     apiRequest(routes.passwordCodeRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
   resetPassword: (body: PasswordResetRequest) =>
     apiRequest(routes.passwordReset(), { method: 'POST', body, schema: Me }),
+  /** PM-1437: the pairing behind a code; the code goes in the body, never in the URL. */
+  pairingLookup: (code: string) =>
+    apiRequest(routes.pairingLookup(), { method: 'POST', body: { code }, schema: PairingView }),
+  pairingApprove: (code: string) =>
+    apiRequest(routes.pairingApprove(), { method: 'POST', body: { code }, schema: PairingView }),
+  pairingDeny: (code: string) =>
+    apiRequest(routes.pairingDeny(), { method: 'POST', body: { code }, schema: PairingView }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
   setLanguage: (body: SetLanguageRequest) =>

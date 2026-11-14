@@ -18,7 +18,8 @@ export const profile = {
   waiting: 'Waiting for their decision',
   email: 'Email',
   capacity: 'Capacity: {used} / {max}',
-  machineAccess: 'Can give owners external to-dos (MCP).',
+  machineAccess:
+    'Can give the owners’ connected Claude to-dos (anything doable on the owner’s machine or with their accounts), with the owner’s approval.',
   full: 'Full.',
   fullOf: 'Full ({used}/{max}).',
   fullWaiting: 'Waiting for this:',

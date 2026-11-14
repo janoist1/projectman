@@ -151,6 +151,7 @@ export const ALERT_ROUTE_CLASS: Record<AlertKind, AlertRouteClass | 'retired'> =
   provider_rate_limited: 'owner_messages',
   feedback_forwarded: 'owner_messages',
   host_request_answered: 'owner_messages',
+  engine_paired: 'owner_messages',
   email_parked: 'owner_messages',
   refinement: 'by_reason',
   merge_blocked: 'duty_holder',

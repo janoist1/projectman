@@ -7,6 +7,7 @@ import {
   CLIENT_CONFIG_RELATIVE_PATH,
   EnginePairingStatus,
   formatPairingCode,
+  isSafeDisplayText,
   normalizePairingCode,
   PAIRING_TTL_MS,
   printableText as printable,
@@ -474,6 +475,13 @@ function finish(
   }
   const force = pending.force || flags.has('force');
   const replace = pending.replace || flags.has('replace');
+  if (!isSafeDisplayText(approved.engineName)) {
+    // The hub's own answer: it repeats on every run, so exit 5 ("run it again") would send the AI into a loop.
+    io.err(
+      `PAIRING FAILED [config_invalid]: the hub sent the engine name "${printable(approved.engineName)}" with a control, formatting or separator character in it, and a retry gets the same name. Nothing was written; the pending file stays so that "pair cancel" can withdraw it.`,
+    );
+    return EXIT_ENDED;
+  }
   let prepared;
   try {
     // Checked again: a file may have appeared since `pair start`.

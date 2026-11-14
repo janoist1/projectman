@@ -417,7 +417,7 @@ describe('engine pair (PM-1449)', () => {
       expect(await run('pair', 'wait', '--timeout', value)).toBe(2);
     });
 
-    const HOSTILE = '‮Evil\u001b[31m ⁧\u0085';
+    const HOSTILE = '\u202eEvil\u001b[31m\u2028\u2067\u0085';
 
     it('prints no control, formatting or line-separator character of any value the hub sent', async () => {
       await startPairing('--expect-email', 'friend@example.com');
@@ -436,10 +436,10 @@ describe('engine pair (PM-1449)', () => {
       expect(err.join('\n')).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
     });
 
-    it('refuses an engine name with a bidi character from the hub, keeping the pairing for a retry', async () => {
+    it('ends with exit 1, not 5, on an engine name with a bidi character from the hub, keeping the pending file for "pair cancel"', async () => {
       await startPairing();
-      replies.push({ status: 200, json: { ...approved(), engineName: 'Mac‮' } });
-      expect(await run('pair', 'wait')).toBe(5);
+      replies.push({ status: 200, json: { ...approved(), engineName: 'Mac\u202e' } });
+      expect(await run('pair', 'wait')).toBe(1);
       expect(err.join('\n')).toContain('[config_invalid]');
       expect(existsSync(pendingFile())).toBe(true);
       expect(existsSync(path.join(home, 'engine.json'))).toBe(false);

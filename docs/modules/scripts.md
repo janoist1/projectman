@@ -35,7 +35,8 @@ the hub side is PM-1448 (`/engine/pairings`). Exit 2 is wrong usage in every com
   A hub 404 is `pairing_unavailable`, a 429 `too_many_attempts` (exit 1).
 - `pair wait [--timeout <s>] [--force] [--replace]` (30 s by default, 1–600) polls at the hub's interval:
   0 written, 1 ended with nothing written (denied, expired, cancelled, unknown, or an approver other than
-  `--expect-email`; the pending file is deleted), 3 still pending, 4 approved but a file is in the way (the
+  `--expect-email`; the pending file is deleted; also an approved engine name with a forbidden character, which
+  the hub repeats on every run: nothing is written, the pending file stays for `pair cancel`), 3 still pending, 4 approved but a file is in the way (the
   pending file stays; run again with `--force`/`--replace`), 5 a failure that may pass (`hub_unreachable`,
   `hub_error`, `hub_access_refused`, `home_in_use`, `config_invalid`; the pending file stays, run again). Every
   text the hub sent goes to the terminal through the shared `printableText` (no control, formatting or bidi

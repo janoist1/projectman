@@ -89,6 +89,11 @@ export const en: TemplateLocale = {
     done: 'Done',
   },
   duties: {
+    accounting: {
+      name: 'Accounting',
+      description:
+        'Prepare invoice drafts, track invoices and costs, and answer questions using authorised records.',
+    },
     boundary_authorization: {
       name: 'Permission request decisions',
       description:
@@ -342,6 +347,15 @@ export const en: TemplateLocale = {
       summary: 'Keeps the documentation and the decision log up to date.',
       notTheirJob: 'Does not make decisions, only records them.',
       whenToAsk: 'When the documentation or the decision log needs updating.',
+    },
+    accountant: {
+      name: 'Accountant',
+      summary:
+        'Prepares invoice drafts, tracks invoices and costs, and answers accounting questions using supplied records.',
+      notTheirJob:
+        'Issuing or sending invoices and moving money require prior approval from the agreed decision maker; without an agreement, the owner decides.',
+      whenToAsk:
+        'For invoice preparation, invoice status, cost tracking or accounting questions supported by records.',
     },
   },
   members: {

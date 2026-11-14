@@ -1,4 +1,5 @@
 export const dutyNames = {
+  accounting: 'Könyvelés',
   boundary_authorization: 'Engedélykérések eldöntése',
   prioritization: 'Prioritáskezelés',
   requirements_analysis: 'Igényelemzés',

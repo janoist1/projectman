@@ -12,6 +12,7 @@ import {
   isWorkingOnTask,
   memberDuties,
   roleBundle,
+  roleUsesWorktree,
   stageOwners,
   stagesToJoin,
 } from './duties';
@@ -23,7 +24,8 @@ import {
   prepareSuperConfigPatch,
 } from './edit';
 import { ownerOnlyChanges } from './owner-only';
-import { validateProjectConfig } from './invariants';
+import { isToleratedOnLoad, validateProjectConfig } from './invariants';
+import { machineAccessOf } from './machine-access';
 
 function config() {
   return ProjectConfig.parse({
@@ -206,8 +208,46 @@ describe('targeted project manager label patches', () => {
 });
 
 describe('duty bundles', () => {
+  it('gives accountants only read-only accounting without machine access', () => {
+    const c = config();
+    const accountant = { ...c.team.members[1]!, role: 'accountant' };
+    c.team.members[1] = accountant;
+    expect(roleBundle(c, 'accountant')).toEqual({ duties: ['accounting'], instructions: '' });
+    expect(memberDuties(c, accountant)).toEqual(['accounting']);
+    expect(roleHolders('accountant')).toBe('both');
+    expect(roleUsesWorktree(c, 'accountant')).toBe(false);
+    expect(machineAccessOf(accountant)).toBe(false);
+    expect(DUTIES.accounting).toMatchObject({
+      group: 'delivery',
+      toolPolicy: 'read_only',
+      meetings: [],
+      events: [],
+      recommended: false,
+    });
+  });
+  it('retains built-in accounting for legacy name collisions', () => {
+    const c = config();
+    c.team.roles.push({
+      id: 'accountant',
+      name: 'Legacy accountant',
+      summary: '',
+      notTheirJob: '',
+      holders: 'both',
+      duties: ['implementation'],
+      instructions: 'Legacy instructions.',
+    });
+    const collision = validateProjectConfig(c).find((issue) => issue.code === 'custom_role_shadows_builtin')!;
+    expect(collision.detail).toBe('accountant');
+    expect(isToleratedOnLoad(collision)).toBe(true);
+    expect(roleBundle(c, 'accountant').duties).toEqual(['accounting']);
+  });
+  it('allows replacing the accountant bundle through role overrides', () => {
+    const c = config();
+    c.team.roleOverrides = { accountant: { duties: ['research'], instructions: '' } };
+    expect(roleBundle(c, 'accountant').duties).toEqual(['research']);
+  });
   it('has a fixed catalogue, English fragments, integration metadata and derived eligibility', () => {
-    expect(DUTY_IDS).toHaveLength(28);
+    expect(DUTY_IDS).toHaveLength(29);
     for (const id of DUTY_IDS) {
       expect(DUTIES[id].id).toBe(id);
       if (DUTIES[id].holders !== 'human') expect(DUTIES[id].prompt).not.toBe('');

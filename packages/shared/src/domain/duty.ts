@@ -29,6 +29,7 @@ export const DUTY_IDS = [
   'research',
   'final_decision',
   'feedback_processing',
+  'accounting',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
@@ -46,6 +47,17 @@ export interface DutyDefinition {
   recommended: boolean;
 }
 export const DUTIES: Record<DutyId, DutyDefinition> = {
+  accounting: {
+    id: 'accounting',
+    group: 'delivery',
+    holders: 'both',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+    prompt:
+      "Prepare invoice drafts, track invoice status and costs, and answer accounting questions using authorised records. Ask for missing facts rather than inventing them. Issuing or sending an invoice and moving money each require prior approval from the decision maker agreed by the owner and project manager; without an agreement, ask the owner. A role, an enabled tool or a CLI permission is not that approval. Use the owner's connected Claude through a machine to-do, or project tools explicitly enabled for this member; project tools may be locally developed or a pinned external MCP server. Follow the supported approval path. If an enabled tool or approval path is unavailable, prepare what you can and ask the project manager to arrange the machine to-do, or ask a human with ask_human when there is no project manager. Do not claim that a draft was issued, sent or paid.",
+  },
   boundary_authorization: {
     id: 'boundary_authorization',
     group: 'direction',

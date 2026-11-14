@@ -5,10 +5,28 @@ import { setFetchImplementation } from '../../api/client';
 import { builtInRoles } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
 import { HireDialog } from './HireDialog';
+import { getLocale } from '@projectman/templates';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('HireDialog', () => {
+  it.each(['hu', 'en'])('hires an accountant with texts from the %s project catalogue', async (language) => {
+    const project = mockProject();
+    project.backend.config.project.language = language;
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    const select = await screen.findByLabelText(t('hire.roles'));
+    const texts = getLocale(language).roles.accountant;
+    expect(screen.getByRole('option', { name: texts.name })).toBeTruthy();
+    fireEvent.change(select, { target: { value: 'accountant' } });
+    expect(screen.getAllByText(texts.summary).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({ role: 'accountant' }),
+    );
+    expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+      role: 'accountant',
+    });
+  });
   it('hires Gemini with medium effort and login steps without a cheap subagent', async () => {
     const project = mockProject();
     project.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };

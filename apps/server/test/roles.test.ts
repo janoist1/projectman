@@ -32,6 +32,30 @@ describe('role catalogue', () => {
     return config.team.members.find((m) => m.handle === handle);
   }
 
+  it.each(['hu', 'en'])('offers and hires accountants in existing %s projects', async (language) => {
+    await h.domain.projects.update('AR', by, (draft) => {
+      draft.project.language = language;
+      return 'Set project language';
+    });
+    const { roles } = await h.domain.roles.list('AR');
+    expect(roles.find((role) => role.id === 'accountant')).toEqual({
+      id: 'accountant',
+      ...(language === 'hu' ? hu : en).roles.accountant,
+      builtIn: true,
+      holders: 'both',
+      duties: ['accounting'],
+      instructions: '',
+    });
+    expect(await member('accountant')).toBeUndefined();
+    const hired = await h.domain.members.hire('AR', { role: 'accountant' }, sponsor);
+    expect(hired).toMatchObject({
+      role: 'accountant',
+      handle: 'accountant',
+      displayName: (language === 'hu' ? hu : en).roles.accountant.name,
+      ...aiRoleDefaults('accountant'),
+    });
+  });
+
   it('lists the built-in roles in the project language, then the custom roles', async () => {
     await h.domain.roles.create('AR', dataSteward, by);
     const { roles } = await h.domain.roles.list('AR');

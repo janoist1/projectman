@@ -38,6 +38,7 @@ export const BUILT_IN_ROLE_IDS = [
   'content',
   'translator',
   'docs',
+  'accountant',
 ] as const;
 
 export const BuiltInRoleId = z.enum(BUILT_IN_ROLE_IDS);
@@ -66,6 +67,7 @@ export const BUILT_IN_ROLE_DUTIES: Record<BuiltInRoleId, DutyId[]> = {
   content: ['content'],
   translator: ['translation'],
   docs: ['docs'],
+  accountant: ['accounting'],
 };
 export const RoleBundle = z.object({
   duties: z.array(DutyId).refine((ids) => new Set(ids).size === ids.length, 'duplicate duties'),

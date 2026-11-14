@@ -12,7 +12,12 @@ beforeEach(() => window.localStorage.clear());
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 function Where() {
-  return <p data-testid="where">{useLocation().pathname}</p>;
+  const location = useLocation();
+  return (
+    <p data-testid="where" data-search={location.search}>
+      {location.pathname}
+    </p>
+  );
 }
 
 function renderPair(backend: MockBackend, path = '/pair') {
@@ -23,6 +28,7 @@ function renderPair(backend: MockBackend, path = '/pair') {
         <Route path="/pair" element={<PairPage />} />
         <Route path="/pair/:code" element={<PairPage />} />
         <Route path="/p/AC/settings/engines" element={<p>engines</p>} />
+        <Route path="/login" element={<p>login</p>} />
       </Routes>
       <Where />
     </>,
@@ -270,6 +276,11 @@ describe('the approval', () => {
     fireEvent.click(screen.getByRole('button', { name: t('pairing.noRight.login') }));
     await waitFor(() =>
       expect(project.requests.some((request) => request.path === '/api/auth/logout')).toBe(true),
+    );
+    // Logged out, the login page brings the link back with `next` (the page does not stay behind a dead session).
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/login'));
+    expect(screen.getByTestId('where').getAttribute('data-search')).toBe(
+      `?next=${encodeURIComponent(`/pair/${code}`)}`,
     );
   });
 });

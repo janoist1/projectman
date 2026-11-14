@@ -89,7 +89,7 @@
 }
 
 .list li > .replaces {
-  color: var(--c-ink);
+  color: var(--c-warn-text);
 }
 
 .note {

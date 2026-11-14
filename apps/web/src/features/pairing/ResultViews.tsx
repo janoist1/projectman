@@ -1,3 +1,5 @@
+import { useLocation, useNavigate } from 'react-router';
+import { loginPath } from '../../app/paths';
 import { useProjects, useLogout } from '../../api/queries';
 import { Button, ButtonLink } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -36,7 +38,7 @@ export function DoneView() {
       </span>
       <p>{t('pairing.done.body')}</p>
       {target ? (
-        <ButtonLink to={target} variant="primary" size="xl" fullWidth className={styles.action}>
+        <ButtonLink to={target} variant="secondary" size="xl" fullWidth className={styles.action}>
           {t('pairing.done.open')}
         </ButtonLink>
       ) : null}
@@ -68,6 +70,13 @@ export function ExpiredView({ onAgain }: { onAgain: () => void }) {
 /** State 11: this account may not approve. Logging out lands on the login page, which brings the link back. */
 export function NoRightView() {
   const logout = useLogout();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const leave = () =>
+    logout.mutate(undefined, {
+      onSettled: () =>
+        navigate(loginPath(`${location.pathname}${location.search}${location.hash}`), { replace: true }),
+    });
   return (
     <div className={styles.result}>
       <p>{t('pairing.noRight.body')}</p>
@@ -78,7 +87,7 @@ export function NoRightView() {
         className={styles.action}
         loading={logout.isPending}
         aria-disabled={logout.isPending || undefined}
-        onClick={() => logout.mutate()}
+        onClick={leave}
       >
         {logout.isPending ? t('pairing.noRight.loggingOut') : t('pairing.noRight.login')}
       </Button>

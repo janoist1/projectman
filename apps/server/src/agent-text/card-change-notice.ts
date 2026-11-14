@@ -1,5 +1,5 @@
 /** What changed on the card, as the notice names it (PM-1512). */
-export type CardChangeKind = 'description' | 'acceptance' | 'message' | 'answer';
+type CardChangeKind = 'description' | 'acceptance' | 'message' | 'answer';
 
 /** One change of a card since a session last heard of it; only structured facts, never the text of the change. */
 export interface CardChangeNoticeItem {
@@ -13,7 +13,7 @@ export interface CardChangeNoticeItem {
 }
 
 /** The changes one notice lists; the rest is only counted. */
-export const CARD_CHANGE_NOTICE_LINES = 10;
+const CARD_CHANGE_NOTICE_LINES = 10;
 
 const KIND_TEXT: Record<CardChangeKind, string> = {
   description: 'the description changed',

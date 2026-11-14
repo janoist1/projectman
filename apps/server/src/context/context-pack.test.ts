@@ -1772,6 +1772,36 @@ describe('system prompt', () => {
       expect(prompt(false)).not.toContain('open_integrator_todo');
     });
 
+    it.each([false, true])(
+      'offers the host route without a checklist only when hostOutsideOwners=%s',
+      (hostOutsideOwners) => {
+        const pack = builder.build(
+          input({
+            project: withPm('en'),
+            handle: 'pm',
+            workItem: { type: 'general' },
+            task: null,
+            hostOutsideOwners: hostOutsideOwners ? true : undefined,
+          }),
+        );
+        const missingTools = section(pack.guide.role!, '## Missing tools').split('\n## ')[0]!;
+        expect(missingTools.includes('ask_host')).toBe(hostOutsideOwners);
+        expect(missingTools.includes('ask_human')).toBe(hostOutsideOwners);
+      },
+    );
+
+    it.each([false, true])(
+      'offers the connected Claude route for missing tools only when machineAccess=%s',
+      (machineAccess) => {
+        const source = input({ handle: 'pm', workItem: { type: 'general' }, task: null });
+        source.member.machineAccess = machineAccess;
+        const missingTools = section(builder.build(source).guide.role!, '## Missing tools').split(
+          '\n## ',
+        )[0]!;
+        expect(missingTools.includes('open_integrator_todo')).toBe(machineAccess);
+      },
+    );
+
     it('renders PM style data only in the selected internal general conversation', () => {
       const project = withPm('en');
       const source = input({

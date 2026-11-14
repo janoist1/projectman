@@ -167,15 +167,12 @@ export class SessionContextInput {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
         return undefined;
       });
+    const isCoordinator = coordinationMemberOf(config)?.handle === member.handle;
     // The selected project manager leads the setup checklist (PM-1043).
-    const checklist =
-      coordinationMemberOf(config)?.handle === member.handle
-        ? this.ctx.repos.checklists.get(projectKey)
-        : null;
+    const checklist = isCoordinator ? this.ctx.repos.checklists.get(projectKey) : null;
     // What the project can do (PM-1468): the selected project manager's own conversations, never a guest one.
     const capabilities =
-      coordinationMemberOf(config)?.handle === member.handle &&
-      guestOfConversation(config, member, workItem) === undefined
+      isCoordinator && guestOfConversation(config, member, workItem) === undefined
         ? buildCapabilityCatalog(config, {
             ...this.deps.capabilityTools,
             hostEmail: this.deps.hostOwnerEmail(),
@@ -186,8 +183,8 @@ export class SessionContextInput {
       project: config,
       ...(checklist ? { checklist } : {}),
       ...(capabilities ? { capabilities } : {}),
-      // An owner account's project: the host is not an owner, so the onboarding covers the owner's own machine (PM-1069).
-      ...(checklist && hostOutsideOwners(config, this.deps.hostOwnerEmail())
+      // The coordinator needs the host boundary for missing tools as well as onboarding (PM-1457).
+      ...(isCoordinator && hostOutsideOwners(config, this.deps.hostOwnerEmail())
         ? { hostOutsideOwners: true }
         : {}),
       // The settings that apply to this session: the system prompt tells the agent who answers.

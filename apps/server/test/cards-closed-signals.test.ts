@@ -86,6 +86,29 @@ describe('card closure notices', () => {
     },
   );
 
+  it('releases the case on delivery and reports only the next batch of closures', async () => {
+    await setup('every_step');
+    const first = await closeCard('First batch');
+    const previous = signals()[0]!;
+    const notice = JSON.parse(
+      h.domain.projectManagerSignals.noticeText('AR', [previous.id]).split('\n').at(-1)!,
+    );
+    expect(notice).toMatchObject({ step: null, steps_left: 0, next_step_at: null });
+    expect(notice.facts).toEqual([expect.objectContaining({ key: first })]);
+    now = new Date(now.getTime() + 1000);
+    h.domain.projectManagerSignals.markDelivered('AR', 'pm', previous.id, null);
+    expect(h.repos.projectManagerSignals.get(previous.id)).toMatchObject({
+      state: 'resolved',
+      deliveredAt: now.toISOString(),
+      resolvedAt: now.toISOString(),
+    });
+    const second = await closeCard('Second batch');
+    expect(signals()).toHaveLength(2);
+    const current = signals()[1]!;
+    expect(current.resolvedAt).toBeNull();
+    expect(facts(current.id)).toEqual([expect.objectContaining({ key: second })]);
+  });
+
   it('limits the notice to twenty completed cards and excludes cancellations', async () => {
     await setup('every_step');
     for (let index = 0; index < 22; index++) await closeCard(`Card ${index}`);

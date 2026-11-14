@@ -259,7 +259,7 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
 function signalLine(signal: ProjectManagerSignal): string {
   const explanations: Record<ProjectManagerSignal['kind'], string> = {
     cards_closed:
-      'Recently completed cards under every_step involvement; summarize the facts for the owners.',
+      'Recently completed cards under every_step involvement; summarize the facts for the owners without signal_ids or a question. This informational notice closes on delivery.',
     structural_pattern:
       'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:

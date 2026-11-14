@@ -103,7 +103,9 @@ describe('card closure notices', () => {
     for (let index = 0; index < 22; index++) await closeCard(`Card ${index}`);
     const cancelled = await h.domain.tasks.create('AR', { title: 'Cancelled' }, OWNER_ACTOR);
     await h.domain.tasks.cancel('AR', cancelled.key, {}, OWNER_ACTOR);
+    const read = vi.spyOn(h.repos.tasks, 'readClosedSince');
     const { facts: cards, facts_more } = await notice(signals()[0]!.id);
+    expect(read).toHaveBeenCalledTimes(1);
     expect(cards).toHaveLength(20);
     expect(cards.map((card) => card.key)).not.toContain(cancelled.key);
     expect(facts_more).toBe(2);

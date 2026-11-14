@@ -5334,25 +5334,26 @@ describe('handover and previous conversation (PM-342)', () => {
         }),
       ).initialMessage;
 
-    it('opens the general conversation with the open items, the agreement and the manager`s own note', () => {
+    it('opens the general conversation with the open items, the agreement and the manager`s own note', async () => {
       const text = refreshedBrief()!;
-      expect(text).toContain('## Previous conversation');
-      expect(text).toContain('version 3, involvement: important steps');
-      expect(text).toContain('- `inb_q1` (2026-11-14T08:00:00.000Z): Which budget line?');
-      expect(text).toContain('- `sop_1` (2026-11-14T08:30:00.000Z): operate (waiting_owner)');
+      await expect(`${text}\n`).toMatchFileSnapshot('__snapshots__/project-manager-refreshed.brief.txt');
+      // The data of the handover reach the message; the note stands in for the machine-made summary.
+      expect(text).toContain('inb_q1');
+      expect(text).toContain('sop_1');
       expect(text).toContain('> I wait for the budget answer.\n> Then I plan the sprint.');
-      // The note stands in for the machine-made summary.
-      expect(text).not.toContain('machine-made summary');
+      expect(text).not.toContain('> I finished the form.');
     });
 
-    it('says nothing was open, and uses the summary when the manager left no note', () => {
+    it('says nothing was open, and uses the summary when the manager left no note', async () => {
       const text = refreshedBrief({
         summary: summary(),
         handover: { agreement: null, items: [], note: null },
       })!;
-      expect(text).toContain('Nothing was open when the conversation ended.');
-      expect(text).toContain('A machine-made summary of the earlier conversation follows');
+      await expect(`${text}\n`).toMatchFileSnapshot(
+        '__snapshots__/project-manager-refreshed-no-note.brief.txt',
+      );
       expect(text).toContain('> I finished the form.');
+      expect(text).not.toContain('inb_q1');
     });
 
     it('gives a general conversation without a refresh no first message', () => {

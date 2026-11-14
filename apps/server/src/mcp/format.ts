@@ -264,6 +264,8 @@ function signalLine(signal: ProjectManagerSignal): string {
       'The start condition changed (subject: previous configuration version). Compare stopped and started cards; ask the owner once about relabelling or reprioritising to preserve the former work, or config_revert to subject.',
     cards_closed:
       'Recently completed cards under every_step involvement; summarize the facts for the owners without signal_ids or a question. This informational notice closes on delivery.',
+    operations_review:
+      'The weekly operations review (facts.measures, facts.settingChanges, facts.rules); informational, never put in signal_ids. Follow the operations review rule of your role guide; it closes on delivery.',
     structural_pattern:
       'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:

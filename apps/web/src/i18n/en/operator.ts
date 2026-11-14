@@ -407,6 +407,7 @@ export const operator = {
     kinds: {
       loop_suspected: '{key}: suspected going in circles',
       cards_closed: 'Closed cards',
+      operations_review: 'Weekly operations review',
       start_condition_met: '{key}: the start condition is met',
       start_condition_changed: 'The start condition changed',
       outage: 'Outage: part of the work is stuck',
@@ -430,6 +431,8 @@ export const operator = {
       start_condition_changed:
         'The PM compares which cards could go before and now, then proposes relabelling or restoring the previous setting.',
       cards_closed: 'The PM summarizes recently closed cards as agreed.',
+      operations_review:
+        'Once a week the PM briefly sums up the team’s measures and the settings changes, with at most three suggestions; the signal closes on delivery.',
       loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
       outage: 'A provider or an engine isn’t reachable; the PM handles it, and the affected cards show it.',
       process_cleanup_failed:

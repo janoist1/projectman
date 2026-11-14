@@ -1479,6 +1479,8 @@ export function createDomain(opts: DomainOptions) {
     startAttempting: (task) => tasks.startAttempting(task),
     unreleased: (projectKey) => releasePublications.unreleased(projectKey),
     hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
+    closedCards: (projectKey, days) => cardMeasure.closedCards(projectKey, days),
+    requestRefresh: (projectKey, reason) => conversationRefreshes.requestRefresh(projectKey, reason),
   });
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({

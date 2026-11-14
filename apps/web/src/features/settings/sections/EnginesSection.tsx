@@ -276,7 +276,14 @@ export function EnginesSection() {
               icon="server"
               title={t('engines.emptyTitle')}
               body={t('engines.emptyBody')}
-              action={newButton('primary')}
+              action={
+                <span className={styles.emptyActions}>
+                  {newButton('primary')}
+                  <ButtonLink to="/pair" variant="secondary" size="md">
+                    {t('pairing.withCode')}
+                  </ButtonLink>
+                </span>
+              }
             />
           </div>
         ) : (

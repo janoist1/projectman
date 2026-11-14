@@ -189,6 +189,12 @@
   flex: 1 1 200px;
   min-width: 0;
 }
+/* The two ways to a first machine side by side; on a phone the second goes under the first. */
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .skeleton {
   display: grid;
   gap: 8px;

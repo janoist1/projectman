@@ -107,6 +107,53 @@ describe('a conversation', () => {
     expect(within(other).getByText(/Címzett még: /)).toBeTruthy();
   });
 
+  describe('a pairing notice with Markdown in the machine name', () => {
+    const machine = '[katt](https://example.com) **x** https://example.com';
+
+    function pairedNotice() {
+      const p = mockProject();
+      p.backend.messages = [];
+      const message = p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Stored English text');
+      message.origin = {
+        kind: 'system_notice',
+        notice: 'engine_paired',
+        params: { machine, prefix: 'pmi_12345678', approver: 'Owner' },
+      };
+      return p;
+    }
+
+    it('shows the name as it came in the thread, with no link or mark', async () => {
+      const p = pairedNotice();
+      p.render(<Pages />, '/p/AC/messages/with/fe-1');
+      const log = await screen.findByRole('log');
+      expect((await within(log).findByText(machine, { exact: false })).textContent).toContain(machine);
+      expect(log.querySelector('a')).toBeNull();
+      expect(log.querySelector('strong')).toBeNull();
+    });
+
+    it('shows the name as it came in an opened row of all messages, with no link or mark', async () => {
+      const p = pairedNotice();
+      p.render(<Pages />, '/p/AC/messages/all');
+      const feed = await screen.findByRole('feed', { name: t('messages.all.feed') });
+      // The closed row's preview keeps the marks too.
+      expect((await within(feed).findByText(machine, { exact: false })).textContent).toContain(machine);
+      fireEvent.click(await within(feed).findByRole('button', { expanded: false }));
+      await waitFor(() =>
+        expect(within(feed).getAllByText(machine, { exact: false }).length).toBeGreaterThan(0),
+      );
+      expect(feed.querySelector('a[href="https://example.com"]')).toBeNull();
+      expect(feed.querySelector('strong')).toBeNull();
+    });
+
+    it('keeps the marks in the preview of the conversation list', async () => {
+      const p = pairedNotice();
+      p.render(<Pages />, '/p/AC/messages');
+      const nav = await screen.findByRole('navigation', { name: t('messages.list.label') });
+      const row = await within(nav).findByRole('link', { name: /fe-1|Frontend/i });
+      expect(row.textContent).toContain(machine);
+    });
+  });
+
   it('shows the task chip at the first message and where the task changes', async () => {
     const p = mockProject();
     p.backend.messages = [];

@@ -9,13 +9,13 @@ import { useAllMessages, useBoard, useTeamThreads } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
-import { Markdown } from '../../components/Markdown';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { actorLabel, distinctMembers, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
 import { messageText } from '../../lib/systemNotice';
-import { attachmentPreview, plainText } from './conversations';
+import { attachmentPreview, previewText } from './conversations';
+import { MessageBody } from './MessageBody';
 import { Icon } from '../../components/Icon';
 import { MessageAttachments } from './MessageAttachments';
 import { deliveryState, receiptsOf } from './receipts';
@@ -244,7 +244,7 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       {expanded ? null : (
                         <span className={styles.preview}>
                           {messageText(message).trim() ? (
-                            plainText(messageText(message))
+                            previewText(message)
                           ) : (
                             <>
                               <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
@@ -277,9 +277,7 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                               showApproval={false}
                             />
                           ) : null}
-                          {messageText(message).trim() ? (
-                            <Markdown text={messageText(message)} className={styles.body} />
-                          ) : null}
+                          <MessageBody message={message} className={styles.body} />
                           <MessageAttachments files={message.attachments ?? []} from={message.from} />
                           <div className={styles.more}>
                             <span>

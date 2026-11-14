@@ -39,6 +39,7 @@ export const pairing = {
     footnote: 'You can revoke the machine and the key later in Settings.',
     approveFailed: 'Couldn’t approve. Try again. The machine waits meanwhile.',
     denyFailed: 'Couldn’t decline. Try again.',
+    tooMany: 'Too many attempts. Try again in {time}.',
   },
   done: {
     title: 'Machine paired',

@@ -44,6 +44,14 @@ describe('engines settings', () => {
     expect(await screen.findByRole('dialog', { name: t('engines.newTitle') })).toBeTruthy();
   });
 
+  it('offers pairing with a code beside the first machine when there is none', async () => {
+    const project = cloud();
+    project.render(<EnginesSection />);
+    await screen.findByText(t('engines.emptyTitle'));
+    expect(screen.getAllByRole('link', { name: t('pairing.withCode') })).toHaveLength(1);
+    expect(screen.getByRole('link', { name: t('pairing.withCode') }).getAttribute('href')).toBe('/pair');
+  });
+
   it('creates an engine, shows its key once and keeps it out of the cache', async () => {
     const project = cloud();
     const view = project.render(<EnginesSection />);

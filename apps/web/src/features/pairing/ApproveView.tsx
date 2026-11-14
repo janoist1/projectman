@@ -22,6 +22,7 @@ export function ApproveView({
   view,
   running,
   failure,
+  limit,
   onDecide,
   onExpired,
 }: {
@@ -30,6 +31,8 @@ export function ApproveView({
   running: Decision | null;
   /** A decision that failed, with the error the page got. */
   failure: { decision: Decision } | null;
+  /** Too many attempts: the decision that hit the limit and the seconds left; both buttons wait meanwhile. */
+  limit: { decision: Decision; seconds: number } | null;
   onDecide: (decision: Decision) => void;
   onExpired: () => void;
 }) {
@@ -43,10 +46,15 @@ export function ApproveView({
   useEffect(() => {
     if (failure) (failure.decision === 'approve' ? approve : deny).current?.focus();
   }, [failure]);
+  const limited = limit !== null;
+  const limitedDecision = limit?.decision;
+  useEffect(() => {
+    if (limitedDecision) (limitedDecision === 'approve' ? approve : deny).current?.focus();
+  }, [limitedDecision]);
 
   const requested = new Date(view.requestedAt);
   const keyExpires = new Date(Date.now() + PAIRING_KEY_DAYS * 24 * 60 * 60 * 1000);
-  const blocked = running !== null;
+  const blocked = running !== null || limited;
   return (
     <div className={styles.approve}>
       <div className={styles.codeBlock}>
@@ -103,7 +111,12 @@ export function ApproveView({
         <Icon name="alertCircle" size={18} />
         <p>{t('pairing.approve.warning')}</p>
       </div>
-      {failure ? (
+      {limit ? (
+        // The page announces the wait once; the text changes every second.
+        <ErrorBanner silent>
+          {t('pairing.approve.tooMany', { time: formatCountdown(limit.seconds) })}
+        </ErrorBanner>
+      ) : failure ? (
         <ErrorBanner>
           {failure.decision === 'approve'
             ? t('pairing.approve.approveFailed')

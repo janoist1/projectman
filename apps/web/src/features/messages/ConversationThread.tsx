@@ -10,7 +10,6 @@ import { Button, ButtonLink } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { LeaveChip } from '../../components/LeaveChip';
-import { Markdown } from '../../components/Markdown';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { formatTime } from '../../i18n/format';
@@ -19,7 +18,6 @@ import { errorMessage } from '../../lib/errors';
 import { choiceLabel, inboxHeading } from '../../lib/inbox';
 import { isOwnActor, recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
-import { messageText } from '../../lib/systemNotice';
 import { InboxCard } from '../inbox/InboxCard';
 import { Composer } from '../session/Composer';
 import {
@@ -37,6 +35,7 @@ import { useContacts } from './useContacts';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
 import { MessageAttachments } from './MessageAttachments';
+import { MessageBody } from './MessageBody';
 import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
 import { useCardBusySend } from './useCardBusySend';
 import { useReadWhenVisible } from './useReadWhenVisible';
@@ -544,7 +543,7 @@ function MessageBubble({
         ) : null}
         <div className={styles.bubble}>
           {message.email ? <EmailMessageHead email={message.email} /> : null}
-          {messageText(message).trim() ? <Markdown text={messageText(message)} /> : null}
+          <MessageBody message={message} />
           <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>

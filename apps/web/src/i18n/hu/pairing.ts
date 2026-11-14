@@ -39,6 +39,7 @@ export const pairing = {
     footnote: 'A gépet és a kulcsot később is visszavonhatod a Beállításokban.',
     approveFailed: 'Nem sikerült jóváhagyni. Próbáld újra. A gép addig vár.',
     denyFailed: 'Nem sikerült elutasítani. Próbáld újra.',
+    tooMany: 'Túl sok próba. Próbáld újra {time} múlva.',
   },
   done: {
     title: 'A gép párosítva',

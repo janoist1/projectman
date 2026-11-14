@@ -10,7 +10,7 @@ import { t } from '../../i18n/t';
 import { actorLabel, recordActor, nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { messageText } from '../../lib/systemNotice';
-import { attachmentPreview, plainPreview } from './conversations';
+import { attachmentPreview, previewText } from './conversations';
 import { Icon } from '../../components/Icon';
 import type { ConversationRow } from './conversations';
 import styles from './ConversationList.module.css';
@@ -82,7 +82,7 @@ export function ConversationList({
         const message = row.lastMessage;
         const preview = message
           ? messageText(message).trim()
-            ? plainPreview(messageText(message))
+            ? previewText(message, true)
             : attachmentPreview(message)
           : '';
         const text = message

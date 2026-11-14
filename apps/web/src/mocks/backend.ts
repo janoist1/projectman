@@ -309,6 +309,7 @@ import {
 } from '@projectman/shared';
 import type {
   CardBusyDetails,
+  IntegratorAccessKeyInfo,
   EmailApprovalPayload,
   EmailParkedAlert,
   MemberQueueItem,
@@ -2656,11 +2657,20 @@ export class MockBackend {
    */
   private createPaired(machineName: string, userId: string): { engineId: string } {
     const at = nowIso();
-    this.integratorKeys = this.integratorKeys.map((key) =>
-      key.mode === 'super' && key.state === 'active' ? { ...key, state: 'revoked', revokedAt: at } : key,
-    );
+    this.integratorKeys = this.integratorKeys.map((key) => {
+      if (key.mode !== 'super' || key.state !== 'active') return key;
+      this.integratorKeyAudits.push({
+        seq: this.integratorKeyAudits.length + 1,
+        keyId: key.id,
+        action: 'revoked',
+        prefix: key.prefix,
+        mode: key.mode,
+        at,
+      });
+      return { ...key, state: 'revoked', revokedAt: at };
+    });
     const seq = this.integratorKeys.length + 1;
-    const key: import('@projectman/shared').IntegratorAccessKeyInfo = {
+    const key: IntegratorAccessKeyInfo = {
       id: `mock_key_${seq}`,
       mode: 'super',
       prefix: `pmi_pair${String(seq).padStart(4, '0')}`,

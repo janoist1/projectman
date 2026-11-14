@@ -104,6 +104,19 @@
 }
 .section summary {
   cursor: pointer;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 12px 0;
+}
+.error button {
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  color: var(--c-ink);
+  background: var(--c-surface);
+  font: inherit;
+  cursor: pointer;
 }
 @media (max-width: 600px) {
   .section,

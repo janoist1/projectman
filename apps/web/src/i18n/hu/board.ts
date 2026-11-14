@@ -3,6 +3,9 @@ export const board = {
   startEmpty: 'Még nincs kártya. Hozd létre az első ötletedet.',
   startAbout: 'Mit jelent a Mehet?',
   start: {
+    manualStart: 'Kézzel indítható',
+    manualCount: '{count} kézzel indítható',
+    manualNone: 'nincs kézzel indítható',
     filters: 'Indító feltétel szerinti szűrés',
     all: 'Minden',
     go: 'Mehet',

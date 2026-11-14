@@ -3,6 +3,9 @@ export const board = {
   startEmpty: 'No cards yet. Create your first idea.',
   startAbout: 'What does Go ahead mean?',
   start: {
+    manualStart: 'Can start manually',
+    manualCount: '{count} can start manually',
+    manualNone: 'none can start manually',
     filters: 'Filter by start condition',
     all: 'All',
     go: 'Go ahead',

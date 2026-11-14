@@ -53,6 +53,9 @@ describe('start condition board', () => {
     project.render(<BoardPage />);
     await screen.findByRole('region', { name: t('board.start.filters') });
     const card = cardOf(task.key);
+    expect(within(card).queryByText(t('taskStatus.ready'))).toBeNull();
+    expect(card.hasAttribute('data-startable')).toBe(false);
+    expect(card.querySelector('[data-startable]')).toBeNull();
     const holdName = project.backend.config.pipeline.labels.find(
       (label) => label.id === 'waiting-answer',
     )!.name;
@@ -108,6 +111,9 @@ describe('start condition board', () => {
     project.render(<BoardPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^Ötletek \(/ }));
     const card = cardOf(task.key);
+    expect(within(card).getByText(`○ ${t('board.start.idea')}`)).toBeTruthy();
+    expect(within(card).queryByText(t('taskStatus.ready'))).toBeNull();
+    expect(card.querySelector('[data-startable]')).toBeNull();
     const high = within(card).getByRole('button', { name: t('priority.levels.high') });
     high.focus();
     fireEvent.click(high);

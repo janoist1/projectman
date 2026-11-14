@@ -162,7 +162,7 @@ export function TaskCard({
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       data-phase={state.phase}
-      data-startable={state.startable ? '' : undefined}
+      data-startable={!startData && state.startable ? '' : undefined}
       data-file={fileState ?? undefined}
     >
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} /> : null}
@@ -290,13 +290,15 @@ export function TaskCard({
       ) : null}
       <span className={clsx(styles.status, workerRows && styles.statusRows)}>
         {state.startable ? (
-          <span className={styles.startMark} aria-hidden="true">
+          <span className={startData ? undefined : styles.startMark} aria-hidden="true">
             <Icon name="play" size={11} strokeWidth={2.4} />
           </span>
         ) : (
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
         )}
-        {workerRows ? (
+        {startData && state.startable ? (
+          <span className={styles.statusText}>{t('board.start.manualStart')}</span>
+        ) : workerRows ? (
           <span className={styles.workerRows} title={state.workers.map((worker) => worker.line).join('\n')}>
             {workerRows.rows.map((worker, index) => (
               <span key={worker.sessionId} className={styles.workerRow}>

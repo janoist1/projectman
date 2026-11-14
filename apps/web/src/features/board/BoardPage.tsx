@@ -160,6 +160,7 @@ function Column({
   uploadingCounts: ReadonlyMap<string, number>;
 }) {
   const labels = useLabels(projectKey);
+  const startData = useStartCondition();
   const headingId = `col-${column.id}`;
   // The finished column is the one with a stage of the done kind, not the one named "Kész".
   const finishes = pipeline.stages.some(
@@ -211,18 +212,25 @@ function Column({
           {startableCount !== null ? (
             <span
               className={styles.startableChip}
+              style={startData ? { color: 'var(--c-ink-2)', background: 'var(--c-surface)' } : undefined}
               data-none={startableCount === 0 ? '' : undefined}
               aria-label={
-                startableCount > 0 ? t('board.startableLabel', { count: startableCount }) : undefined
+                startableCount > 0
+                  ? t(startData ? 'board.start.manualCount' : 'board.startableLabel', {
+                      count: startableCount,
+                    })
+                  : undefined
               }
             >
               {startableCount > 0 ? (
                 <>
                   <Icon name="play" size={10} strokeWidth={2.6} />
-                  {t('board.startableCount', { count: startableCount })}
+                  {t(startData ? 'board.start.manualCount' : 'board.startableCount', {
+                    count: startableCount,
+                  })}
                 </>
               ) : (
-                t('board.startableNone')
+                t(startData ? 'board.start.manualNone' : 'board.startableNone')
               )}
             </span>
           ) : null}
@@ -318,7 +326,6 @@ function BoardCard({
     <div
       data-card-key={task.key}
       data-phase={startData ? state.phase : undefined}
-      data-startable={startData && state.startable ? '' : undefined}
       data-file={startData ? (fileDrop.state ?? undefined) : undefined}
       draggable={movable && !drag.pendingKey}
       onDragStart={(event) => drag.start(event, task)}

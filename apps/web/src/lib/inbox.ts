@@ -14,6 +14,7 @@ import {
   emailApprovalOf,
 } from '@projectman/shared';
 import type {
+  AlertPayload,
   AnswerDelivery,
   InboxItem,
   InboxOption,
@@ -80,6 +81,15 @@ export function optionLabel(option: InboxOption): string {
 }
 
 /**
+ * An alert of the `owner_messages` class that is only ever a notice on the Messages page (PM-1250): it never
+ * becomes an inbox item, so the inbox has no heading or text for it. The other alerts of the class kept their
+ * inbox words for the rows stored before the route existed.
+ */
+function isNoticeOnlyAlert(alert: AlertPayload): alert is Extract<AlertPayload, { alert: 'engine_paired' }> {
+  return alert.alert === 'engine_paired';
+}
+
+/**
  * Heading of an item. Permission requests arrive titled "<Tool>: <command>"; the command is
  * shown in monospace anyway, so the heading names the kind of tool instead.
  */
@@ -98,8 +108,7 @@ export function inboxHeading(item: InboxItem): string {
     if (alert?.alert === 'email_parked') return t('inbox.email.parkedTitle');
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
-    // Pairing notices go to Messages, never to inbox items.
-    if (alert?.alert === 'engine_paired') return t('inbox.alerts.unknown');
+    if (alert && isNoticeOnlyAlert(alert)) return item.title;
     if (alert?.alert === 'release_failed')
       return releaseFailedWords(alert.step, alert.rolledBack, alert.taskKey).title;
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
@@ -365,7 +374,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
-  if (alert.alert === 'engine_paired') return null;
+  if (isNoticeOnlyAlert(alert)) return null;
   if (alert.alert === 'email_parked') return null;
   // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
   if (alert.alert === 'merge_blocked') return null;

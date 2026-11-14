@@ -7,6 +7,9 @@
  *   2  the approval after a 429 on Jóváhagyom: the red bar with the countdown, the focus ring on the pressed button
  *   3  an engine_paired notice in Messages, with a machine name that holds Markdown
  *
+ * The script also checks (no screenshot) that the focus stays on the pressed button after the 429 and when the wait
+ * ends, and that "Újra megpróbálhatod." is announced then.
+ *
  * Classic light and dark, 1512 and 390 px. `npm run shots -- apps/web/shots/device-pairing-followups.mjs --widths 1512,390`
  */
 
@@ -18,7 +21,13 @@ const json = (route, status, body) =>
 const failure = (code, details) => ({ error: { code, message: code, ...(details ? { details } : {}) } });
 
 export default async ({ open, shoot, step, instance }) => {
-  const mode = { decision: 'ok' };
+  const mode = { decision: 'ok', seconds: 540 };
+  // The focus after the 429: the pressed button, never the body (a lost focus restarts a keyboard user at the top).
+  const pressedButton = (page) =>
+    page.evaluate(() => {
+      const active = document.activeElement;
+      return active && active !== document.body ? (active.textContent ?? '').trim() : null;
+    });
   const page0 = await open({ path: '/', width: 1512 });
   const context = page0.context();
 
@@ -34,7 +43,7 @@ export default async ({ open, shoot, step, instance }) => {
         replacesKeyPrefix: null,
       });
     if (mode.decision === 'limit')
-      return json(route, 429, failure('too_many_attempts', { retryAfterSeconds: 540 }));
+      return json(route, 429, failure('too_many_attempts', { retryAfterSeconds: mode.seconds }));
     return json(route, 200, { state: 'denied', code: CODE, machineName: 'Mac mini' });
   });
   await context.route('**/api/engines/status', (route) =>
@@ -92,8 +101,31 @@ export default async ({ open, shoot, step, instance }) => {
       await approve.focus();
       await approve.click();
       await page.getByText('Túl sok próba', { exact: false }).first().waitFor();
+      const focused = await pressedButton(page);
+      if (focused !== 'Jóváhagyom')
+        throw new Error(`the focus is not on Jóváhagyom after the 429: ${focused}`);
       await shoot(page, `${prefix}-2-approve-limit`, { widths });
       mode.decision = 'ok';
+    });
+
+    await step(`${prefix}: the announcement when the 429 wait ends`, async () => {
+      mode.decision = 'limit';
+      mode.seconds = 2;
+      const page = await open({ path: '/pair', width: 1512 });
+      await page.getByLabel('Kód').fill(CODE);
+      await page.getByRole('button', { name: 'Tovább' }).click();
+      const approve = page.getByRole('button', { name: 'Jóváhagyom' });
+      await approve.waitFor();
+      await approve.focus();
+      await approve.click();
+      await page.getByText('Túl sok próba', { exact: false }).first().waitFor();
+      // The end of the countdown says "Újra megpróbálhatod." in the live region, and the focus stays on the button.
+      await page.getByText('Újra megpróbálhatod.').waitFor({ timeout: 8000 });
+      const focused = await pressedButton(page);
+      if (focused !== 'Jóváhagyom')
+        throw new Error(`the focus left Jóváhagyom when the wait ended: ${focused}`);
+      mode.decision = 'ok';
+      mode.seconds = 540;
     });
 
     await step(`${prefix}: the pairing notice in Messages`, async () => {

@@ -64,7 +64,7 @@ describe('engine configuration', () => {
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
   });
 
-  it.each(['\u0000', '\n', '​', '‮', '⁦', ' ', ' '])(
+  it.each(['\u0000', '\n', '\u200b', '\u202e', '\u2066', '\u2028', '\u2029'])(
     'refuses an engine name with the control, formatting or separator character %j (PM-1472)',
     (character) => {
       expect(() => base({ name: `Mac${character}` })).toThrow();

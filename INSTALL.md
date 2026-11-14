@@ -196,6 +196,11 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
        engine and its key that were made in that other account; its owner should remove them in
        _Settings_. The approval also replaced that account's earlier _Connected Claude_ key with
        the new one, so that account's owner has to create a key again.
+     - `PAIRING FAILED [config_invalid]`: the hub sent an engine name with control or direction
+       characters in it (for example from a pairing started before the hub filtered them), so
+       every `pair wait` would get the same name. Nothing was written and the request is still
+       pending: run `"$engine" pair cancel`, tell the friend and the hub's owner, and start a new
+       pairing (step 2) once the hub is fixed.
      - `REFUSED [pairing_missing]`: no pairing is pending here (nothing to wait for). Start one
        (step 2). `REFUSED [pairing_invalid]`: the pending file is not of this version; remove it as
        the line says and start again (step 2).
@@ -205,9 +210,8 @@ sections 4 and 5 in full; _When to switch to the copy path_ below says when.
      came, is still waiting: fix the cause the line names (network, the hub's address, the Access
      file, the home folder) and run `pair wait` again. Example: the approval came, but this Mac's
      `~/.projectman/engine.json` is not valid; `pair wait` stops with
-     `REFUSED [config_invalid]: … engine.json is not a valid engine configuration: …` (an engine name
-     with control or direction characters in it ends here too) and every `pair wait` repeats it until
-     the cause is gone. Tell the friend what is wrong; move the broken file aside only if the friend
+     `REFUSED [config_invalid]: … engine.json is not a valid engine configuration: …` and every
+     `pair wait` repeats it until the cause is gone. Tell the friend what is wrong; move the broken file aside only if the friend
      agrees (`mv ~/.projectman/engine.json ~/.projectman/engine.json.broken`) and run `pair wait`
      again. If it keeps failing, run `"$engine" pair cancel` and tell the friend and the hub's
      owner.
@@ -263,16 +267,18 @@ _Steps 4.1 and 4.2 are the copy path._ After a successful pairing, start at step
    which folder on this Mac holds the project's code. If the friend
    has no folder yet, agree on one, for example `~/projects/<name>`; create it, and run `git init`
    in it if it is empty.
-4. **[AI]** bind the project right after `init` (or right after the pairing, which has done `init`). First note whether the engine already runs
-   (`"$engine" status --json`, `service.running`), then:
+4. **[AI]** bind the project right after `init` (or right after the pairing, which has done
+   `init`). First note whether the engine already runs (`"$engine" status --json`,
+   `service.running`), then:
 
    ```sh
    "$engine" project set <KEY> <absolute folder path>
    ```
 
 5. Once `init` has run (or `pair wait` has written the engine configuration; the app reads the same
-   `engine.json`, and `pair wait` writes the key before it), the app notices it within seconds, installs the engine's service
-   (LaunchAgent) and opens _System Settings → General → Login Items_. **[FRIEND]** switches
+   `engine.json`, and `pair wait` writes the key before it), the app notices it within seconds,
+   installs the engine's service (LaunchAgent) and opens _System Settings → General → Login
+   Items_. **[FRIEND]** switches
    **projectman motor** on there when the app asks (macOS asks for this once; the app starts the
    engine as soon as it is on). **[AI]** poll `"$engine" status --json` every few seconds until
    `service.installed` and `service.running` are both `true`. The engine reports its projects when

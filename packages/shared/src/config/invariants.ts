@@ -1,4 +1,5 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
+import { pullSourceStage } from '../domain/start-order';
 import { cardMoverOf } from './card-mover';
 import { dutyMembers, stageDuty, stageOwners } from './duties';
 import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
@@ -33,6 +34,7 @@ export interface ConfigIssue {
     | 'release_approval_needs_duty'
     | 'conditional_release_gate'
     | 'unknown_column'
+    | 'start_condition_invalid_stage'
     | 'duplicate_column'
     | 'first_stage_not_queue'
     | 'last_stage_not_done'
@@ -209,6 +211,29 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     columns.add(column.id);
   });
   const stageIds = new Set<string>();
+  const condition = config.team.startCondition;
+  if (condition) {
+    const source = pullSourceStage(config);
+    for (const [index, id] of (condition.stages ?? []).entries()) {
+      const at = stageIndex(config.pipeline, id);
+      if (
+        !source ||
+        at < 0 ||
+        at > stageIndex(config.pipeline, source.id) ||
+        config.pipeline.stages[at]?.kind !== 'queue'
+      )
+        issues.push({
+          code: 'start_condition_invalid_stage',
+          path: `team.startCondition.stages[${index}]`,
+          detail: id,
+        });
+    }
+    for (const field of ['labels', 'hold'] as const)
+      (condition[field] ?? []).forEach((id, index) => {
+        if (!labelDefinition(config, id))
+          issues.push({ code: 'unknown_label', path: `team.startCondition.${field}[${index}]`, detail: id });
+      });
+  }
   config.pipeline.stages.forEach((stage, i) => {
     const path = `pipeline.stages[${i}]`;
     if (stageIds.has(stage.id)) issues.push({ code: 'duplicate_stage', path, detail: stage.id });

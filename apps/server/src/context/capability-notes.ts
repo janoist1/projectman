@@ -90,6 +90,8 @@ export const PROJECT_SETTING_NOTES = {
   ownerDecisionTopics: 'The topics on which a decision always needs an owner.',
   merger: 'The member whose approval merges a card.',
   mergeAfterReview: 'Whether the merger’s own approval at review queues the merge by itself.',
+  startCondition:
+    'Combines stages, effective priority and inherited labels for automatic starts, with hold labels and a grace period. Urgent and sufficient stage matches act immediately. Null restores queue starts.',
   operationsReview: 'Whether the project manager sends the owners a short weekly operations review (weekly or off).',
   contacts: 'The people outside the team the project keeps as contacts.',
   viewerRecipients: 'Whom a read-only viewer may write to.',

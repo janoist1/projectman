@@ -1,0 +1,8 @@
+{
+  "tables": {
+    "start_condition_marks": {
+      "journal": { "none": "hub scheduling timestamps, rebuilt from project state (PM-1462)" },
+      "handles": {}
+    }
+  }
+}

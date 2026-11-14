@@ -249,6 +249,28 @@ describe('the refresh of the project manager general conversation (PM-1461)', ()
       expect(refresh()).toBeNull();
     });
 
+    it('keeps the refresh pending when the new conversation fails to start, and the next start brings the note (PM-1492)', async () => {
+      await refreshed('Remember the budget answer.');
+      const startsBefore = h.runner.started.filter((spec) => spec.sessionId === ctx.sessionId).length;
+
+      h.runner.failNextStart = new Error('spawn failed');
+      await expect(h.domain.sessions.ensureSession('AR', 'pm', GENERAL)).rejects.toThrow('spawn failed');
+      expect(h.runner.started.filter((spec) => spec.sessionId === ctx.sessionId)).toHaveLength(startsBefore);
+      expect(refresh()).toMatchObject({ state: 'pending', note: 'Remember the budget answer.' });
+
+      await h.domain.sessions.ensureSession('AR', 'pm', GENERAL);
+      await vi.waitFor(() =>
+        expect(h.runner.started.filter((spec) => spec.sessionId === ctx.sessionId)).toHaveLength(
+          startsBefore + 1,
+        ),
+      );
+      expect(h.contextBuilder.inputs.at(-1)!.previousConversation).toMatchObject({
+        reason: 'refreshed',
+        handover: { note: 'Remember the budget answer.' },
+      });
+      expect(refresh()).toBeNull();
+    });
+
     it('hands over the open questions and the owners` recent answers of the project manager', async () => {
       const open = await h.domain.teamTools.askHuman(ctx, {
         question: 'Which budget line?',

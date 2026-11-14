@@ -36,6 +36,7 @@ describe('intentional ready waits', () => {
     });
     const projects = { config: vi.fn(() => pending) };
     const round = new StartRound({
+      startConditionMarks: { update: async () => new Map() },
       ctx: createDomainContext({
         repos: h.repos,
         logger: h.log.logger,

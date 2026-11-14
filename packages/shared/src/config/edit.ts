@@ -16,6 +16,7 @@ import {
   ContactHandles,
   MaxConcurrentAi,
   ProjectConfig,
+  StartCondition,
   ReviewTestConfig,
   ScreenshotsConfig,
   TeamLimits,
@@ -100,6 +101,7 @@ export const PatchConfigRequest = z
     merger: ProjectConfig.shape.team.shape.merger,
     /** Whether the merger's own approval queues the merge (PM-1379). */
     mergeAfterReview: ProjectConfig.shape.team.shape.mergeAfterReview,
+    startCondition: StartCondition.nullable().optional(),
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
     /** Whom a read-only viewer may write to (PM-1102). */
@@ -397,6 +399,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.ownerDecisionTopics !== undefined ? { ownerDecisionTopics: patch.ownerDecisionTopics } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.mergeAfterReview !== undefined ? { mergeAfterReview: patch.mergeAfterReview } : {}),
+      ...(patch.startCondition !== undefined ? { startCondition: patch.startCondition ?? undefined } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

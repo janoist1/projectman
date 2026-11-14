@@ -14,7 +14,7 @@ import {
 } from '../domain/member';
 import { FeedbackConfig } from '../domain/feedback';
 import { MergeCheckRunner } from '../domain/merge-test';
-import { Pipeline } from '../domain/pipeline';
+import { Pipeline, StageId } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
@@ -36,6 +36,19 @@ export const CardMover = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('human'), handle: MemberHandle }),
 ]);
 export type CardMover = z.infer<typeof CardMover>;
+
+export const StartCondition = z
+  .strictObject({
+    stages: z.array(StageId).min(1).max(10).optional(),
+    priority: z.enum(['any', 'low', 'normal', 'high', 'urgent']).optional(),
+    labels: z.array(LabelId).min(1).max(10).optional(),
+    combine: z.enum(['any', 'all']).default('any'),
+    hold: z.array(LabelId).max(10).default([]),
+    graceMinutes: z.number().int().min(0).max(240).default(5),
+  })
+  .refine((value) => !!(value.stages || value.priority || value.labels), 'at least one start form required')
+  .refine((value) => !value.hold.some((id) => value.labels?.includes(id)), 'start and hold labels overlap');
+export type StartCondition = z.infer<typeof StartCondition>;
 
 /** The lowest human access that may open a new card (PM-1100); a viewer never may, AI members always may. */
 export const TaskCreateAccess = z.enum(['owner', 'admin', 'developer', 'client']);
@@ -534,6 +547,7 @@ export const ProjectConfig = z.object({
      * `TEAM_SETTING_POLICY` default, off.
      */
     mergeAfterReview: z.boolean().optional(),
+    startCondition: StartCondition.optional(),
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),

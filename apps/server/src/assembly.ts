@@ -107,6 +107,7 @@ import {
   UsageWake,
   UrgentPull,
   StartRound,
+  StartConditionMarks,
   MessageStarts,
   queueItemWaiting,
   RefinementSteps,
@@ -993,7 +994,14 @@ export function createDomain(opts: DomainOptions) {
   // Free developers take urgent cards ahead of their turn, at the end of every retry round (PM-436).
   admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorDecisions, starts: workStarts }));
   const taskWaits = new TaskWaits({ ctx, members });
+  const startConditionMarks = new StartConditionMarks({
+    ctx,
+    projects,
+    tasks,
+    onDue: () => admission.requestRetry(),
+  });
   const startRound = new StartRound({
+    startConditionMarks,
     ctx,
     projects,
     tasks,
@@ -2180,11 +2188,32 @@ export function createDomain(opts: DomainOptions) {
   // Urgent cards start first and are pulled into development (PM-436): an urgent card, or a card that
   // became ready for development starts a round at once.
   events.on('task_priority_changed', ({ task }) => {
-    if (task.priority === 'urgent') retryDeferredStarts();
+    if (task.priority === 'urgent' || projects.cachedConfig(task.projectKey)?.team.startCondition)
+      retryDeferredStarts();
+  });
+  // Theme and parent changes publish committed timeline events; updates also cover archiving a theme.
+  const unsubscribeStartCondition = bus.subscribe((event) => {
+    if (event.type !== 'timeline_appended') return;
+    if (
+      [
+        'task_created',
+        'task_updated',
+        'task_theme_changed',
+        'task_subtask_added',
+        'task_subtask_removed',
+      ].includes(event.event.type) &&
+      projects.cachedConfig(event.projectKey)?.team.startCondition
+    )
+      retryDeferredStarts();
+  });
+  events.on('config_changed', ({ previous, next }) => {
+    if (JSON.stringify(previous?.team.startCondition) !== JSON.stringify(next.team.startCondition))
+      retryDeferredStarts();
   });
   events.on('task_stage_changed', (change) => {
     const config = projects.cachedConfig(change.task.projectKey);
-    if (config && pullSourceStage(config)?.id === change.to) retryDeferredStarts();
+    if (config && (config.team.startCondition || pullSourceStage(config)?.id === change.to))
+      retryDeferredStarts();
   });
   // A card waiting for a prerequisite starts when the last one closes (above: done or withdrawn)
   // or its relation is removed (PM-204).
@@ -2670,6 +2699,8 @@ export function createDomain(opts: DomainOptions) {
       sweeps = undefined;
       // No debounced retry fires from here on; a round that runs is waited for below.
       const retriesStopped = admission.dispose();
+      startConditionMarks.dispose();
+      unsubscribeStartCondition();
       ctx.journal.stop();
       unsubscribeJournalWake();
       unsubscribeOutageKeys?.();

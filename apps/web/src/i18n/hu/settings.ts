@@ -980,6 +980,8 @@ export const settings = {
       'A kiadás jóváhagyását csak a „Kiadás jóváhagyása” feladatkör felelősei adhatják.',
     conditional_release_gate: 'A kiadási lépés kapuja nem köthető címkéhez („csak ha rajta van”).',
     unknown_column: 'A megadott oszlop nem létezik.',
+    start_condition_invalid_stage:
+      'Az indító feltétel csak a munka előtti sorig tartó várakozó oszlopot jelölhet.',
     duplicate_column: 'Az oszlopok azonosítói nem ismétlődhetnek.',
     first_stage_not_queue: 'Az első lépés várólista kell legyen.',
     last_stage_not_done: 'Az utolsó lépés kész állapot kell legyen.',

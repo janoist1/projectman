@@ -3,12 +3,18 @@
 The frozen baseline is `../schema/baseline-0152.ts`. Append migrations as
 `NNNN-name.sql`: four digits, then lowercase words or numbers separated by hyphens.
 Start at the next free version after the baseline and existing files. Numbers must be
-unique and consecutive. If two cards choose the same version, rename the later card's
-SQL and metadata to the next free number after merging the current main into its branch.
+unique and consecutive. Every card that adds a migration rewrites the one line of `LATEST`
+with the newest migration's `NNNN-name`; two parallel cards then conflict on that line, and the
+merge regenerates it (`npm run merge:regenerate`, which renumbers the new migrations after the
+newest one in main and rewrites `LATEST`). The number can therefore change at merge: in tests
+and docs refer to a migration by its name (`apps/server/test/helpers/migrations.ts`:
+`migrationsBefore('name')`, `migrationsThrough('name')`), never by number. To renumber by hand
+after merging main into your branch, run `npm run migrations:renumber -- --base main`: it refuses
+when a migration of main is missing or changed, and never renumbers one that is in main.
 Begin the SQL with `-- PM-xxxx: reason for the change`.
 
 Never edit the baseline or a released SQL or metadata file. Append another migration.
-There are no TypeScript migration steps. The loader ignores dotfiles and this README;
+There are no TypeScript migration steps. The loader ignores dotfiles, this README and `LATEST`;
 all other files must be SQL or matching metadata. `db-migration-files.test.ts` guards this.
 
 A migration creating, rebuilding or dropping a table, or adding/removing a handle column,
@@ -54,5 +60,6 @@ copies this folder to `dist/migrations` beside the server bundles; all deploymen
 packages carry it without an engine-specific path.
 
 SQL and JSON have no import edge. Run `npm run handover-check` to select their tests.
-A data transformation test should call `migrate(db, migrationFiles().filter(f =>
-f.version <= YOUR_VERSION))`, so future migrations do not change its fixture.
+A data transformation test should call `migrate(db, migrationsBefore('your-step'))` (or
+`migrationsThrough`) for the fixture and `migrateRemaining(db)` before using a repository, so
+future migrations do not change its fixture.

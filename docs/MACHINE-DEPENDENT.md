@@ -3052,7 +3052,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `fullTestCommand` may not run with the descriptor) and only for that repo's `_merge` checkout; without
   `regenerateCommand` the merge falls back to the old `conflict` failure with that detail. A local
   engine uses the server's `reviewTest.regenerate.command`. Then `merge.commit_regenerated` has the
-  engine commit the written files: it first `rename`s the writable directories below a fresh
+  engine commit the written files (PM-1496: the projectman repo's command, `npm run merge:regenerate`,
+  reads the git of that check checkout, `git ls-tree HEAD^1` of the provisional commit, to renumber the
+  migrations; a remote engine sets it as `regenerateCommand` in `engine.json`; without git access it exits
+  non-zero and the merge fails as a conflict, as before): it first `rename`s the writable directories below a fresh
   `.pm-regenerated-*` directory of the checkout (no longer writable there) and reads only from that
   copy: an `lstat` walk, each file through one `O_NOFOLLOW` descriptor and `fstat` (regular, one link,
   at most 1 MB), hashed from the bytes read with `hash-object --no-filters`, never `git add`. Only

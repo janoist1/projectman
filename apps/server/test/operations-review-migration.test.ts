@@ -1,16 +1,12 @@
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { createRepositories, migrate } from '../src/db';
-import { migrationFiles } from '../src/db/migration-files';
+import { migrateRemaining, migrationsBefore } from './helpers/migrations';
 
 it('preserves signals and their indexes while allowing operations_review', () => {
   const db = new Database(':memory:');
   try {
-    const migrations = migrationFiles();
-    migrate(
-      db,
-      migrations.filter((file) => file.version < 163),
-    );
+    migrate(db, migrationsBefore('operations-review-signal'));
     db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at)
       VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
       INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, subject,
@@ -18,7 +14,7 @@ it('preserves signals and their indexes while allowing operations_review', () =>
       VALUES ('ops_old', 'AR', 'cards_closed', 'cards_closed', 'open', 0, '2026-01-01T00:00:00.000Z',
         '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', 'pm', 'Checked');`);
     const before = db.prepare('SELECT * FROM operator_signals').all();
-    migrate(db, migrations);
+    migrateRemaining(db);
     expect(db.prepare('SELECT * FROM operator_signals').all()).toEqual(before);
     const repo = createRepositories(db).projectManagerSignals;
     repo.insert({

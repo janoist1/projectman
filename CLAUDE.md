@@ -42,7 +42,8 @@ about your own choices needing confirmation.
   wires modules; only `apps/server/src/start.ts` (via `index.ts`) reads the environment.
 - Use current configuration schema; no retired converters (PM-1383).
   Migrations: `apps/server/src/db/migrations/NNNN-name.sql`; sibling `NNNN-name.meta.json`
-  holds table journal/handle classifications. Timeline is append-only; render old event types.
+  holds table journal/handle classifications; set the one-line `LATEST` file to the newest name, and
+  refer to migrations by name, not number (the merge renumbers: `npm run migrations:renumber -- --base main`). Timeline is append-only; render old event types.
 
 ## Machine-dependent assumptions
 

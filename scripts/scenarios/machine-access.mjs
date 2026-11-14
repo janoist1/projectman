@@ -13,7 +13,8 @@
  */
 
 const WIDTHS = [1512, 390];
-const SWITCH = 'label:has-text("Külső teendőt adhat (MCP)")';
+const SWITCH = 'label:has-text("Külső teendőt adhat")';
+const PROFILE_LINE = 'text=Teendőt adhat a tulajdonosok csatlakoztatott Claude-jának';
 
 export default async ({ instance, open, shoot, step, log }) => {
   const members = await instance.api('/api/projects/AC/members');
@@ -70,7 +71,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   await step('e. the profile line', async () => {
     const page = await open({ path: `/p/AC/team/${pm.handle}` });
     await page.getByRole('heading', { name: 'Beállítások', exact: true }).click();
-    await page.getByText('Külső teendőt adhat a tulajdonosoknak (MCP).', { exact: true }).waitFor();
-    await shot(page, 'machine-access-e-profile', 'text=Külső teendőt adhat a tulajdonosoknak (MCP).');
+    await page.locator(PROFILE_LINE).waitFor();
+    await shot(page, 'machine-access-e-profile', PROFILE_LINE);
   });
 };

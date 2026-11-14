@@ -603,6 +603,35 @@ describe('settings section editors', () => {
     expect(project.backend.config.project.name).toBe('Renamed despite existing errors');
   });
 
+  it('warns, in its own status band, that an AI member can release the start-condition hold label, and not about anything else (PM-1503)', async () => {
+    const project = mockProject();
+    const config = project.backend.config;
+    const hold = config.pipeline.labels.find((label) => label.id === 'waiting-answer')!;
+    hold.setBy = 'anyone';
+    config.team.startCondition = { graceMinutes: 5, combine: 'any', priority: 'any', hold: [hold.id] };
+    const columns = config.pipeline.columns;
+    columns.push({ ...columns[0]! });
+    const ui = project.render(<SettingsTestRoutes />);
+
+    const band = (await screen.findByText(hold.name)).closest<HTMLElement>('[role="status"]')!;
+    expect(band).toBeTruthy();
+    expect(within(band).getByText(hold.name)).toBeTruthy();
+    expect(within(band).getByText(new RegExp(t('settings.issues.start_condition_ai_hold')))).toBeTruthy();
+    // The real error stays in its own block, and the warning is not counted in it.
+    const notice = within(
+      await screen.findByRole('region', { name: t('settings.problems.count', { n: 1 }) }),
+    );
+    expect(notice.queryByText(new RegExp(t('settings.issues.start_condition_ai_hold')))).toBeNull();
+    expect(project.requests.filter((request) => request.method === 'PATCH')).toEqual([]);
+
+    // Once the label is not for AI members, the band is gone.
+    ui.unmount();
+    hold.setBy = 'humans';
+    project.render(<SettingsTestRoutes />);
+    await screen.findAllByRole('region', { name: t('settings.problems.count', { n: 1 }) });
+    expect(screen.queryByText(new RegExp(t('settings.issues.start_condition_ai_hold')))).toBeNull();
+  });
+
   it('keeps the project edit open on a conflict, says who saved first, and saves on the new version', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes />);

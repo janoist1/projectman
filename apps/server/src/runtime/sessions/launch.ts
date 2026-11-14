@@ -20,6 +20,7 @@ import {
 import type {
   AgentProvider,
   AiMemberConfig,
+  ConversationRefresh,
   EngineId,
   HandoffSummary,
   ProjectConfig,
@@ -418,8 +419,16 @@ export class SessionLauncher {
     // the member's current provider and that ran where the session runs now. The reported path is not
     // proof (PM-340): the CLI writes the file after its first message, and cannot resume what it never
     // wrote. A session that never got its first round starts a new conversation.
+    // The project manager's general conversation that is due to be refreshed continues in a new one (PM-1461):
+    // the session row stays, so what hangs on its id (an approved operation the owner answers later) goes on.
+    const refresh =
+      existing && workItem.type === 'general' && guestOf === undefined
+        ? this.ctx.repos.sessions.conversationRefresh(existing.id)
+        : null;
+    const refreshed = refresh?.state === 'pending';
     const resumable =
       !relocated &&
+      !refreshed &&
       Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
     const conversationLost = resumable && !(await this.host.transcriptWritten(existing!));
     const resume = resumable && !conversationLost;
@@ -428,7 +437,9 @@ export class SessionLauncher {
     const previousConversation =
       !existing || resume
         ? null
-        : await this.previousConversation(existing, provider, conversationLost, relocated);
+        : refresh && refreshed
+          ? await this.refreshedConversation(existing, refresh)
+          : await this.previousConversation(existing, provider, conversationLost, relocated);
     // The card handed over to this member, until a session of theirs takes it over (PM-342); a new
     // conversation also gets the card's latest handoff note, whoever wrote it.
     const { takenHandoff, handoff } = this.host.contextInput.handoffFor(task, member);
@@ -561,7 +572,7 @@ export class SessionLauncher {
       ...(ws?.gitOperation ? { unfinishedGitOperation: ws.gitOperation } : {}),
       ...(sandbox ? { sandbox } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
-      ...(previousConversation && task ? { previousConversation } : {}),
+      ...(previousConversation && (task || refreshed) ? { previousConversation } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -651,7 +662,9 @@ export class SessionLauncher {
         lastActivityAt: at,
         endedAt: null,
         lastStop: null,
-        ...(relocated || conversationLost ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
+        ...(relocated || conversationLost || refreshed
+          ? { claudeSessionId: newUuid(), transcriptPath: null }
+          : {}),
         // This start takes the session's current mode; the header says when it dropped grants.
         permissionRestartPending: false,
         permissionGrantsLost: restart?.grantsLost ?? false,
@@ -752,6 +765,8 @@ export class SessionLauncher {
         this.ctx.repos.sessions.setCompactPending(session.id, false);
         this.ctx.repos.sessions.setContextTokens(session.id, null);
         this.ctx.repos.sessions.setReviewedCommit(session.id, null);
+        // The new conversation has started: the refresh is done (a failed start keeps it for the next one).
+        if (refreshed) this.ctx.repos.sessions.setConversationRefresh(session.id, null);
       } else if (!compactFirst) {
         this.ctx.repos.sessions.setCompactPending(session.id, false);
       }
@@ -819,10 +834,11 @@ export class SessionLauncher {
       data: { member: member.handle, resumed: resume, ...(cause ? { cause } : {}) },
     });
     this.ctx.repos.sessions.update(session.id, { startCause: cause });
-    if (previousConversation && task) {
+    // A refreshed general conversation has no card: its restart is on the project's timeline alone.
+    if (previousConversation && (task || refreshed)) {
       this.deps.timeline.append({
         projectKey,
-        taskKey: task.key,
+        taskKey: task?.key ?? null,
         sessionId: session.id,
         actor: SYSTEM_ACTOR,
         type: 'session_conversation_restarted',
@@ -878,6 +894,30 @@ export class SessionLauncher {
         sessionId: session.id,
       },
     });
+  }
+
+  /**
+   * The new conversation of a refreshed project manager session (PM-1461): the server-built handover, and the
+   * summary of the old transcript only when the project manager left no note of its own.
+   */
+  private async refreshedConversation(
+    existing: Session,
+    refresh: ConversationRefresh,
+  ): Promise<PreviousConversation> {
+    const note = refresh.note?.trim() || null;
+    const handover = (await this.deps.conversationHandover?.build({
+      projectKey: existing.projectKey,
+      member: existing.member,
+      sessionId: existing.id,
+      note,
+    })) ?? { agreement: null, items: [], note };
+    return {
+      reason: 'refreshed',
+      fromProvider: null,
+      summary: note || !existing.transcriptPath ? null : await this.host.transcriptSummary(existing),
+      lastNote: null,
+      handover,
+    };
   }
 
   /**

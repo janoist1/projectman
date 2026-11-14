@@ -3,6 +3,7 @@ import {
   BuiltInRoleId,
   CHECKLIST_ITEM_STATES,
   ChecklistCondition,
+  CONVERSATION_REFRESH_NOTE_MAX,
   coordinatorOnlySignalKindsText,
   CombineQuestionsRequest,
   ProjectManagerOperation,
@@ -160,6 +161,22 @@ export const PROJECT_MANAGER_TOOL_GROUP: TeamToolGroup = {
           loop_id: result.loopId,
           inbox_item_id: result.inboxItemId,
         });
+      },
+    }),
+    defineTool({
+      name: 'save_handover',
+      audience: { roles: ['project_manager'] },
+      title: 'Save a note for the next conversation',
+      readOnly: false,
+      description:
+        'Answer the system message that asks for a handover note before your long general conversation continues ' +
+        'in a fresh one: what you are doing, promised, must watch. Call it once, nothing else in that turn. ' +
+        'Only while a note is asked for (saved: false otherwise).',
+      input: {
+        note: z.string().trim().min(1).max(CONVERSATION_REFRESH_NOTE_MAX),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.saveHandover(ctx, { note: args.note }));
       },
     }),
     defineTool({

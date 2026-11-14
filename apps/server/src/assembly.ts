@@ -132,6 +132,8 @@ import {
   ProjectManagerSteps,
 } from './services/coordination';
 import {
+  ConversationHandovers,
+  ConversationRefreshes,
   LoopTriages,
   ProjectManagerSignals,
   ReviewFollowUps,
@@ -766,7 +768,9 @@ export function createDomain(opts: DomainOptions) {
     holdStarts: (key, handle) => startHolds.hold(key, handle),
     deferredStartNames: (key, handle) => deferredStarts.names(key, handle),
   });
+  const conversationHandovers = new ConversationHandovers({ ctx, knowledge: sharedProjectManagerKnowledge });
   const sessions = new SessionOrchestrator({
+    conversationHandover: conversationHandovers,
     startHolds,
     mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
@@ -1486,6 +1490,15 @@ export function createDomain(opts: DomainOptions) {
       assess: (input) => loopWatch.assess(input),
     },
   });
+  const conversationRefreshes = new ConversationRefreshes({
+    ctx,
+    projects,
+    requests: coordinationRequests,
+    sessions,
+    notify: async (projectKey, member, text) => {
+      await messaging.send(projectKey, SYSTEM_SENDER, { to: [member], text }, { kind: 'action' });
+    },
+  });
   events.on('config_changed', ({ projectKey }) => projectManagerSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,
@@ -1682,6 +1695,7 @@ export function createDomain(opts: DomainOptions) {
         seniorDecisions,
         projectManagerSignals,
         loopTriages,
+        conversationRefreshes,
         checklist,
         superPath: () => {
           if (!superPath) throw new Error('the super-operation path is not composed yet');
@@ -2306,6 +2320,14 @@ export function createDomain(opts: DomainOptions) {
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  // The project manager's long general conversation moves towards its refresh at an idle moment, before anything
+  // waiting is delivered to it (PM-1461).
+  events.on('session_idle', (session) => {
+    background.run(
+      () => conversationRefreshes.sessionIdle(session),
+      (err) => opts.logger.warn({ err }, 'moving the conversation refresh on failed'),
+    );
+  });
   events.on('session_idle', (session) => delivery.deliverWaiting(session));
   // A member joining a card is told to the card's other workers; a notice kept for an ended session is dropped (PM-249).
   events.on('task_session_joined', (joined) => sessionMessages.joinedNotice(joined));
@@ -2349,6 +2371,7 @@ export function createDomain(opts: DomainOptions) {
     projectManagerPreferences,
     sharedProjectManagerKnowledge,
     projectState,
+    conversationRefreshes,
     structure: createStructureService({
       projects,
       tasks,

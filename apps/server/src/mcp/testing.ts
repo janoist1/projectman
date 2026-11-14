@@ -521,6 +521,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         inboxItemId: null,
       };
     },
+    async saveHandover(ctx, args) {
+      await enter('saveHandover', ctx, args);
+      return { saved: true };
+    },
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };

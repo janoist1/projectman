@@ -46,6 +46,7 @@ export const TEAM_TOOL_NAMES = [
   'open_integrator_todo',
   'request_structural_review',
   'triage_loop',
+  'save_handover',
   'start_task',
   'start_member',
   'involve_member',

@@ -49,6 +49,7 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   dismiss_signal: PROJECT_MANAGER,
   open_integrator_todo: PROJECT_MANAGER,
   triage_loop: PROJECT_MANAGER,
+  save_handover: PROJECT_MANAGER,
   start_task: PROJECT_MANAGER,
   start_member: PROJECT_MANAGER,
   involve_member: PROJECT_MANAGER,

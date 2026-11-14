@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handoffBlocksStart, planHandoff } from './handoff';
+import { conversationRefreshDue, handoffBlocksStart, planHandoff } from './handoff';
 import type { HandoffFacts } from './handoff';
 
 const ai = { kind: 'ai', provider: 'claude', onLeave: false } as const;
@@ -55,5 +55,24 @@ describe('handoffBlocksStart', () => {
     expect(handoffBlocksStart({ to: 'dev-2' }, 'dev-1')).toBe(false);
     expect(handoffBlocksStart({ to: null }, 'dev-2')).toBe(false);
     expect(handoffBlocksStart(undefined, 'dev-2')).toBe(false);
+  });
+});
+
+describe('conversationRefreshDue', () => {
+  it.each([
+    [119_999, false],
+    [120_000, false],
+    [120_001, true],
+  ])('with %i context tokens of a 200000 window it is %s', (tokens, due) => {
+    expect(conversationRefreshDue(tokens, 200_000)).toBe(due);
+  });
+
+  it('is never due without a measured context', () => {
+    expect(conversationRefreshDue(null, 200_000)).toBe(false);
+  });
+
+  it('follows the window', () => {
+    expect(conversationRefreshDue(60_001, 100_000)).toBe(true);
+    expect(conversationRefreshDue(60_000, 100_000)).toBe(false);
   });
 });

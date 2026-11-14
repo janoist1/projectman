@@ -466,6 +466,7 @@ describe('team tool registration', () => {
         'get_role_configuration',
         'request_structural_review',
         'triage_loop',
+        'save_handover',
         'get_operator_diagnostics',
         'get_checklist',
         'update_checklist',

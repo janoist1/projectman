@@ -34,6 +34,7 @@ import type {
   CardWorker,
   ContextPackInput,
   HandoffTakeover,
+  PreviousConversation,
   SessionPolicy,
 } from '../contracts';
 import {
@@ -5295,6 +5296,71 @@ describe('handover and previous conversation (PM-342)', () => {
     expect(text).toContain(
       'The latest handoff note on this card, from `dev` at 2026-10-05T10:00:00.000Z:\n> Left: tests.',
     );
+  });
+
+  describe('a refreshed project manager conversation (PM-1461)', () => {
+    const refreshedBrief = (previous: Partial<PreviousConversation> = {}) =>
+      builder.build(
+        input({
+          handle: 'pm',
+          workItem: { type: 'general' },
+          task: null,
+          stage: null,
+          previousConversation: {
+            reason: 'refreshed',
+            fromProvider: null,
+            summary: null,
+            lastNote: null,
+            handover: {
+              agreement: { version: 3, involvement: 'important' },
+              items: [
+                {
+                  kind: 'question',
+                  id: 'inb_q1',
+                  text: 'Which budget line?',
+                  at: '2026-11-14T08:00:00.000Z',
+                },
+                {
+                  kind: 'operation',
+                  id: 'sop_1',
+                  text: 'operate (waiting_owner)',
+                  at: '2026-11-14T08:30:00.000Z',
+                },
+              ],
+              note: 'I wait for the budget answer.\nThen I plan the sprint.',
+            },
+            ...previous,
+          },
+        }),
+      ).initialMessage;
+
+    it('opens the general conversation with the open items, the agreement and the manager`s own note', () => {
+      const text = refreshedBrief()!;
+      expect(text).toContain('## Previous conversation');
+      expect(text).toContain('version 3, involvement: important steps');
+      expect(text).toContain('- `inb_q1` (2026-11-14T08:00:00.000Z): Which budget line?');
+      expect(text).toContain('- `sop_1` (2026-11-14T08:30:00.000Z): operate (waiting_owner)');
+      expect(text).toContain('> I wait for the budget answer.\n> Then I plan the sprint.');
+      // The note stands in for the machine-made summary.
+      expect(text).not.toContain('machine-made summary');
+    });
+
+    it('says nothing was open, and uses the summary when the manager left no note', () => {
+      const text = refreshedBrief({
+        summary: summary(),
+        handover: { agreement: null, items: [], note: null },
+      })!;
+      expect(text).toContain('Nothing was open when the conversation ended.');
+      expect(text).toContain('A machine-made summary of the earlier conversation follows');
+      expect(text).toContain('> I finished the form.');
+    });
+
+    it('gives a general conversation without a refresh no first message', () => {
+      expect(
+        builder.build(input({ handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }))
+          .initialMessage,
+      ).toBeNull();
+    });
   });
 
   it('keeps the previous conversation out of the first message of a resumed conversation', () => {

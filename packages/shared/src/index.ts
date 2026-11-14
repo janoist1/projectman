@@ -45,6 +45,7 @@ export * from './config/priority';
 export * from './config/project-docs';
 export * from './config/project-manager';
 export * from './config/project-manager-authority';
+export * from './config/project-manager-involvement';
 export * from './config/refinement';
 export * from './config/regenerated-paths';
 export * from './config/repos';

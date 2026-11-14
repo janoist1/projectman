@@ -66,6 +66,14 @@ export const ProjectManagerKnowledgeDocument = z.strictObject({
 });
 export type ProjectManagerKnowledgeDocument = z.infer<typeof ProjectManagerKnowledgeDocument>;
 
+export const DEFAULT_INVOLVEMENT = 'important';
+
+export function involvementOf(
+  doc: Pick<ProjectManagerKnowledgeDocument, 'agreement'> | null,
+): ProjectManagerAgreementData['involvement'] {
+  return doc?.agreement?.data.involvement ?? DEFAULT_INVOLVEMENT;
+}
+
 export const ProjectManagerPreferenceData = z.strictObject({
   length: z.enum(['brief', 'balanced', 'detailed']),
   technicalLevel: z.enum(['plain', 'mixed', 'technical']),

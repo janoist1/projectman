@@ -58,6 +58,7 @@ import {
   LOCAL_ENGINE_ID,
   memberOf,
   coordinationMemberOf,
+  involvementOf,
   pullSourceStage,
   reviewTestRunnerBeforeReview,
   routeFor,
@@ -673,6 +674,8 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
   });
+  const readInvolvement = async (projectKey: string) =>
+    involvementOf(await opts.projectManagerKnowledge.readKnowledge(projectKey));
   const tasks = createTaskService({
     ctx,
     timeline,
@@ -1523,6 +1526,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     projectManagerSignals,
     background,
+    involvementOf: readInvolvement,
   });
   projects.useAgreementVersion(
     async (key) => (await opts.projectManagerKnowledge.readKnowledge(key)).agreement?.version ?? null,
@@ -2018,6 +2022,7 @@ export function createDomain(opts: DomainOptions) {
     superExecution,
     superOperations,
     projects,
+    involvementOf: readInvolvement,
   });
   superPath = { operations: appOperations, direct: superOperations };
   superHandoffs.registerAppResume(appOperations.resume);

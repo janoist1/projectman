@@ -134,6 +134,7 @@ export const errors = {
     member_not_scheduled: 'This member has no scheduled run.',
     not_a_recipient: 'Only the recipient can mark the message as read.',
     not_found: 'The item you are looking for was not found.',
+    pairing_code_invalid: 'This pairing code isn’t valid: it’s mistyped, expired or already used.',
     payload_too_large: 'The request is too large.',
     previous_run_live: 'The previous scheduled run is still alive.',
     server_stopping: 'The server is stopping. Try again later.',

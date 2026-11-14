@@ -36,6 +36,13 @@ describe('attempt limiter', () => {
     expect(() => attempts.reserve('10.0.0.2')).not.toThrow();
   });
 
+  it('names the wait until the window has a slot again, rounded up to a second', () => {
+    const { attempts, advance } = limiter();
+    for (let i = 0; i < 3; i++) attempts.reserve('a');
+    advance(400);
+    expect(refused(() => attempts.reserve('a')).details).toEqual({ retryAfterSeconds: 1 });
+  });
+
   it('gives successful attempts their slot back, once', () => {
     const { attempts } = limiter();
     for (let i = 0; i < 10; i++) attempts.reserve('127.0.0.1')();
@@ -94,6 +101,22 @@ describe('attempt limiter', () => {
       for (let i = 0; i < 6; i++) attempts.reserve('ok')();
       attempts.reserve('k4');
       expect(refused(() => attempts.reserve('ok')).code).toBe('too_many_attempts');
+    });
+
+    it('names the wait of the shared window when only the shared budget is used up', () => {
+      let now = 0;
+      const attempts = createAttemptLimiter({
+        max: 3,
+        sharedMax: 2,
+        windowMs: 10_000,
+        message: 'slow down',
+        now: () => now,
+      });
+      attempts.reserve('a');
+      now = 4_000;
+      // 'b' opens its own window now, but the shared one began at 0 and ends at 10 s.
+      attempts.reserve('b');
+      expect(refused(() => attempts.reserve('b')).details).toEqual({ retryAfterSeconds: 6 });
     });
 
     it('starts a new shared window after the old one expires', () => {

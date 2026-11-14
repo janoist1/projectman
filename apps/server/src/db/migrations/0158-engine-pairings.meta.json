@@ -1,0 +1,10 @@
+{
+  "tables": {
+    "engine_pairings": {
+      "journal": { "none": "account-level pairing bookkeeping with no project reader" },
+      "handles": {
+        "unrewritten": { "decided_by": "a user id, not a handle: only a human owner decides a pairing" }
+      }
+    }
+  }
+}

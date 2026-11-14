@@ -203,6 +203,21 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
       'apps/server/test/member-handles-columns.test.ts',
     ],
   },
+  {
+    reason:
+      'the device pairing test drives the pairing service, its routes and the paired engine and key over HTTP, not by import (PM-1437)',
+    sources: [
+      'apps/server/src/auth/engine-pairing*.ts',
+      'apps/server/src/db/engine-pairings.ts',
+      'apps/server/src/db/engines.ts',
+      'apps/server/src/db/integrator-keys.ts',
+      'apps/server/src/db/integrator-key-audit.ts',
+      'apps/server/src/runtime/sessions/engine-registry.ts',
+      'packages/shared/src/domain/engine-pairing.ts',
+      'packages/shared/src/api/engine-pairing-dto.ts',
+    ],
+    tests: ['apps/server/test/engine-pairing.test.ts'],
+  },
   ...Object.entries(TEST_READ_DOCS).map(([doc, tests]): SelectionRule => ({
     reason: `the tests read ${doc} by path, so a change to it is not a documentation-only change (PM-1337)`,
     sources: [doc],

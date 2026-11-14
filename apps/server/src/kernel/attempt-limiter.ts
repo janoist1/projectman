@@ -26,7 +26,8 @@ interface AttemptLimiter {
   /**
    * Reserves an attempt for `key` (the client's address) before the expensive or guessable work,
    * so concurrent attempts count too; throws 429 `too_many_attempts` once the window's budget of
-   * the key, or the shared one, is used up. Call the returned `release` when the attempt
+   * the key, or the shared one, is used up; its `details.retryAfterSeconds` is the wait until the
+   * exhausted budgets have a slot again. Call the returned `release` when the attempt
    * succeeded: only failures count, and it gives the slot back in both budgets.
    */
   reserve(key: string): () => void;
@@ -56,8 +57,14 @@ export function createAttemptLimiter(opts: AttemptLimiterOptions): AttemptLimite
       if (!shared || shared.resetAt <= at) shared = { count: 0, resetAt: at + opts.windowMs };
       const all = shared;
       // Both budgets are checked before either is charged.
-      if (window.count >= opts.max || (opts.sharedMax !== undefined && all.count >= opts.sharedMax)) {
-        throw new DomainError('too_many_attempts', opts.message, { status: 429 });
+      const ownFull = window.count >= opts.max;
+      const sharedFull = opts.sharedMax !== undefined && all.count >= opts.sharedMax;
+      if (ownFull || sharedFull) {
+        const resetAt = Math.max(ownFull ? window.resetAt : 0, sharedFull ? all.resetAt : 0);
+        throw new DomainError('too_many_attempts', opts.message, {
+          status: 429,
+          details: { retryAfterSeconds: Math.max(1, Math.ceil((resetAt - at) / 1000)) },
+        });
       }
       window.count += 1;
       all.count += 1;

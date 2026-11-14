@@ -11,7 +11,12 @@ let loginFile: string;
 
 const ENGINE_SECRET = 'engine-secret-value-0123456789abcdef';
 const INTEGRATOR_SECRET = 'integrator-secret-value-0123456789abcdef';
-const DOORS = ['/engine/link', '/engine/files/downloads/smoke-test', '/engine/files/uploads/smoke-test'];
+const DOORS = [
+  '/engine/link',
+  '/engine/files/downloads/smoke-test',
+  '/engine/files/uploads/smoke-test',
+  '/engine/pairings/smoke-test',
+];
 
 function writeTokenFile(name: string, id: string, secret: string): void {
   writeFileSync(
@@ -52,7 +57,7 @@ beforeEach(() => {
 afterEach(() => world.cleanup());
 
 describe('check', () => {
-  it('runs check.sh with the login file in its environment and the three doors of the engine', async () => {
+  it('runs check.sh with the login file in its environment and the doors of the engine', async () => {
     expect(await check()).toBe(0);
     const script = world.scriptCalls.find((call) => call.script === 'check.sh')!;
     expect(script.args.slice(1)).toEqual(['https://board.example.com']);

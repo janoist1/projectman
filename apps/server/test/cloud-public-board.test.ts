@@ -446,7 +446,12 @@ describe('publish for the public board', () => {
 describe('check for the public board', () => {
   let loginFile: string;
   const check = () => runCloud(['check', '--login-json', loginFile], world.deps());
-  const DOORS = ['/engine/link', '/engine/files/downloads/smoke-test', '/engine/files/uploads/smoke-test'];
+  const DOORS = [
+    '/engine/link',
+    '/engine/files/downloads/smoke-test',
+    '/engine/files/uploads/smoke-test',
+    '/engine/pairings/smoke-test',
+  ];
 
   /** The doors as they should be: Access login without a token; with the engine token the board's refusal. */
   const goodDoors = (tokenOnBoard = 401) => {
@@ -501,7 +506,7 @@ describe('check for the public board', () => {
       BOARD_MODE: 'public',
       INTEGRATOR_ORIGIN: 'https://machine.example.com',
     });
-    expect(world.doorCalls.slice(0, 9).map((call) => new URL(call.url).pathname)).toEqual([
+    expect(world.doorCalls.slice(0, 11).map((call) => new URL(call.url).pathname)).toEqual([
       ...DOORS.flatMap((door) => [door, door]),
       '/%65ngine/link',
       '/%65ngine/link',

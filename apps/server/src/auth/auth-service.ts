@@ -73,6 +73,35 @@ export class AuthService {
     return this.createKey(userId, input.mode, input.expiresInDays);
   }
 
+  /**
+   * The `super` key of an approved device pairing (PM-1437), made from the hash and prefix the machine sent: the
+   * secret never reaches the hub. Like a key made by hand it revokes the holder's previous live `super` key and
+   * writes its audit rows in the same transaction, so it may run inside the approval's. The caller runs
+   * `announce` once that transaction has committed.
+   */
+  createPairedKey(input: {
+    userId: string;
+    tokenHash: string;
+    prefix: string;
+    expiresInDays: number;
+    pairingId: string;
+  }): { key: IntegratorAccessKeyInfo; announce: () => void } {
+    if (!this.keyHolderAllowed(input.userId))
+      throw forbidden('owner_only', 'only an owner with a password may hold an integrator key');
+    const at = this.now();
+    const key = this.repos.integratorKeys.create({
+      id: newId('ikey'),
+      userId: input.userId,
+      mode: 'super',
+      prefix: input.prefix,
+      hash: input.tokenHash,
+      at: at.toISOString(),
+      expiresAt: new Date(at.getTime() + input.expiresInDays * 86_400_000).toISOString(),
+      pairingId: input.pairingId,
+    });
+    return { key, announce: () => this.keysChanged() };
+  }
+
   revokeIntegratorAccessKey(userId: string, id: string) {
     const revoked = this.repos.integratorKeys.revokeById(userId, id, this.now().toISOString());
     this.keysChanged();

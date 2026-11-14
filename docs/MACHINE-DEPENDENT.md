@@ -1074,6 +1074,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     The existing engine git read runs beside the repository; only commit/time facts cross the
     boundary. A null/offline head never proves progress. Queue, deduplication and assessment stay
     on the server and work unchanged with a remote engine.
+    Device pairing, hub side (PM-1437, PM-1448; `auth/engine-pairing.ts`,
+    `auth/engine-pairing-routes.ts`, `db/engine-pairings.ts`): a new HTTPS crossing from the
+    friend's machine to the hub's `/engine/pairings` (start, poll, cancel), behind the Access
+    engine audience. It is not the engine-link WebSocket and needs no live machine key. The
+    machine sends only the sha256 of its own new `pme_` machine key and `pmi_` integrator key;
+    the hub stores hashes only (`engines`, `integrator_keys`, `engine_pairings`, the pairing
+    code too) and answers a poll only with the bearer whose sha256 matches the stored machine
+    key hash (otherwise 404). Start needs HTTPS or a loopback peer; starts, wrong codes and live
+    pending pairings are limited (429 with `retry-after`); the address comes from
+    `clientIpHeader`, trusted only from loopback. The browser approves through `/api/pairings/*`
+    behind the usual app audience with its own login only (no integrator bearer). Approval
+    creates the paired engine and super key in one transaction and wakes the link afterwards.
+    Single-machine mode: nothing is affected, the routes are not registered. The machine side
+    (keys, polling, writing the files) follows on PM-1437's card B.
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1459,6 +1473,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `/mcp`, behind its own Cloudflare Access service token. The tunnel preserves Host
   and supplies the HTTPS protocol header from loopback. Board cookie routes manage
   human key creation, approval and audit.
+  Device pairing (PM-1437, PM-1448) creates the super key on approval from the hash the
+  machine sent: 365 days, it revokes the approver's previous super key, writes its audit row
+  in the same transaction and is marked `paired`; its scope is that of a manual super key.
+  The key itself never reaches the hub or the browser.
   **Remote engine:** authentication, scope, audit, knowledge and inbox persistence stay
   on the hub. The client runs on the connected Claude's host. Neither its bearer nor
   its edge service token is sent to an engine or member session; engines enforce the

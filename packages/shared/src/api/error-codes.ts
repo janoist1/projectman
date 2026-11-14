@@ -273,6 +273,9 @@ export const ERROR_CODES = [
   // An AI member's owner decision names no owner topic, or one the project does not list (PM-1190).
   'owner_topic_required',
   'owner_topic_unknown',
+  // A device pairing code (PM-1437) that is malformed, unknown, expired, already decided or decided by another
+  // account: one answer for all, so a wrong guess learns nothing (404).
+  'pairing_code_invalid',
   'payload_too_large',
   // A place the project manager offers (PM-1071): a machine-level part, not the project's (403), or one the person does not see (403).
   'place_not_target',

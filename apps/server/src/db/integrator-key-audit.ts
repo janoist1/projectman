@@ -12,6 +12,7 @@ interface AuditRow {
   prefix: string;
   mode: IntegratorKeyAuditEntry['mode'];
   at: string;
+  pairing_id: string | null;
 }
 
 /** Append-only lifecycle audit; callers include writes in the key's transaction. */
@@ -25,8 +26,9 @@ export function createIntegratorKeyAuditRepository(db: Db) {
     list(ownerUserId: string, query: IntegratorKeyAuditQuery): IntegratorKeyAuditPage {
       const rows = db
         .prepare(
-          `SELECT seq, key_id, action, prefix, mode, at FROM integrator_key_audit
-         WHERE owner_user_id = ? AND (? IS NULL OR seq < ?) ORDER BY seq DESC LIMIT ?`,
+          `SELECT a.seq, a.key_id, a.action, a.prefix, a.mode, a.at, k.pairing_id FROM integrator_key_audit a
+         LEFT JOIN integrator_keys k ON k.id = a.key_id
+         WHERE a.owner_user_id = ? AND (? IS NULL OR a.seq < ?) ORDER BY a.seq DESC LIMIT ?`,
         )
         .all(ownerUserId, query.before ?? null, query.before ?? null, query.limit + 1) as AuditRow[];
       const entries = rows.slice(0, query.limit).map((row) => ({
@@ -36,6 +38,7 @@ export function createIntegratorKeyAuditRepository(db: Db) {
         prefix: row.prefix,
         mode: row.mode,
         at: row.at,
+        ...(row.pairing_id ? { paired: true } : {}),
       }));
       return { entries, nextBefore: rows.length > query.limit ? entries.at(-1)!.seq : null };
     },

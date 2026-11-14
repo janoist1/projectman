@@ -36,7 +36,7 @@ export const PreviousConversationReason = z.enum(['provider_changed', 'lost', 'r
 export type PreviousConversationReason = z.infer<typeof PreviousConversationReason>;
 
 /** The share of the compaction window at which the project manager's general conversation is refreshed (PM-1461). */
-export const PM_CONVERSATION_REFRESH_SHARE = 0.6;
+const PM_CONVERSATION_REFRESH_SHARE = 0.6;
 /** The most characters of the project manager's note for its next conversation. */
 export const CONVERSATION_REFRESH_NOTE_MAX = 4000;
 /** The most items of one kind the handover of a refreshed conversation lists. */

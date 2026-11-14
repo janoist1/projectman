@@ -11,6 +11,7 @@ import {
   ACCEPTANCE_UNCONFIRMED_LABEL,
   acceptanceLabels,
   boardCard,
+  startConditionMarkChanges,
   acceptanceRefusal,
   pageCommentThreads,
   replyParentOf,
@@ -571,6 +572,7 @@ export class MockBackend {
   uiStyle: UiStyle | undefined = undefined;
   failUiStyleSave = false;
   config: ProjectConfig = fixtures.buildConfig();
+  private readonly conditionMarks = new Map<string, string>();
   structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
@@ -855,6 +857,23 @@ export class MockBackend {
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
     }
+    if (event.type === 'task_upserted' || event.type === 'config_changed') this.refreshConditionMarks();
+  }
+
+  /** Mirrors tracker writes with the shared rule; GET only reads these stored marks. */
+  private refreshConditionMarks(): void {
+    const changes = this.config.team.startCondition
+      ? startConditionMarkChanges({
+          config: this.config,
+          tasks: this.tasks,
+          marks: this.conditionMarks,
+          now: nowIso(),
+        })
+      : { add: [], remove: [...this.conditionMarks.keys()] };
+    for (const key of changes.remove) this.conditionMarks.delete(key);
+    for (const mark of changes.add) this.conditionMarks.set(mark.taskKey, mark.metSince);
+    if (changes.add.length || changes.remove.length)
+      this.emit({ type: 'start_condition_marks_changed', projectKey: this.config.project.key });
   }
 
   /* ---------- domain helpers ---------- */
@@ -3073,7 +3092,18 @@ export class MockBackend {
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
     // Marks are persisted by the real server, never inferred by the browser mock.
-    if (rest === '/start-condition-marks') return ok({ marks: [] });
+    if (rest === '/start-condition-marks')
+      return ok({
+        marks: this.config.team.startCondition
+          ? [...this.conditionMarks].map(([taskKey, metSince]) => ({
+              taskKey,
+              metSince,
+              dueAt: new Date(
+                Date.parse(metSince) + this.config.team.startCondition!.graceMinutes * 60_000,
+              ).toISOString(),
+            }))
+          : [],
+      });
     if (rest === '/structure' && method === 'GET') return ok(clone(this.structure));
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     const checklistState = /^\/checklist\/items\/([a-z][a-z0-9_]{0,39})\/state$/.exec(rest);

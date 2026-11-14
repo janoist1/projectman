@@ -1,5 +1,5 @@
 /** PM-1470: real board, direct priority requests and the shared condition rules. */
-export default async ({ instance, open, shoot, log }) => {
+export default async ({ instance, open, shoot }) => {
   const { version } = await instance.api('/api/projects/AC/config');
   await instance.api('/api/projects/AC/config', {
     method: 'PATCH',
@@ -12,6 +12,7 @@ export default async ({ instance, open, shoot, log }) => {
   const theme = await create({ kind: 'theme', title: 'Webshop improvements' });
   const inherited = await create({ title: 'Improve the checkout', themeKey: theme.key });
   const idea = await create({ title: 'Weekly order summary' });
+  const direct = await create({ title: 'Remember supplier notes' });
   const held = await create({ title: 'Discuss the new catalogue', themeKey: theme.key });
   await instance.api(`/api/projects/AC/tasks/${held.key}`, {
     method: 'PATCH',
@@ -19,10 +20,16 @@ export default async ({ instance, open, shoot, log }) => {
   });
   const page = await open({ path: '/p/AC' });
   await page.getByRole('region', { name: 'Indító feltétel szerinti szűrés' }).waitFor();
+  const directCard = page.locator(`[data-card-key="${direct.key}"]`);
+  await directCard.getByRole('button', { name: 'Normál', exact: true }).click();
+  await directCard.getByText('Türelmi idő · a pm még nem kapott jelzést').waitFor();
   const tile = page.getByRole('button', { name: /Webshop improvements/ }).locator('..');
   await tile.getByRole('button', { name: 'Magas', exact: true }).click();
   await page.locator(`[data-card-key="${inherited.key}"]`).getByText('→ Mehet').waitFor();
-  log(`start marks: ${JSON.stringify(await instance.api('/api/projects/AC/start-condition-marks'))}`);
+  await page
+    .locator(`[data-card-key="${inherited.key}"]`)
+    .getByText('Türelmi idő · a pm még nem kapott jelzést')
+    .waitFor();
   for (const style of ['classic', 'win311']) {
     await instance.api('/api/me/ui-style', { method: 'PUT', body: { style } });
     for (const scheme of ['light', 'dark']) {
@@ -57,7 +64,7 @@ export default async ({ instance, open, shoot, log }) => {
   const retry = card.getByRole('button', { name: 'Újra', exact: true });
   await retry.waitFor();
   const box = await retry.boundingBox();
-  if (!box || box.height < 44) throw new Error('Retry target is smaller than 44px');
+  if (!box || box.height < 44 || box.width < 44) throw new Error('Retry target is smaller than 44px');
   const summary = page.locator('summary').filter({ hasText: 'Mit jelent a Mehet?' });
   const summaryBox = await summary.boundingBox();
   if (!summaryBox || summaryBox.height < 44) throw new Error('Explanation target is smaller than 44px');

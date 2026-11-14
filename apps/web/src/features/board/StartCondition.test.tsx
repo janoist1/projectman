@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { applyServerEvent } from '../../api/cache';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StartCondition } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
@@ -185,6 +186,55 @@ describe('start condition board', () => {
         .getAttribute('aria-pressed'),
     ).toBe('true');
   });
+
+  it.each(['card', 'theme'] as const)(
+    'reads an asynchronously persisted mark after a %s priority save without reloading',
+    async (source) => {
+      const { project, task } = setup();
+      const theme = project.backend.findTask('AC-24')!;
+      if (source === 'theme') {
+        Object.assign(theme, {
+          kind: 'theme',
+          priority: null,
+          status: 'active',
+          archivedAt: null,
+          parentKey: null,
+          themeKey: null,
+        });
+        task.themeKey = theme.key;
+      }
+      const fetch = createMockFetch(project.backend, project.requests);
+      let reads = 0;
+      const mark = {
+        taskKey: task.key,
+        metSince: new Date().toISOString(),
+        dueAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+      setFetchImplementation((path, init) => {
+        if (!path.endsWith('/start-condition-marks')) return fetch(path, init);
+        reads += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify({ marks: reads >= 2 ? [mark] : [] }), { status: 200 }),
+        );
+      });
+      const { client } = project.render(<BoardPage />);
+      await screen.findByRole('region', { name: t('board.start.filters') });
+      await waitFor(() => expect(reads).toBe(1));
+      const editor =
+        source === 'card'
+          ? cardOf(task.key)
+          : screen
+              .getByRole('button', { name: t('board.themes.open', { title: theme.title }) })
+              .closest('li')!;
+      fireEvent.click(within(editor).getByRole('button', { name: t('priority.levels.normal') }));
+      await within(editor).findByText(t('priority.saved'));
+      expect(reads).toBe(1);
+      act(() => applyServerEvent(client, { type: 'start_condition_marks_changed', projectKey: 'AC' }));
+      await screen.findByText(t('board.start.gracePending'), {}, { timeout: 4_000 });
+      expect(reads).toBe(2);
+      expect(within(cardOf(task.key)).getByText(`→ ${t('board.start.go')}`)).toBeTruthy();
+    },
+  );
 
   it('refreshes the grace indicator at the server deadline even when the marks response is unchanged', async () => {
     const { project, task } = setup();

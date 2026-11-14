@@ -1645,7 +1645,9 @@ rules for Go ahead / Idea / Held back, with direct own-priority controls and lin
 sources. `GET /api/projects/:key/start-condition-marks` is available to project members through
 `ProjectService.startConditionMarks`: it reads persisted marks without updating the tracker or taking
 its lock, returning `{ marks: { taskKey, metSince, dueAt }[] }` (empty without a condition). The web
-refreshes on card/configuration changes and at the earliest future server deadline; it never creates
+refreshes on `start_condition_marks_changed` (published after tracker additions, removals or a nonempty
+clear), configuration changes and the earliest future server deadline; task writes do not invalidate
+marks before the asynchronous tracker has saved them. It never creates
 business timestamps. This browser–hub read adds no engine call or machine-dependent assumption.
 Priority and label matches wait
 five minutes by default; effective urgent and sufficient stage matches act immediately. Without the

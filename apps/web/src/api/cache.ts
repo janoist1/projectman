@@ -133,9 +133,6 @@ function patchMemberWork(members: readonly MemberView[], session: Session): Memb
 
 /** A changed task: on the board (its summary), in its detail and in the sessions that work on it. */
 export function writeTask(client: QueryClient, key: string, task: Task): void {
-  if (client.getQueryState(queryKeys.startConditionMarks(key))) {
-    invalidateOnce(client, queryKeys.startConditionMarks(key));
-  }
   client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
     board ? { ...board, tasks: upsertBy(board.tasks, boardCard(task), (entry) => entry.key) } : board,
   );
@@ -397,6 +394,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'project_checklist_changed': {
       invalidate(queryKeys.checklist(event.projectKey));
+      return;
+    }
+    case 'start_condition_marks_changed': {
+      invalidate(queryKeys.startConditionMarks(event.projectKey));
       return;
     }
     case 'email_changed': {

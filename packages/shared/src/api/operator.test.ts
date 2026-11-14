@@ -80,8 +80,26 @@ describe('project manager operation contracts', () => {
       expect(ProjectManagerPlan.safeParse({ ...plan, ...change }).success).toBe(false);
     expect(projectManagerCriticalOp('message_send')).toBe(true);
     expect(projectManagerCriticalOp('session_stop')).toBe(true);
+    expect(projectManagerCriticalOp('setup_apply')).toBe(true);
     expect(projectManagerCriticalOp('member_update')).toBe(false);
     expect(projectManagerCriticalOp('project_pause')).toBe(false);
+  });
+
+  it('accepts a setup package only when it is not empty and each member is touched once (PM-1460)', () => {
+    const hire = { role: 'developer', handle: 'dev-a' };
+    const update = { handle: 'dev-1', changes: { capacity: 2 } };
+    expect(ProjectManagerOperation.parse({ op: 'setup_apply', title: 'Setup', hires: [hire] })).toMatchObject(
+      {
+        hires: [hire],
+        updates: [],
+      },
+    );
+    for (const invalid of [
+      { title: 'Empty' },
+      { title: 'Hire and change', hires: [hire], updates: [{ ...update, handle: 'dev-a' }] },
+      { title: 'Twice', updates: [update, update] },
+    ])
+      expect(ProjectManagerOperation.safeParse({ op: 'setup_apply', ...invalid }).success).toBe(false);
   });
   it('validates system signal kinds, states and owner decision message references', () => {
     const signal = {

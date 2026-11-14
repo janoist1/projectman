@@ -35,6 +35,7 @@ export const superMode = {
     'operate:member_retire': 'Retire member',
     'operate:session_stop': 'Stop session',
     'operate:message_send': 'Send message',
+    'operate:setup_apply': 'Apply setup package',
   },
   empty: 'Nothing has happened with this key yet.',
   more: 'Load more',

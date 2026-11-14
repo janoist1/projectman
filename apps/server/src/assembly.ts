@@ -33,6 +33,7 @@ import { createStructureService } from './services/structure';
 import {
   SUPER_OWNER_YES,
   createOperateExecutor,
+  createSetupNotices,
   createCommandExecutor,
   createProjectManagerAppCredentials,
   createProjectManagerAppOperations,
@@ -2004,9 +2005,25 @@ export function createDomain(opts: DomainOptions) {
     'inbox_resolve',
   ] as const)
     superHandoffs.registerExecutor(kind, commandExecutor);
+  // The in-app project manager learns what its setup package did, or why nothing of it was applied (PM-1460).
+  const setupNotices = createSetupNotices({
+    ctx,
+    projects,
+    send: (projectKey, to, text) =>
+      messaging.send(projectKey, SYSTEM_SENDER, { to: [to], text }, { kind: 'action' }),
+  });
+  events.on('super_operation_finished', ({ operation }) => setupNotices.finished(operation));
   superHandoffs.registerExecutor(
     'operate',
-    createOperateExecutor({ ...commandDeps, messaging, pauses, sessions }),
+    createOperateExecutor({
+      ...commandDeps,
+      messaging,
+      pauses,
+      sessions,
+      knowledge: sharedProjectManagerKnowledge,
+      timeline,
+      notices: setupNotices,
+    }),
   );
   const superDiagnostics = createSuperDiagnostics({ ctx });
   const superOperations = createSuperOperations({ handoffs: superHandoffs, diagnostics: superDiagnostics });

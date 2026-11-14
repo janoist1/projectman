@@ -16,6 +16,7 @@ import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from
 export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
 export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
 export { createOperateExecutor } from './operate';
+export { createSetupNotices } from './setup-notice';
 export { createCommandExecutor } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
 export {

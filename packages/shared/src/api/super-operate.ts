@@ -129,6 +129,11 @@ export function superCommandParams(command: SuperCommand): { kind: string; param
   if ('handle' in target) params.handle = target.handle;
   if ('to' in target) params.to = [target.to].flat().join(', ');
   if ('taskKey' in target && target.taskKey) params.taskKey = target.taskKey;
+  if ('op' in target && target.op === 'setup_apply') {
+    params.title = target.title;
+    params.hires = String(target.hires.length);
+    params.updates = String(target.updates.length);
+  }
   return { kind, params };
 }
 

@@ -35,6 +35,7 @@ export const superMode = {
     'operate:member_retire': 'Tag visszavonása',
     'operate:session_stop': 'Munkamenet leállítása',
     'operate:message_send': 'Üzenet küldése',
+    'operate:setup_apply': 'Beállítás-csomag alkalmazása',
   },
   empty: 'Ezzel a kulccsal még nem történt semmi.',
   more: 'Továbbiak betöltése',

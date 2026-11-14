@@ -518,6 +518,8 @@ export const inbox = {
       project_pause: "Pause {project}'s team?",
       project_resume: "Resume {project}'s team?",
       message_send: 'Send a message to {to}?',
+      setup_apply:
+        'Apply the setup package “{title}” in {project} ({hires} new members, {updates} member changes)?',
       invite_create: 'Send an invitation to {project}?',
       merge: 'Merge the work of card {task}?',
       merge_order: "Reorder {project}'s merge queue?",

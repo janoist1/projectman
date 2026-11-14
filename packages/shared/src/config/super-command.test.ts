@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { SuperCommand } from '../api/super-handoff';
 import { NewSuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
-import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
+import {
+  alwaysAsksOwner,
+  SuperCommandUnclassifiable,
+  superCommandEffects,
+  superCommandMutations,
+} from './super-command';
 import type { SuperCommandContext } from './super-command';
 import { coordinationMemberOf } from './project-manager';
 import {
@@ -156,6 +161,18 @@ describe('super command classification (PM-762)', () => {
     expect(
       effects({ kind: 'member_update', handle: 'dev-1', request: { displayName: 'Fictional name' } }),
     ).toEqual([]);
+  });
+
+  it('asks the owner about a setup package even when no item of it is owner-reserved (PM-1460)', () => {
+    const setup = operate({
+      op: 'setup_apply',
+      title: 'Setup',
+      hires: [],
+      updates: [{ handle: 'dev-1', changes: { capacity: 2 } }],
+    });
+    expect(effects(setup)).toEqual([]);
+    expect(alwaysAsksOwner(setup)).toBe(true);
+    expect(alwaysAsksOwner(operate({ op: 'project_pause' }))).toBe(false);
   });
 
   it('names deletion for a member retired', () => {

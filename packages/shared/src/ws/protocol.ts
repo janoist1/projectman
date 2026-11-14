@@ -14,7 +14,6 @@ import { Task, TaskKey } from '../domain/task';
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project_checklist_changed'), projectKey: z.string() }),
-  z.object({ type: z.literal('start_condition_marks_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: ProjectManagerSignal }),
   /** `projectKey`: the change is a project–engine binding of that project (PM-1060); absent: the engine itself changed. */
   z.object({

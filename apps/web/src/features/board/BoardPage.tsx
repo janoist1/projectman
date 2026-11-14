@@ -8,7 +8,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
-import { EmptyState, ErrorState } from '../../components/States';
+import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import type { MemberIndex } from '../../lib/members';
@@ -37,17 +37,6 @@ import { PrerequisiteWarning } from './PrerequisiteWarning';
 import { groupMoveToast, groupOutcome } from './groupMove';
 import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
-import startStyles from './StartCondition.module.css';
-import cardStyles from './TaskCard.module.css';
-import {
-  CardStartDetails,
-  StartConditionContext,
-  StartFilters,
-  startMatches,
-  useStartCondition,
-} from './StartCondition';
-import type { StartFilter } from './StartCondition';
-import { useStartConditionMarks } from '../../api/queries';
 
 const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked', 'stuck']);
 
@@ -160,7 +149,6 @@ function Column({
   uploadingCounts: ReadonlyMap<string, number>;
 }) {
   const labels = useLabels(projectKey);
-  const startData = useStartCondition();
   const headingId = `col-${column.id}`;
   // The finished column is the one with a stage of the done kind, not the one named "Kész".
   const finishes = pipeline.stages.some(
@@ -212,25 +200,18 @@ function Column({
           {startableCount !== null ? (
             <span
               className={styles.startableChip}
-              style={startData ? { color: 'var(--c-ink-2)', background: 'var(--c-surface)' } : undefined}
               data-none={startableCount === 0 ? '' : undefined}
               aria-label={
-                startableCount > 0
-                  ? t(startData ? 'board.start.manualCount' : 'board.startableLabel', {
-                      count: startableCount,
-                    })
-                  : undefined
+                startableCount > 0 ? t('board.startableLabel', { count: startableCount }) : undefined
               }
             >
               {startableCount > 0 ? (
                 <>
                   <Icon name="play" size={10} strokeWidth={2.6} />
-                  {t(startData ? 'board.start.manualCount' : 'board.startableCount', {
-                    count: startableCount,
-                  })}
+                  {t('board.startableCount', { count: startableCount })}
                 </>
               ) : (
-                t(startData ? 'board.start.manualNone' : 'board.startableNone')
+                t('board.startableNone')
               )}
             </span>
           ) : null}
@@ -315,7 +296,6 @@ function BoardCard({
   drag: ColumnDrag;
 }) {
   const canAttach = useCanAttach();
-  const startData = useStartCondition();
   const queue = useUploadQueue();
   const fileDrop = useFileDrop({
     allowed: canAttach,
@@ -325,18 +305,12 @@ function BoardCard({
   return (
     <div
       data-card-key={task.key}
-      data-phase={startData ? state.phase : undefined}
-      data-file={startData ? (fileDrop.state ?? undefined) : undefined}
       draggable={movable && !drag.pendingKey}
       onDragStart={(event) => drag.start(event, task)}
       onDragEnd={drag.end}
       onKeyDown={(event) => drag.keyDown(event, task)}
       aria-busy={drag.pendingKeys.has(task.key)}
       className={clsx(
-        startData && startStyles.card,
-        startData && cardStyles.card,
-        startData && selected && cardStyles.selected,
-        startData && fileDrop.state && cardStyles.fileTarget,
         drag.pendingKeys.has(task.key) && styles.pending,
         drag.draggedKey === task.key && styles.dragging,
         drag.goingAlong.has(task.key) && styles.alongMark,
@@ -368,7 +342,6 @@ function BoardCard({
         uploading={uploading}
         fileState={fileDrop.state}
       />
-      <CardStartDetails task={task} />
     </div>
   );
 }
@@ -378,16 +351,7 @@ export function BoardPage() {
   const { key, myHandle, search, can, setThemeFilter, openNewTask } = useProject();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { board, pipeline, model, config } = useBoardModel();
-  const [startFilter, setStartFilter] = useState<StartFilter>('all');
-  const marks = useStartConditionMarks(key, !!config?.team.startCondition);
-  const startData = useMemo(
-    () =>
-      config?.team.startCondition && board.data
-        ? { config, tasks: board.data.tasks, marks: marks.data?.marks ?? [] }
-        : null,
-    [config, board.data, marks.data, marks.dataUpdatedAt],
-  );
+  const { board, pipeline, model } = useBoardModel();
   const move = useBoardMove(key);
   const toast = useToast();
   const [dragged, setDragged] = useState<Card | null>(null);
@@ -425,11 +389,7 @@ export function BoardPage() {
   );
   // What the search, the theme and the state, member and label filters leave of the board (PM-120).
   const view = useBoardFilters({ entries: optimisticEntries, model, board: board.data });
-  const { activeTheme, counts } = view;
-  const visible = useMemo(
-    () => view.visible.filter(({ task }) => startMatches(task, startData, startFilter)),
-    [view.visible, startData, startFilter],
-  );
+  const { visible, activeTheme, counts } = view;
 
   // Every column's cards in the order shown: the stored order, the card on its way already in its new place.
   const columnOrder = useMemo(() => {
@@ -549,19 +509,9 @@ export function BoardPage() {
     );
   };
 
-  if (board.isPending)
-    return (
-      <div className={styles.emptyWrap} role="status">
-        {t('board.cardsLoading')}
-      </div>
-    );
+  if (board.isPending) return <LoadingState />;
   if (board.isError) return <ErrorState error={board.error} onRetry={() => void board.refetch()} />;
-  if (!model || !pipeline)
-    return (
-      <div className={styles.emptyWrap} role="status">
-        {t('board.cardsLoading')}
-      </div>
-    );
+  if (!model || !pipeline) return <LoadingState />;
 
   const columnOf = (task: Card) => pipeline.columnOfStage.get(task.stageId)?.id ?? null;
   // The subtasks of a collecting card that stand in its column: they go along when it changes column
@@ -738,153 +688,112 @@ export function BoardPage() {
   };
 
   return (
-    <StartConditionContext.Provider value={startData}>
-      <div className={styles.page} {...fileProps}>
-        {fileDrag === 'board' ? (
-          <p className={styles.fileHint} role="status">
-            <Icon name="paperclip" size={15} strokeWidth={2.2} />
-            {t('attachments.boardHint')}
+    <div className={styles.page} {...fileProps}>
+      {fileDrag === 'board' ? (
+        <p className={styles.fileHint} role="status">
+          <Icon name="paperclip" size={15} strokeWidth={2.2} />
+          {t('attachments.boardHint')}
+        </p>
+      ) : null}
+      {isMobile ? null : (
+        <TeamStrip
+          members={board.data.members}
+          titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
+          tasks={board.data.tasks}
+        />
+      )}
+      <PageHeader
+        className={styles.header}
+        hideTitleOnPhone
+        title={t('board.title')}
+        subtitle={
+          isMobile
+            ? null
+            : view.values.length > 0
+              ? t('board.subtitleFiltered', { values: view.values.join(', '), count: counts.all })
+              : t('board.subtitle', { count: total, active: activeCount })
+        }
+      >
+        {filters}
+      </PageHeader>
+      {isMobile ? <FilterChips view={view} /> : null}
+      <ThemeStrip
+        tasks={board.data.tasks}
+        pipeline={pipeline}
+        active={activeTheme?.key ?? null}
+        onFilter={setThemeFilter}
+        onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}
+        {...(can.newCards ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
+      />
+      {total === 0 ? (
+        <div className={styles.emptyWrap}>
+          <EmptyState icon="board" title={t('board.noTasks')} />
+        </div>
+      ) : search && view.searched.length === 0 ? (
+        <div className={styles.emptyWrap}>
+          <EmptyState icon="search" title={t('board.noResults', { query: search })} />
+        </div>
+      ) : visible.length === 0 && view.narrowing ? (
+        <div className={styles.emptyWrap}>
+          <EmptyState
+            icon="board"
+            title={t('board.filteredEmpty')}
+            action={
+              view.clearable > 0 ? (
+                <Button variant="secondary" size="sm" onClick={view.clear}>
+                  {t('board.clearFilters')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      ) : (
+        <div className={styles.columns}>
+          {pipeline.columns.map((column) => (
+            <Column
+              key={column.id}
+              column={column}
+              subtasksByParent={model.subtasksByParent}
+              entries={columnOrder.get(column.id) ?? []}
+              pipeline={pipeline}
+              projectKey={key}
+              selectedKey={selected}
+              drag={drag}
+              uploadingCounts={uploadingCounts}
+              filtered={view.narrowing}
+              searching={search !== ''}
+              members={model.ctx.members}
+              myHandle={myHandle}
+              rulesKnown={!!model.ctx.config}
+            />
+          ))}
+        </div>
+      )}
+      {drag.allowed ? (
+        <>
+          <p id={HELP_ID} className="visually-hidden">
+            {t('board.reorder.help')}
           </p>
-        ) : null}
-        {isMobile ? null : (
-          <TeamStrip
-            members={board.data.members}
-            titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
-            tasks={board.data.tasks}
-          />
-        )}
-        <PageHeader
-          className={styles.header}
-          hideTitleOnPhone
-          title={t('board.title')}
-          subtitle={
-            isMobile
-              ? null
-              : view.values.length > 0
-                ? t('board.subtitleFiltered', { values: view.values.join(', '), count: counts.all })
-                : t('board.subtitle', { count: total, active: activeCount })
-          }
-        >
-          {filters}
-        </PageHeader>
-        {isMobile ? <FilterChips view={view} /> : null}
-        <ThemeStrip
-          tasks={board.data.tasks}
-          pipeline={pipeline}
-          active={activeTheme?.key ?? null}
-          onFilter={setThemeFilter}
-          onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}
-          {...(can.newCards ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
-        />
-        {startData ? (
-          <StartFilters
-            data={startData}
-            tasks={view.visible.map(({ task }) => task)}
-            value={startFilter}
-            onChange={setStartFilter}
-          />
-        ) : null}
-        {total === 0 ? (
-          <div className={styles.emptyWrap}>
-            <EmptyState
-              icon="board"
-              title={t(startData ? 'board.startEmpty' : 'board.noTasks')}
-              action={
-                startData && can.newCards ? (
-                  <Button onClick={() => openNewTask({})}>{t('newTask.title')}</Button>
-                ) : undefined
-              }
-            />
+          <div className="visually-hidden" role="status" aria-live="polite">
+            {announcement}
           </div>
-        ) : search && view.searched.length === 0 ? (
-          <div className={styles.emptyWrap}>
-            <EmptyState icon="search" title={t('board.noResults', { query: search })} />
-          </div>
-        ) : startData && startFilter === 'ideas' ? (
-          <div className={startStyles.ideas}>
-            {visible.length ? (
-              visible.map(({ task, state }) => (
-                <BoardCard
-                  key={task.key}
-                  task={task}
-                  subtasks={model.subtasksByParent.get(task.key)}
-                  state={state}
-                  pipeline={pipeline}
-                  projectKey={key}
-                  selected={task.key === selected}
-                  labels={board.data.labels}
-                  members={model.ctx.members}
-                  myHandle={myHandle}
-                  uploading={uploadingCounts.get(task.key) ?? 0}
-                  drag={drag}
-                />
-              ))
-            ) : (
-              <p>{t('board.start.noIdeas')}</p>
-            )}
-          </div>
-        ) : visible.length === 0 && (view.narrowing || (startData && startFilter !== 'all')) ? (
-          <div className={styles.emptyWrap}>
-            <EmptyState
-              icon="board"
-              title={t('board.filteredEmpty')}
-              action={
-                view.clearable > 0 ? (
-                  <Button variant="secondary" size="sm" onClick={view.clear}>
-                    {t('board.clearFilters')}
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-        ) : (
-          <div className={styles.columns}>
-            {pipeline.columns.map((column) => (
-              <Column
-                key={column.id}
-                column={column}
-                subtasksByParent={model.subtasksByParent}
-                entries={columnOrder.get(column.id) ?? []}
-                pipeline={pipeline}
-                projectKey={key}
-                selectedKey={selected}
-                drag={drag}
-                uploadingCounts={uploadingCounts}
-                filtered={view.narrowing || (!!startData && startFilter !== 'all')}
-                searching={search !== ''}
-                members={model.ctx.members}
-                myHandle={myHandle}
-                rulesKnown={!!model.ctx.config}
-              />
-            ))}
-          </div>
-        )}
-        {drag.allowed ? (
-          <>
-            <p id={HELP_ID} className="visually-hidden">
-              {t('board.reorder.help')}
-            </p>
-            <div className="visually-hidden" role="status" aria-live="polite">
-              {announcement}
-            </div>
-          </>
-        ) : null}
-        <PrerequisiteWarning
-          keys={warning?.keys ?? null}
-          rows={warning?.rows}
-          tasks={board.data.tasks}
-          onConfirm={() => {
-            if (warning) runMove({ ...warning.drop, despitePrerequisites: true });
-            setWarning(null);
-          }}
-          onWait={() => {
-            if (warning) runMove(warning.drop);
-            setWarning(null);
-          }}
-          onClose={() => setWarning(null)}
-        />
-        <Outlet />
-      </div>
-    </StartConditionContext.Provider>
+        </>
+      ) : null}
+      <PrerequisiteWarning
+        keys={warning?.keys ?? null}
+        rows={warning?.rows}
+        tasks={board.data.tasks}
+        onConfirm={() => {
+          if (warning) runMove({ ...warning.drop, despitePrerequisites: true });
+          setWarning(null);
+        }}
+        onWait={() => {
+          if (warning) runMove(warning.drop);
+          setWarning(null);
+        }}
+        onClose={() => setWarning(null)}
+      />
+      <Outlet />
+    </div>
   );
 }

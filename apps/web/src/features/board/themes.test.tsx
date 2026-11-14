@@ -103,6 +103,18 @@ describe('themes on the board', () => {
     expect(button.title).toBe(label);
   });
 
+  it('names the read-only priority mark of a theme at any level and shows none without a priority', async () => {
+    const { project, backend, theme, other } = themed();
+    backend.updateTask(theme.key, { priority: 'normal' });
+    project.render(<BoardPage />, '/');
+    await screen.findByRole('region', { name: t('board.themes.title') });
+    const label = t('priority.markLabel', { level: t('priority.levels.normal') });
+    const button = filterTile(theme.title);
+    expect(within(button).getByText(label)).toBeTruthy();
+    expect(button.querySelector('[title]')?.getAttribute('title')).toBe(label);
+    expect(within(filterTile(other.title)).queryByText(/./, { selector: '.visually-hidden' })).toBeNull();
+  });
+
   it('leaves empty and cancelled-only themes without coloured segments or a distribution', async () => {
     const { project, backend, other } = themed();
     const cancelled = create(backend, 'Cancelled card', { themeKey: other.key });

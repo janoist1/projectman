@@ -7,9 +7,13 @@ Project configuration, templates, role management, stage reviewers and visibilit
 ## Facade
 
 `core/projects/index.ts` is the sealed entry point. It exports `ProjectService`,
-`createProjectService`, `OWNER_HANDLE`, `configInvalid`, `RoleService`, `roleUsage`,
+`createProjectService`, `OWNER_HANDLE`, `configInvalid`, `patchedConfig`, `RoleService`, `roleUsage`,
 `roleViews`, the stage-reviewer and visibility helpers, and their public types.
-Implementations live beside the facade; public names, signatures and behavior are unchanged.
+Implementations live beside the facade.
+
+`patchedConfig` prepares a settings patch and rejects unknown repositories. Settings edits, setup-package
+classification and setup-package commits share it, so an invalid repository is refused before an owner question
+is created (PM-1481).
 
 ## Ports
 

@@ -1026,7 +1026,6 @@ const DOCS_RULES = [
   'On docs_stale for decisions or roadmap, read the file again and show the owner the new text before writing.',
 ];
 
-/** The project manager maintains lessons independently (PM-1004, PM-1044). */
 /** The document of what the settings do not hold: goal, agreements, reasons, habits, glossary (PM-1465). */
 function sharedAgreementsRule(project: ContextPackInput['project']): string {
   const docs = projectDocsOf(project);
@@ -1044,6 +1043,7 @@ function sharedAgreementsRule(project: ContextPackInput['project']): string {
   ].join(' ');
 }
 
+/** The project manager maintains lessons independently (PM-1004, PM-1044). */
 const LESSONS_RULE =
   'Maintain lessons yourself with read_project_doc and write_project_docs using doc lessons; no owner request or approval is needed in your internal general conversation. Use a lessons-only call, never a guest conversation or approval continuation. On docs_stale read lessons again and retry. Decisions, roadmap and mixed edits still require the owner’s request or yes.';
 

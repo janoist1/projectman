@@ -1010,7 +1010,7 @@ export class ProjectManagerSignals {
     const level = projectManagerWatchOf(config);
     const now = isoNow(ctx);
     // facts and facts_more both need a cards_closed signal's completed cards: read them once per signal.
-    const closedBySignal = new Map<string, Task[]>();
+    const closedBySignal = new Map<string, ReturnType<typeof ctx.repos.tasks.readClosedSince>>();
     const closedCards = (s: ProjectManagerSignalRecord) => {
       let closed = closedBySignal.get(s.id);
       if (!closed) {

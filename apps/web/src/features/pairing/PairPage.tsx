@@ -65,6 +65,8 @@ export function PairPage() {
     if (limitLeft > 0) waited.current = true;
     else if (waited.current) {
       waited.current = false;
+      // The wait is over: a second limit on the same button starts from nothing and focuses it again.
+      setLimitedDecision(null);
       setAnnouncement(t('pairing.enter.announceReady'));
     }
   }, [limitLeft]);

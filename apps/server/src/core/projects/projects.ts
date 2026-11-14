@@ -175,14 +175,14 @@ export function configInvalid(message: string, details: unknown): DomainError {
   );
 }
 
-/** Settings edits answer with the codes the settings editor handles (config_invalid). */
 /** What a settings PATCH makes of the configuration; the REST edit and a setup package share it (PM-1460). */
-function patchedConfig(current: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
+export function patchedConfig(current: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
   const unknownRepo = unknownPatchRepo(current, patch);
   if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
   return applyConfigPatch(current, patch);
 }
 
+/** Settings edits answer with the codes the settings editor handles (config_invalid). */
 function asConfigEditError(err: unknown): never {
   if (err instanceof DomainError && err.code === 'invalid_config')
     throw configInvalid(err.message, err.details);

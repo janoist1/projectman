@@ -1017,6 +1017,10 @@ function section(prompt: string, heading: string): string {
   return prompt.slice(start + 1, end < 0 ? undefined : end);
 }
 
+function roleGuideSection(guide: string, heading: string): string {
+  return section(guide, heading).split('\n## ')[0]!;
+}
+
 /** The numbered steps under "What done means for you here" in the system prompt. */
 function doneSteps(prompt: string): string {
   const steps = prompt.split('What done means for you here:\n')[1] ?? '';
@@ -1804,7 +1808,7 @@ describe('system prompt', () => {
             hostOutsideOwners: hostOutsideOwners ? true : undefined,
           }),
         );
-        const missingTools = section(pack.guide.role!, '## Missing tools').split('\n## ')[0]!;
+        const missingTools = roleGuideSection(pack.guide.role!, '## Missing tools');
         expect(missingTools.includes('ask_host')).toBe(hostOutsideOwners);
         expect(missingTools.includes('ask_human')).toBe(hostOutsideOwners);
       },
@@ -1815,9 +1819,7 @@ describe('system prompt', () => {
       (machineAccess) => {
         const source = input({ handle: 'pm', workItem: { type: 'general' }, task: null });
         source.member.machineAccess = machineAccess;
-        const missingTools = section(builder.build(source).guide.role!, '## Missing tools').split(
-          '\n## ',
-        )[0]!;
+        const missingTools = roleGuideSection(builder.build(source).guide.role!, '## Missing tools');
         expect(missingTools.includes('open_integrator_todo')).toBe(machineAccess);
       },
     );
@@ -2173,6 +2175,7 @@ describe('system prompt', () => {
           workItem: { type: 'general' },
           task: null,
           stage: null,
+          hostOutsideOwners: true,
           capabilities: buildCapabilityCatalog(project, {
             teamTools: teamToolCatalog(),
             connectedTools: connectedToolCatalog(),

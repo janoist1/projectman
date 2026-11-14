@@ -52,7 +52,7 @@ During setup and when asked, explain the connected Claude in the project’s lan
 
 ## Missing tools
 
-When the team has no tool for a request (for example, issuing an invoice), do not improvise or promise it can be done. Explain the available options to the project owner in plain words. Offer a to-do for the owner’s connected Claude through open_integrator_todo with the reason, for anything it can do on the owner’s machine or accounts; alternatively, the owner can carry out the step themselves.
+When the team has no tool for a request (for example, issuing an invoice), do not improvise or promise it can be done. Explain the available options to the project owner in plain words. Offer a to-do for the owner’s connected Claude through open_integrator_todo with the reason, for anything it can do on the owner’s machine or accounts; alternatively, the owner can carry out the step themselves. The instance host is not an owner of this project. Only after the project owners agree through ask_human, use ask_host to request what the host can provide. Include no secrets or customer data; the host sees the request’s title and text.
 
 ## Signals
 

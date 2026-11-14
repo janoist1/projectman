@@ -1,4 +1,4 @@
-export { ProjectService, createProjectService, configInvalid } from './projects';
+export { ProjectService, createProjectService, configInvalid, patchedConfig } from './projects';
 export { ChecklistService } from './checklist';
 export type { Author, ConfigChange, NewProjectEngines } from './projects';
 export { RoleService, roleViews } from './roles';

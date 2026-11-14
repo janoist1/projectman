@@ -28,6 +28,7 @@ import { LabelChip, LabelCountChip } from '../../components/LabelChip';
 import { summarizeLabels } from '../../lib/labelSummary';
 import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
+import { StartBadge, useStartCondition } from './StartCondition';
 
 interface TaskCardProps {
   task: BoardCard;
@@ -133,6 +134,7 @@ export function TaskCard({
   myHandle = null,
 }: TaskCardProps) {
   const pr = prChip(task);
+  const startData = useStartCondition();
   const rows = stageRows(task, pipeline);
   // A label the status line already names ("● Válaszra vár") is not a chip as well; the drawer lists them all.
   const summary = summarizeLabels({
@@ -151,17 +153,22 @@ export function TaskCard({
     <Link
       to={to}
       draggable={false}
-      className={clsx(styles.card, selected && styles.selected, fileState && styles.fileTarget)}
+      className={clsx(
+        startData ? styles.content : styles.card,
+        !startData && selected && styles.selected,
+        !startData && fileState && styles.fileTarget,
+      )}
       aria-current={selected ? 'true' : undefined}
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       data-phase={state.phase}
-      data-startable={state.startable ? '' : undefined}
+      data-startable={!startData && state.startable ? '' : undefined}
       data-file={fileState ?? undefined}
     >
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} /> : null}
       <span className={styles.head}>
         <span className={styles.key}>{task.key}</span>
+        <StartBadge task={task} />
         {task.priority && task.status !== 'done' && task.status !== 'cancelled' ? (
           <span title={t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}>
             <PriorityMark priority={task.priority} />
@@ -283,13 +290,15 @@ export function TaskCard({
       ) : null}
       <span className={clsx(styles.status, workerRows && styles.statusRows)}>
         {state.startable ? (
-          <span className={styles.startMark} aria-hidden="true">
+          <span className={startData ? undefined : styles.startMark} aria-hidden="true">
             <Icon name="play" size={11} strokeWidth={2.4} />
           </span>
         ) : (
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
         )}
-        {workerRows ? (
+        {startData && state.startable ? (
+          <span className={styles.statusText}>{t('board.start.manualStart')}</span>
+        ) : workerRows ? (
           <span className={styles.workerRows} title={state.workers.map((worker) => worker.line).join('\n')}>
             {workerRows.rows.map((worker, index) => (
               <span key={worker.sessionId} className={styles.workerRow}>

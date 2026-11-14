@@ -19,6 +19,7 @@
 }
 
 .tile {
+  flex-wrap: wrap;
   flex: none;
   width: 236px;
   display: flex;
@@ -30,6 +31,14 @@
   transition:
     border-color 120ms ease,
     box-shadow 120ms ease;
+}
+
+.tile > div {
+  flex-basis: 100%;
+  padding: 8px;
+}
+.tile.quick {
+  width: min(420px, calc(100vw - 100px));
 }
 
 .tile:hover {

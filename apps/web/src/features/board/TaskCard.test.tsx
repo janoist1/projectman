@@ -14,6 +14,7 @@ import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { joinNames, t } from '../../i18n/t';
 import { TaskCard } from './TaskCard';
+import { StartConditionContext } from './StartCondition';
 
 const { pipeline, members } = mockIndexes();
 const labelViews = buildConfig().pipeline.labels.map((label) => ({ ...label, holders: [] }));
@@ -586,6 +587,23 @@ describe('the prerequisite on the card (PM-203)', () => {
     expect(on('AC-24', {}).state.startable).toBeUndefined();
     const waiting = on('AC-24', { links: links('AC-17') }, known);
     expect(waiting.state.startable).toBeUndefined();
+  });
+
+  it('distinguishes a configured idea from its permitted manual start on the same card', () => {
+    const config = buildConfig();
+    config.team.startCondition = { priority: 'any', hold: [], combine: 'any', graceMinutes: 5 };
+    const ready = on('AC-24', { priority: null, parentKey: null, themeKey: null }, { ...ctx, config });
+    expect(ready.state.startable).toBe(true);
+    renderUi(
+      <StartConditionContext.Provider value={{ config, tasks: [ready.task], marks: [] }}>
+        <TaskCard task={ready.task} state={ready.state} pipeline={pipeline} to="/task" />
+      </StartConditionContext.Provider>,
+    );
+    const card = screen.getByRole('link');
+    expect(within(card).getByText(`○ ${t('board.start.idea')}`)).toBeTruthy();
+    expect(within(card).getByText(t('board.start.manualStart'))).toBeTruthy();
+    expect(within(card).queryByText(t('taskStatus.ready'))).toBeNull();
+    expect(card.hasAttribute('data-startable')).toBe(false);
   });
 
   it('says which card a duplicate closed on', () => {

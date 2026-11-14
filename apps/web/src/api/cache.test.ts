@@ -95,6 +95,15 @@ describe('cache helpers', () => {
 });
 
 describe('applyServerEvent', () => {
+  it('invalidates marks only for the project whose tracker changed', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.startConditionMarks(KEY), { marks: [] });
+    client.setQueryData(queryKeys.startConditionMarks('OTHER'), { marks: [] });
+    applyServerEvent(client, { type: 'start_condition_marks_changed', projectKey: KEY });
+    expect(client.getQueryState(queryKeys.startConditionMarks(KEY))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.startConditionMarks('OTHER'))?.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.board(KEY))?.isInvalidated).toBe(false);
+  });
   it('updates a task on the board as its summary, in its detail and in its sessions', () => {
     const client = seed();
     const task = { ...tasks.find((entry) => entry.key === 'AC-21')!, stageId: 'code_review' };

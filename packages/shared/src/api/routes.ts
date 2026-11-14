@@ -72,6 +72,16 @@ export const routes = {
   engineUpload: (token: string) => `/engine/files/uploads/${token}`,
   /** The engine fetches an attachment from here (PM-314): `GET`; the token comes with the request. */
   engineDownload: (token: string) => `/engine/files/downloads/${token}`,
+  /** POST (cloud, a machine): asks for a device pairing code (`StartEnginePairingRequest`, PM-1437). */
+  enginePairings: () => '/engine/pairings',
+  /** GET / DELETE (cloud, the machine's key as bearer): the pairing's state (`EnginePairingStatus`), or cancels it. */
+  enginePairing: (id: string) => `/engine/pairings/${id}`,
+  /** POST `PairingCodeRequest` (an owner's own login): the pairing behind a code (`PairingView`, PM-1437). */
+  pairingLookup: () => '/api/pairings/lookup',
+  /** POST `PairingCodeRequest`: approves the pairing; the engine and the integrator key are made in the owner's name. */
+  pairingApprove: () => '/api/pairings/approve',
+  /** POST `PairingCodeRequest`: denies the pairing. */
+  pairingDeny: () => '/api/pairings/deny',
   integratorKeys: () => '/api/auth/integrator-keys',
   integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
   integratorKeyAudit: () => '/api/auth/integrator-keys/audit',

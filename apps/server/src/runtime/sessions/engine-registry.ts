@@ -101,6 +101,7 @@ export class EngineRegistry {
       versionMismatch: !!hello && hello.version !== this.version,
       providers: hello?.providers ?? [],
       ...this.counters(row.id),
+      ...(row.pairing_id ? { paired: true } : {}),
     };
   }
 
@@ -389,6 +390,13 @@ export class EngineRegistry {
    * registry state, and is not journaled.
    */
   private journaled<T>(ids: EngineId[], write: () => T): T {
+    const { result, woken } = this.journalWrite(ids, write);
+    for (const key of woken) this.wake(key);
+    return result;
+  }
+
+  /** `journaled` without the wake: the caller wakes the projects in `woken` once its own transaction committed. */
+  private journalWrite<T>(ids: EngineId[], write: () => T): { result: T; woken: Set<string> } {
     const woken = new Set<string>();
     const result = this.repos.transaction(() => {
       const before = this.defaultId();
@@ -408,8 +416,7 @@ export class EngineRegistry {
       }
       return out;
     });
-    for (const key of woken) this.wake(key);
-    return result;
+    return { result, woken };
   }
 
   create(name: string, userId: string): CreateEngineResponse {
@@ -420,6 +427,39 @@ export class EngineRegistry {
     );
     this.changed(id);
     return { engine: this.view(row, userId), key };
+  }
+  /**
+   * The engine of an approved device pairing (PM-1437), made from the hash and prefix of the machine key the
+   * machine made: the key never reaches the hub. It writes in a transaction of its own, which nests in the
+   * approval's; the caller runs `announce` (the journal wake and `engine_changed`) once that has committed.
+   */
+  createPaired(input: {
+    name: string;
+    userId: string;
+    keyHash: string;
+    keyPrefix: string;
+    pairingId: string;
+  }): { engine: EngineView; announce: () => void } {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_create' });
+    const id: EngineId = `eng_${randomBytes(6).toString('hex')}`;
+    const { result: row, woken } = this.journalWrite([id], () =>
+      this.repos.engines.create({
+        id,
+        name: input.name,
+        userId: input.userId,
+        hash: input.keyHash,
+        prefix: input.keyPrefix,
+        at: this.now().toISOString(),
+        pairingId: input.pairingId,
+      }),
+    );
+    return {
+      engine: this.view(row, input.userId),
+      announce: () => {
+        for (const key of woken) this.wake(key);
+        this.changed(id);
+      },
+    };
   }
   resolve(key: string): EngineId | null {
     if (!/^pme_[A-Za-z0-9_-]{43}$/.test(key)) return null;

@@ -33,6 +33,8 @@ const ENGINE_DOORS = [
   '/engine/link',
   '/engine/files/downloads/smoke-test',
   '/engine/files/uploads/smoke-test',
+  // The device pairing's machine door (PM-1437): with the token and no machine key it answers 404.
+  '/engine/pairings/smoke-test',
 ];
 /**
  * The same door with an encoded letter (PM-672): the tunnel rule matches the raw path, the board's router decodes

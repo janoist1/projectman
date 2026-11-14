@@ -392,6 +392,8 @@ export const IntegratorAccessKeyInfo = IntegratorKeyInfo.extend({
   id: z.string(),
   mode: IntegratorKeyMode,
   lastUsedChannel: IntegratorChannel.nullable(),
+  /** True when the key came from an approved device pairing (PM-1437); absent for one made by hand. */
+  paired: z.boolean().optional(),
 });
 export type IntegratorAccessKeyInfo = z.infer<typeof IntegratorAccessKeyInfo>;
 export const IntegratorAccessKeysResponse = z.object({ keys: z.array(IntegratorAccessKeyInfo) });
@@ -412,6 +414,8 @@ export const IntegratorKeyAuditEntry = z.object({
   prefix: z.string(),
   mode: IntegratorKeyMode,
   at: z.string(),
+  /** True when the key came from an approved device pairing (PM-1437); absent for one made by hand. */
+  paired: z.boolean().optional(),
 });
 export type IntegratorKeyAuditEntry = z.infer<typeof IntegratorKeyAuditEntry>;
 export const IntegratorKeyAuditQuery = z.object({

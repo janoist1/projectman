@@ -17,6 +17,7 @@ interface KeyRow {
   last_used_at: string | null;
   mode: IntegratorKeyMode;
   last_used_channel: IntegratorChannel | null;
+  pairing_id: string | null;
 }
 export function createIntegratorKeyRepository(db: Db) {
   const audit = createIntegratorKeyAuditRepository(db);
@@ -33,6 +34,7 @@ export function createIntegratorKeyRepository(db: Db) {
     id: row.id,
     mode: row.mode,
     lastUsedChannel: row.last_used_channel,
+    ...(row.pairing_id ? { paired: true } : {}),
   });
   const credential = (row: KeyRow | undefined) =>
     row ? { id: row.id, userId: row.user_id, prefix: row.prefix, mode: row.mode } : null;
@@ -61,6 +63,8 @@ export function createIntegratorKeyRepository(db: Db) {
       at: string;
       expiresAt: string | null;
       mode: 'super' | 'read';
+      /** The device pairing the key comes from (PM-1437). */
+      pairingId?: string;
     }): IntegratorAccessKeyInfo {
       return db.transaction(() => {
         const mode = input.mode;
@@ -69,8 +73,17 @@ export function createIntegratorKeyRepository(db: Db) {
           .get(input.userId, mode) as KeyRow | undefined;
         if (previous) revokeRow(previous, input.at);
         db.prepare(
-          'INSERT INTO integrator_keys (id, user_id, prefix, token_hash, created_at, expires_at, mode) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(input.id, input.userId, input.prefix, input.hash, input.at, input.expiresAt, mode);
+          'INSERT INTO integrator_keys (id, user_id, prefix, token_hash, created_at, expires_at, mode, pairing_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+          input.id,
+          input.userId,
+          input.prefix,
+          input.hash,
+          input.at,
+          input.expiresAt,
+          mode,
+          input.pairingId ?? null,
+        );
         const row = db.prepare('SELECT * FROM integrator_keys WHERE id = ?').get(input.id) as KeyRow;
         record(row, 'created', input.at);
         return accessInfo(row, input.at);

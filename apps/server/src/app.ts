@@ -12,6 +12,7 @@ import { registerErrorHandling } from './http';
 import {
   assertPublicBoardReady,
   AuthService,
+  createEnginePairingService,
   createSetupCode,
   deriveEmailLoginKey,
   deriveEmailReplyKey,
@@ -717,6 +718,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBoard: options.publicBoard === true,
       setupCode,
       emailLogin: domain.emailLogin,
+      // The device pairing makes engines: only a hub has them (PM-1437).
+      ...(engineRegistry
+        ? {
+            pairing: createEnginePairingService({
+              repos,
+              auth,
+              engines: engineRegistry,
+              log,
+              now: options.now,
+            }),
+          }
+        : {}),
     });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);

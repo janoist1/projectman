@@ -2,6 +2,7 @@
 export * from './api/administration';
 export * from './api/client-config';
 export * from './api/dto';
+export * from './api/engine-pairing-dto';
 export * from './api/error-codes';
 export * from './api/external-tools';
 export * from './api/routes';
@@ -84,6 +85,7 @@ export * from './domain/duty';
 export * from './domain/email-channel';
 export * from './domain/email-mask';
 export * from './domain/engine';
+export * from './domain/engine-pairing';
 export * from './domain/event';
 export * from './domain/external-tool-origin';
 export * from './domain/feedback';

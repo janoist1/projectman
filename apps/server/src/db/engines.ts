@@ -14,6 +14,8 @@ export interface EngineRecord {
   last_seen_at: string | null;
   last_seen_ip: string | null;
   last_hello: string | null;
+  /** The device pairing the engine came from (PM-1437); null for one made by hand. */
+  pairing_id: string | null;
   creator_name: string;
 }
 
@@ -40,13 +42,23 @@ export function createEngineRepository(db: Db) {
       prefix: string;
       userId: string;
       at: string;
+      pairingId?: string;
     }): EngineRecord {
       return db.transaction(() => {
         // Only the first engine ever created becomes default; revoking it does not elect another.
         const first = (db.prepare('SELECT COUNT(*) AS n FROM engines').get() as { n: number }).n === 0;
         db.prepare(
-          'INSERT INTO engines (id, name, key_hash, key_prefix, is_default, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(input.id, input.name, input.hash, input.prefix, first ? 1 : 0, input.userId, input.at);
+          'INSERT INTO engines (id, name, key_hash, key_prefix, is_default, created_by, created_at, pairing_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+          input.id,
+          input.name,
+          input.hash,
+          input.prefix,
+          first ? 1 : 0,
+          input.userId,
+          input.at,
+          input.pairingId ?? null,
+        );
         return get(input.id)!;
       })();
     },

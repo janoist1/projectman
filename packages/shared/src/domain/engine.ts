@@ -40,6 +40,8 @@ export const EngineView = EngineStatusView.extend({
   waitingMessages: z.number().int(),
   /** Whether the engine's owner is the caller (PM-1077); `createdBy` is only a display name. Absent where no caller is known. */
   ownedByMe: z.boolean().optional(),
+  /** True when the engine came from an approved device pairing (PM-1437); absent for one made by hand. */
+  paired: z.boolean().optional(),
 });
 export type EngineView = z.infer<typeof EngineView>;
 export const EngineStatusResponse = z.object({

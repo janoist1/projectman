@@ -141,6 +141,7 @@ export const errors = {
     member_not_scheduled: 'Ennek a tagnak nincs ütemezett futása.',
     not_a_recipient: 'Csak a címzett jelölheti olvasottnak az üzenetet.',
     not_found: 'A keresett elem nem található.',
+    pairing_code_invalid: 'Ez a párosítási kód nem érvényes: elírták, lejárt vagy már felhasználták.',
     payload_too_large: 'A kérés túl nagy.',
     previous_run_live: 'Az előző ütemezett futás még él.',
     server_stopping: 'A szerver éppen leáll. Próbáld újra később.',

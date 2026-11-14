@@ -12,6 +12,8 @@ import { createMessageAttachmentRepository } from './message-attachments';
 export type { MessageAttachmentRecord, MessageAttachmentState } from './message-attachments';
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
+import { createEnginePairingRepository } from './engine-pairings';
+export type { EnginePairingRecord } from './engine-pairings';
 import { createProjectEngineRepository } from './project-engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
@@ -132,6 +134,7 @@ export function createRepositories(db: Db) {
     webPush: createWebPushRepository(db),
     ntfy: createNtfyRepository(db),
     engines: createEngineRepository(db),
+    enginePairings: createEnginePairingRepository(db),
     projectEngines: createProjectEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),

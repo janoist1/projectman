@@ -19,12 +19,16 @@ import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from '../k
 import type { SetupCode } from './setup-code';
 import type { EmailLoginService } from '../services/email-login';
 import { registerEmailLoginRoutes } from './email-login-routes';
+import type { EnginePairingService } from './engine-pairing';
+import { registerEnginePairingRoutes } from './engine-pairing-routes';
 
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
 export { OwnerAccountService } from './owner-accounts';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
+export { createEnginePairingService } from './engine-pairing';
+export type { EnginePairingService } from './engine-pairing';
 export { createSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export { deriveEmailLoginKey, deriveEmailReplyKey, loadOrCreateSecret } from './secret';
 export {
@@ -161,6 +165,8 @@ export function registerAuth(
     setupCode?: SetupCode;
     /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
     emailLogin?: EmailLoginService | null;
+    /** The device pairing (PM-1437), cloud mode only; absent: its routes are not there. */
+    pairing?: EnginePairingService;
   },
 ): void {
   const {
@@ -171,6 +177,7 @@ export function registerAuth(
     publicBoard = false,
     setupCode,
     emailLogin = null,
+    pairing,
   } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
@@ -263,6 +270,7 @@ export function registerAuth(
       return meOf(domain, user, auth);
     },
   });
+  if (pairing) registerEnginePairingRoutes(app, { pairing, clientIpHeader });
 
   app.post(routes.setup(), async (request, reply) => {
     const local = isLocalRequest(request);

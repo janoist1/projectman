@@ -328,6 +328,36 @@ describe('the refresh of the project manager general conversation (PM-1461)', ()
       expect(items.every((item) => item.kind === 'question')).toBe(true);
     });
 
+    it('keeps the newest answers when the limit leaves room for only some of them (PM-1507)', async () => {
+      const answers: string[] = [];
+      for (const name of ['first', 'second', 'third']) {
+        const asked = await h.domain.teamTools.askHuman(ctx, {
+          question: `Which ${name}?`,
+          options: ['A', 'B'],
+          ownerTopic: 'cost',
+        });
+        const option = h.domain.inbox.get('AR', asked.inboxItemId).options[0]!;
+        await h.domain.inbox.resolve(
+          'AR',
+          asked.inboxItemId,
+          { optionId: option.id },
+          { handle: 'owner', access: 'owner' },
+        );
+        answers.push(asked.inboxItemId);
+      }
+      // Two places stay for the three answers.
+      for (let index = 0; index < CONVERSATION_HANDOVER_ITEM_LIMIT - 2; index += 1)
+        await h.domain.teamTools.askHuman(ctx, {
+          question: `Question ${index}?`,
+          options: ['A', 'B'],
+          ownerTopic: 'cost',
+        });
+      await refreshed();
+      await h.domain.sessions.ensureSession('AR', 'pm', GENERAL);
+      const items = h.contextBuilder.inputs.at(-1)!.previousConversation?.handover?.items ?? [];
+      expect(items.filter((item) => item.kind === 'answer').map((item) => item.id)).toEqual(answers.slice(1));
+    });
+
     it('runs the owner`s yes to an approval asked before the switch in the new conversation', async () => {
       const { operationId, itemId } = await waitingOperation();
       await refreshed();

@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { AgentSandbox, SubagentDefinition } from './runner';
 import type { SessionPolicy } from './session-policy';
+import type { ConnectedToolCatalogEntry, TeamToolCatalogEntry } from './team-tools';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -38,6 +39,8 @@ export interface ContextPackInput {
   checklist?: Pick<ProjectChecklist, 'items'>;
   /** The instance's host is not among the project's owners (PM-1069): the onboarding covers the owner's own machine. */
   hostOutsideOwners?: true;
+  /** What the project can do, built from the code, for the selected project manager only (PM-1468). */
+  capabilities?: CapabilityCatalog;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
    * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask
@@ -234,6 +237,47 @@ export interface RelatedSession {
 export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox', 'operations'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
+/**
+ * What the capability catalog of the project manager covers (PM-1468). The builder takes one source per area,
+ * so a new area does not compile without one.
+ */
+export const CAPABILITY_AREAS = [
+  'roles',
+  'member_settings',
+  'team_tools',
+  'connected_ai',
+  'host_requests',
+  'project_settings',
+] as const;
+export type CapabilityArea = (typeof CAPABILITY_AREAS)[number];
+
+/** The registers the catalog reads that live outside the context module; the assembly injects them. */
+export interface CapabilitySources {
+  teamTools: readonly TeamToolCatalogEntry[];
+  connectedTools: readonly ConnectedToolCatalogEntry[];
+  /** The host owner's e-mail, or null before the first-run setup. */
+  hostEmail: string | null;
+}
+
+/** The registers a runtime hands to the catalog, without the host (that depends on the session). */
+export type CapabilityTools = Pick<CapabilitySources, 'teamTools' | 'connectedTools'>;
+
+/** One thing the project manager can offer or change. */
+export interface CapabilityItem {
+  id: string;
+  /** A readable name next to the id, when it differs from it (roles). */
+  name?: string;
+  /** One line for the area's list. */
+  summary: string;
+  /** Everything `get_capability` tells about the item. */
+  detail: string;
+  /** Only the owners may change it (the owner-only lists of the code), when the code knows it. */
+  ownerOnly?: true;
+}
+
+/** The catalog of a project: the items of every area, built from the code (`buildCapabilityCatalog`). */
+export type CapabilityCatalog = Record<CapabilityArea, readonly CapabilityItem[]>;
+
 const PROMPT_SECTION_IDS = [
   'identity',
   'team',
@@ -254,6 +298,7 @@ const PROMPT_SECTION_IDS = [
   'guardrails',
   'role',
   'checklist',
+  'capabilities',
   'operator_knowledge',
   'operator_preference',
   'documents',

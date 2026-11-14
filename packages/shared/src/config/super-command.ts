@@ -35,7 +35,8 @@ function runtime(provider: AgentProvider | undefined): SuperMutationCommand {
   return { kind: 'runtime_start', providers: [effective] };
 }
 
-const PERMISSION_KEYS = ['permissionMode', 'approver', 'outboundNetwork', 'machineAccess'] as const;
+/** The member settings a change of which is a permission change (owner-only). */
+export const PERMISSION_KEYS = ['permissionMode', 'approver', 'outboundNetwork', 'machineAccess'] as const;
 
 function memberUpdate(
   context: SuperCommandContext,

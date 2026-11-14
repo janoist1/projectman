@@ -81,7 +81,7 @@ import type {
   SuperOperationDetail,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from './integrator-principal';
-import type { CardQuestion, CardWorker, GuideTopic } from './context';
+import type { CapabilityArea, CardQuestion, CardWorker, GuideTopic } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
 export interface TeamToolListing {
@@ -188,6 +188,34 @@ export interface SentMessageRecipient {
   stale?: StaleReason;
   /** Only with delivery 'wake', and only when the send waited for the start (`awaitWake`). */
   start?: WakeStart;
+}
+
+/** Session-list visibility only; handlers remain the authority for permission checks. */
+export interface ToolAudience {
+  roles?: readonly ('project_manager' | 'merger')[];
+  duties?: readonly DutyId[];
+  /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
+  channels?: readonly 'email'[];
+  /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
+  capabilities?: readonly ('machine_access' | 'host_requests' | 'screenshots')[];
+}
+
+/** A team tool as the capability catalog lists it; an empty audience means every member sees it. */
+export interface TeamToolCatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  audience: ToolAudience;
+}
+
+/** A tool of the connected AI (the owner's own Claude) as the capability catalog lists it. */
+export interface ConnectedToolCatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  access: 'read' | 'write';
+  /** Only offered when the credential is the host owner's. */
+  hostOnly: boolean;
 }
 
 export interface MemberAudience {
@@ -1102,6 +1130,11 @@ export interface ProjectManagerToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },
   ): Promise<ProjectManagerDiagnostics>;
+  /**
+   * get_capability (PM-1468): one area of the capability catalog, or one item of it; refuses an unknown item
+   * with `not_found`. The project manager's own session only; it reads, and needs no owner request.
+   */
+  getCapability(ctx: ToolContext, args: { area: CapabilityArea; id?: string }): Promise<string>;
   /** get_checklist (PM-977): the project manager and the PM, internal general session, never a guest. */
   getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
   /** update_checklist (PM-977): the project manager only, internal general session; needs no owner request. */

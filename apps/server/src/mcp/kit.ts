@@ -1,4 +1,4 @@
-import { TaskKey, type DutyId } from '@projectman/shared';
+import { TaskKey } from '@projectman/shared';
 
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import type {
   IntegratorPrincipal,
   MemberAudience,
   TeamToolsHandler,
+  ToolAudience,
   ToolContext,
 } from '../contracts';
 
@@ -22,6 +23,7 @@ import type {
  */
 export const TEAM_TOOL_NAMES = [
   'get_role_configuration',
+  'get_capability',
   'get_checklist',
   'update_checklist',
   'get_operator_preference',
@@ -127,15 +129,7 @@ export function toolOutputText(output: string | ToolOutput): string {
   return typeof output === 'string' ? output : output.text;
 }
 
-/** Session-list visibility only; handlers remain the authority for permission checks. */
-export interface ToolAudience {
-  roles?: readonly ('project_manager' | 'merger')[];
-  duties?: readonly DutyId[];
-  /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
-  channels?: readonly 'email'[];
-  /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
-  capabilities?: readonly ('machine_access' | 'host_requests' | 'screenshots')[];
-}
+export type { ToolAudience };
 
 /** The audience of a tool or a parameter only the project manager uses (PM-1353). */
 export const PM_ONLY: ToolAudience = { roles: ['project_manager'] };

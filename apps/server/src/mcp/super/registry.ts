@@ -31,6 +31,7 @@ const UNBOUND = 'it has no external binding yet';
  * A test checks that every shared tool is either bound or named here, and never both.
  */
 export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
+  get_capability: PROJECT_MANAGER,
   get_checklist: PROJECT_MANAGER,
   update_checklist: PROJECT_MANAGER,
   get_operator_preference: PROJECT_MANAGER,

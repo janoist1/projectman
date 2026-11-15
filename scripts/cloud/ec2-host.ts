@@ -829,7 +829,7 @@ export async function withEc2Host<T>(
       return [
         ...sshOptions,
         '-o',
-        `ProxyCommand=exec ${['aws', ...proxyArgs].map(shellQuote).join(' ')}`,
+        `ProxyCommand=${['aws', ...proxyArgs].map(shellQuote).join(' ')}`,
         `ubuntu@${instance.InstanceId}`,
       ];
     };

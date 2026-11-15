@@ -89,6 +89,8 @@ describe('EC2 SSH through SSM', () => {
         EC2_HOST_KEY,
       ]),
     );
+    // OpenSSH already runs the ProxyCommand as `exec <command>`; a leading `exec` breaks bash (PM-1513).
+    expect(world.proxyCommands[0]).toMatch(/^'?aws'?( |$)/);
     const proxy = world.proxies[0]!;
     expect(proxy.slice(0, 7)).toEqual([
       'aws',

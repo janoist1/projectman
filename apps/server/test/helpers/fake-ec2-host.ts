@@ -40,6 +40,8 @@ interface SshFault {
 export class Ec2HostWorld extends HostWorld {
   readonly transportCalls: { command: string; args: string[]; options: RunOptions }[] = [];
   readonly proxies: string[][] = [];
+  /** The raw ProxyCommand option values, as OpenSSH hands them to the user's shell. */
+  readonly proxyCommands: string[] = [];
   readonly keyDirs: string[] = [];
   readonly terminated: string[] = [];
   instances = [
@@ -95,9 +97,9 @@ export class Ec2HostWorld extends HostWorld {
     const base = super.deps();
     const ok = (value: unknown = {}) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
     const proxy = (args: string[]) => {
-      const words = unquoteWords(
-        args.find((arg) => arg.startsWith('ProxyCommand='))!.slice('ProxyCommand=exec '.length),
-      );
+      const command = args.find((arg) => arg.startsWith('ProxyCommand='))!.slice('ProxyCommand='.length);
+      this.proxyCommands.push(command);
+      const words = unquoteWords(command);
       this.proxies.push(words);
       this.sessions.push({
         SessionId: `owner-${this.proxies.length}`,
